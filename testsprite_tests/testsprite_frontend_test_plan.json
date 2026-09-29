@@ -1,0 +1,344 @@
+[
+  {
+    "id": "TC001",
+    "title": "Browse and launch the tactical shooter from the lobby",
+    "description": "Verifies that a player can find the tactical shooter in the arcade lobby, launch it, and enter agent selection successfully.",
+    "category": "Arcade Game Lobby & Navigation",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Filter games by the tactical category"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the tactical shooter game card is visible"
+      },
+      {
+        "type": "action",
+        "description": "Launch the tactical shooter game"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the agent selection screen is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC002",
+    "title": "Select an agent and enter a match",
+    "description": "Verifies that a player can choose an agent from the selection grid and enter an active Valorant 2D match.",
+    "category": "Valorant 2D Tactical Shooter",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Launch the tactical shooter game"
+      },
+      {
+        "type": "action",
+        "description": "Select an agent from the selection grid"
+      },
+      {
+        "type": "action",
+        "description": "Confirm the agent selection"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the match view is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC003",
+    "title": "Move, aim, and use abilities in a live round",
+    "description": "Verifies that a player can control the agent with movement, aim and firing, and the assigned ability keys during a match.",
+    "category": "Valorant 2D Tactical Shooter",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Launch the tactical shooter game"
+      },
+      {
+        "type": "action",
+        "description": "Select an agent from the selection grid"
+      },
+      {
+        "type": "action",
+        "description": "Enter the match"
+      },
+      {
+        "type": "action",
+        "description": "Move the agent with the movement keys"
+      },
+      {
+        "type": "action",
+        "description": "Aim and fire with the mouse"
+      },
+      {
+        "type": "action",
+        "description": "Use an assigned ability key"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the agent position or combat state changes in the match"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC004",
+    "title": "Buy equipment during the buy phase",
+    "description": "Verifies that a player can open the shop during the buy phase and purchase weapons or shields successfully.",
+    "category": "Valorant 2D Tactical Shooter",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Launch the tactical shooter game"
+      },
+      {
+        "type": "action",
+        "description": "Select an agent from the selection grid"
+      },
+      {
+        "type": "action",
+        "description": "Wait for the buy phase"
+      },
+      {
+        "type": "action",
+        "description": "Open the shop"
+      },
+      {
+        "type": "action",
+        "description": "Purchase a weapon or shield"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the purchased item is reflected in the shop or loadout state"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC005",
+    "title": "Defuse the Spike and see the round result update",
+    "description": "Verifies that a player can defend successfully by defusing the Spike in the correct zone and that the round outcome updates afterward.",
+    "category": "Valorant 2D Tactical Shooter",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Launch the tactical shooter game"
+      },
+      {
+        "type": "action",
+        "description": "Select an agent from the selection grid"
+      },
+      {
+        "type": "action",
+        "description": "Enter the match"
+      },
+      {
+        "type": "action",
+        "description": "Reach a valid Spike defuse zone"
+      },
+      {
+        "type": "action",
+        "description": "Defuse the Spike"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the round outcome is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the score updates"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC006",
+    "title": "Plant the Spike at the correct objective zone",
+    "description": "Verifies that a player can reach a valid site and plant the Spike only when positioned in the designated objective zone.",
+    "category": "Valorant 2D Tactical Shooter",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Launch the tactical shooter game"
+      },
+      {
+        "type": "action",
+        "description": "Select an agent from the selection grid"
+      },
+      {
+        "type": "action",
+        "description": "Enter the match"
+      },
+      {
+        "type": "action",
+        "description": "Reach a valid Spike plant zone"
+      },
+      {
+        "type": "action",
+        "description": "Plant the Spike"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the Spike plant state is shown"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC007",
+    "title": "Search for a game and launch it from results",
+    "description": "Verifies that a player can search the arcade lobby for a game, see matching results, and launch the selected title.",
+    "category": "Arcade Game Lobby & Navigation",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Enter a search term for the tactical shooter"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify matching game results are displayed"
+      },
+      {
+        "type": "action",
+        "description": "Launch the tactical shooter from the search results"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the agent selection screen is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC008",
+    "title": "Return to the lobby after exiting a launched game",
+    "description": "Verifies that leaving a launched arcade game brings the player back to the lobby without losing access to navigation.",
+    "category": "Arcade Game Lobby & Navigation",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Launch any arcade game from the lobby"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the game view is displayed"
+      },
+      {
+        "type": "action",
+        "description": "Exit the game"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the arcade lobby is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC009",
+    "title": "Spectate teammates after elimination until the round ends",
+    "description": "Verifies that an eliminated player can cycle through teammates in spectator mode and remain in spectate view until the round finishes.",
+    "category": "Valorant 2D Tactical Shooter",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Launch the tactical shooter game"
+      },
+      {
+        "type": "action",
+        "description": "Select an agent from the selection grid"
+      },
+      {
+        "type": "action",
+        "description": "Enter the match"
+      },
+      {
+        "type": "action",
+        "description": "Get eliminated"
+      },
+      {
+        "type": "action",
+        "description": "Cycle to the next teammate while spectating"
+      },
+      {
+        "type": "action",
+        "description": "Cycle to the previous teammate while spectating"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify spectator mode remains active until the round ends"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC010",
+    "title": "Launch a different arcade title from the hub and return",
+    "description": "Verifies that a player can open another arcade title from the hub, interact briefly, and return to the lobby afterward.",
+    "category": "Arcade Game Lobby & Navigation",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Launch a non-shooter arcade title from the hub"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the selected game view is displayed"
+      },
+      {
+        "type": "action",
+        "description": "Exit the game"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the arcade lobby is displayed"
+      }
+    ],
+    "priority": "Medium"
+  }
+]
