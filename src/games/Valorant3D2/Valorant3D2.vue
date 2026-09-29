@@ -150,11 +150,16 @@ const playerMeshes = new Map()
 const keys = reactive({})
 const mouse = reactive({ isDown: false, rightDown: false })
 
-// Multiplayer Room
+// Multiplayer Room & Lobby State
 const roomCode = ref('')
 const joinCodeInput = ref('')
 const roomPlayerList = ref([])
 const isHost = ref(false)
+const availableRooms = ref([])
+const lobbyChatInput = ref('')
+const lobbyChatMessages = ref([])
+const inGameChatOpen = ref(false)
+const inGameChatInput = ref('')
 
 // --- INITIALIZATION ---
 onMounted(() => {
@@ -926,21 +931,183 @@ function onKeyUp(e) {
 }
 
 function setupNetworkListeners() {
+  networkSystem.on('rooms_list', (rooms) => {
+    availableRooms.value = rooms || []
+  })
+
   networkSystem.on('room_joined', ({ room, player: p }) => {
     roomCode.value = room.id
     isHost.value = p.isHost
-    roomPlayerList.value = room.players
+    roomPlayerList.value = room.players || []
+    player.id = p.id
+    player.team = p.team
     gameMode.value = 'MULTIPLAYER_LOBBY'
   })
 
   networkSystem.on('room_updated', (room) => {
-    roomPlayerList.value = room.players
+    roomPlayerList.value = room.players || []
+    const me = room.players.find(p => p.id === player.id)
+    if (me) {
+      player.team = me.team
+      isHost.value = me.isHost
+    }
   })
 
   networkSystem.on('match_started', (room) => {
-    gameMode.value = 'IN_GAME'
     isOnline.value = true
+    gameMode.value = 'IN_GAME'
+    setupOnlinePlayers(room)
     resetRound(true)
+    setTimeout(requestPointerLock, 100)
+  })
+
+  networkSystem.on('player_moved', (data) => {
+    if (!isOnline.value || data.id === player.id) return
+    let target = players.value.find(p => p.id === data.id)
+    if (!target) {
+      target = {
+        id: data.id,
+        name: data.name || 'Operador',
+        team: data.team || 'defenders',
+        agentId: data.agentId || 'phoenix',
+        pos: { x: data.x || 0, y: data.y || 1.7, z: data.z || 0 },
+        yaw: data.yaw || 0,
+        pitch: data.pitch || 0,
+        radius: 0.6,
+        health: data.health || 100,
+        armor: data.armor || 50,
+        alive: data.alive !== false,
+        weapon: data.weapon || 'vandal',
+        isRemotePlayer: true
+      }
+      players.value.push(target)
+    } else {
+      target.pos.x = data.x
+      target.pos.y = data.y
+      target.pos.z = data.z
+      target.yaw = data.yaw
+      target.pitch = data.pitch
+      target.health = data.health
+      target.armor = data.armor
+      target.weapon = data.weapon
+      if (data.alive !== undefined) target.alive = data.alive
+    }
+  })
+
+  networkSystem.on('player_took_damage', ({ targetId, damage, shooterId, weapon, headshot, killerName }) => {
+    if (targetId === player.id) {
+      if (!godMode.value) {
+        const res = DamageSystem.applyDamage(player, damage, headshot, false, 'bullet')
+        soundManager.play(headshot ? 'headshot' : 'hit')
+        if (res.killed) {
+          handlePlayerKilled3D(player, shooterId, weapon, headshot)
+          if (isOnline.value) {
+            networkSystem.syncPlayer(roomCode.value, {
+              alive: false,
+              health: 0,
+              armor: 0,
+              x: player.pos.x,
+              y: player.pos.y,
+              z: player.pos.z
+            })
+          }
+        }
+      }
+    } else {
+      const target = players.value.find(p => p.id === targetId)
+      if (target) {
+        DamageSystem.applyDamage(target, damage, headshot, false, 'bullet')
+        soundManager.play(headshot ? 'headshot' : 'hit')
+      }
+    }
+  })
+
+  networkSystem.on('game_event', (event) => {
+    if (!event) return
+    if (event.type === 'shoot' && event.start && event.end) {
+      weaponSystem.spawnTracer(
+        new THREE.Vector3(event.start.x, event.start.y, event.start.z),
+        new THREE.Vector3(event.end.x, event.end.y, event.end.z)
+      )
+      soundManager.play(event.sound || 'vandal')
+    }
+  })
+
+  networkSystem.on('chat_received', (msg) => {
+    lobbyChatMessages.value.push(msg)
+    chatMessages.value.push(msg)
+  })
+}
+
+function createMultiplayerRoom() {
+  networkSystem.connect()
+  networkSystem.createRoom(`Sala 3D de ${player.name}`, player.name, player.team)
+}
+
+function joinMultiplayerRoom(code) {
+  const targetCode = (code || joinCodeInput.value || '').trim()
+  if (!targetCode) return
+  networkSystem.connect()
+  networkSystem.joinRoom(targetCode, player.name, player.team)
+}
+
+function switchLobbyTeam(team) {
+  player.team = team
+  networkSystem.switchTeam(roomCode.value, team)
+}
+
+function selectLobbyAgent(agentId) {
+  player.agentId = agentId
+  networkSystem.selectAgent(roomCode.value, agentId)
+}
+
+function lockLobbyAgent() {
+  networkSystem.lockAgent(roomCode.value)
+}
+
+function startLobbyMatch() {
+  networkSystem.startMatch(roomCode.value)
+}
+
+function sendLobbyChat() {
+  if (!lobbyChatInput.value.trim()) return
+  networkSystem.sendChat(roomCode.value, lobbyChatInput.value.trim())
+  lobbyChatInput.value = ''
+}
+
+function leaveLobby() {
+  networkSystem.leaveRoom()
+  isOnline.value = false
+  gameMode.value = 'MENU'
+}
+
+function copyRoomCode() {
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(roomCode.value)
+  }
+}
+
+function setupOnlinePlayers(room) {
+  players.value = [player]
+  const roomPlayers = (room && room.players) ? room.players : (roomPlayerList.value || [])
+  roomPlayers.forEach(p => {
+    if (p.id !== player.id) {
+      players.value.push({
+        id: p.id,
+        name: p.name,
+        team: p.team,
+        agentId: p.agentId || 'jett',
+        pos: { x: p.team === 'attackers' ? -26.0 : 26.0, y: 1.7, z: 0 },
+        yaw: p.team === 'attackers' ? Math.PI / 2 : -Math.PI / 2,
+        pitch: 0,
+        radius: 0.6,
+        health: 100,
+        armor: 50,
+        alive: true,
+        weapon: p.weapon || 'vandal',
+        isRemotePlayer: true
+      })
+    }
   })
 }
 
@@ -1058,9 +1225,185 @@ function buyItem(item) {
 
       <!-- MULTIPLAYER TAB -->
       <div v-if="activeTab === 'multiplayer'" class="tab-content mp-panel">
-        <div class="mp-box">
-          <h3>CREAR SALA ONLINE 3D</h3>
-          <button class="btn-primary" @click="networkSystem.connect(); networkSystem.createRoom('Sala 3D', player.name, player.team)">CREAR SALA</button>
+        <div class="mp-setup-card">
+          <div class="mp-profile-row">
+            <div class="input-group">
+              <label>NOMBRE DEL OPERADOR:</label>
+              <input v-model="player.name" type="text" class="mp-input" placeholder="Tu Nombre..." />
+            </div>
+            <div class="team-toggle-group">
+              <label>EQUIPO PREFERIDO:</label>
+              <div class="team-btns">
+                <button 
+                  class="btn-team" 
+                  :class="{ active: player.team === 'attackers' }" 
+                  @click="player.team = 'attackers'"
+                >🔴 ATACANTES</button>
+                <button 
+                  class="btn-team" 
+                  :class="{ active: player.team === 'defenders' }" 
+                  @click="player.team = 'defenders'"
+                >🔵 DEFENSORES</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="mp-actions-grid">
+            <div class="mp-action-box create-box">
+              <div class="box-icon">⚡</div>
+              <h3>CREAR SALA 3D</h3>
+              <p>Crea tu propia arena táctica multijugador e invita a tus amigos con el código de sala.</p>
+              <button class="btn-primary" @click="createMultiplayerRoom">CREAR NUEVA SALA</button>
+            </div>
+
+            <div class="mp-action-box join-box">
+              <div class="box-icon">🔑</div>
+              <h3>UNIRSE A SALA</h3>
+              <p>Ingresa el código de 6 caracteres de una sala existente para entrar a la partida.</p>
+              <div class="join-input-row">
+                <input v-model="joinCodeInput" type="text" class="mp-input code-input" placeholder="CÓDIGO (EJ: AB12CD)" maxlength="8" />
+                <button class="btn-join" @click="joinMultiplayerRoom(joinCodeInput)">UNIRSE</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- PUBLIC ROOMS LIST -->
+          <div class="public-rooms-section">
+            <h4>📡 SALAS ACTIVAS EN LA RED</h4>
+            <div v-if="availableRooms.length === 0" class="no-rooms-msg">
+              No hay salas públicas detectadas. ¡Crea una sala o abre otra pestaña para jugar en red local!
+            </div>
+            <div v-else class="rooms-list-grid">
+              <div v-for="r in availableRooms" :key="r.id" class="room-item-card">
+                <div class="room-info">
+                  <span class="room-code-tag">{{ r.id }}</span>
+                  <span class="room-name">{{ r.name }}</span>
+                  <span class="room-count">{{ r.playerCount || 1 }}/10 Jugadores</span>
+                </div>
+                <button class="btn-join-sm" @click="joinMultiplayerRoom(r.id)">ENTRAR</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MULTIPLAYER LOBBY OVERLAY -->
+    <div v-else-if="gameMode === 'MULTIPLAYER_LOBBY'" class="mp-lobby-overlay">
+      <div class="lobby-header">
+        <div class="lobby-title-wrap">
+          <span class="lobby-tag">LOBBY MULTIJUGADOR 3D</span>
+          <h2>SECTOR RADIAN-9 // PRE-PARTIDA</h2>
+        </div>
+        <div class="lobby-code-box" @click="copyRoomCode">
+          <span class="code-label">CÓDIGO DE SALA:</span>
+          <span class="code-val">{{ roomCode }}</span>
+          <span class="copy-hint">📋 Copiar</span>
+        </div>
+      </div>
+
+      <div class="lobby-teams-grid">
+        <!-- ATTACKERS COLUMN -->
+        <div class="team-lobby-col atk-col">
+          <div class="team-col-header text-atk">
+            <h3>🔴 ATACANTES ({{ roomPlayerList.filter(p => p.team === 'attackers').length }}/5)</h3>
+            <button 
+              v-if="player.team !== 'attackers'" 
+              class="btn-switch-team" 
+              @click="switchLobbyTeam('attackers')"
+            >Cambiar a Atacantes</button>
+          </div>
+          <div class="team-players-list">
+            <div 
+              v-for="p in roomPlayerList.filter(x => x.team === 'attackers')" 
+              :key="p.id" 
+              class="player-lobby-badge"
+              :class="{ 'is-me': p.id === player.id }"
+            >
+              <span class="agent-ico">{{ AGENTS[p.agentId]?.avatar || '⚔️' }}</span>
+              <div class="p-details">
+                <span class="p-name">{{ p.name }} <strong v-if="p.isHost" class="host-crown">👑 HOST</strong></span>
+                <span class="p-agent-name">{{ AGENTS[p.agentId]?.name || 'Jett' }}</span>
+              </div>
+              <span class="ready-dot" :class="{ locked: p.isLocked }">{{ p.isLocked ? 'LISTO' : 'ELIGE' }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- DEFENSORES COLUMN -->
+        <div class="team-lobby-col def-col">
+          <div class="team-col-header text-def">
+            <h3>🔵 DEFENSORES ({{ roomPlayerList.filter(p => p.team === 'defenders').length }}/5)</h3>
+            <button 
+              v-if="player.team !== 'defenders'" 
+              class="btn-switch-team" 
+              @click="switchLobbyTeam('defenders')"
+            >Cambiar a Defensores</button>
+          </div>
+          <div class="team-players-list">
+            <div 
+              v-for="p in roomPlayerList.filter(x => x.team === 'defenders')" 
+              :key="p.id" 
+              class="player-lobby-badge"
+              :class="{ 'is-me': p.id === player.id }"
+            >
+              <span class="agent-ico">{{ AGENTS[p.agentId]?.avatar || '🛡️' }}</span>
+              <div class="p-details">
+                <span class="p-name">{{ p.name }} <strong v-if="p.isHost" class="host-crown">👑 HOST</strong></span>
+                <span class="p-agent-name">{{ AGENTS[p.agentId]?.name || 'Reyna' }}</span>
+              </div>
+              <span class="ready-dot" :class="{ locked: p.isLocked }">{{ p.isLocked ? 'LISTO' : 'ELIGE' }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AGENT SELECTION CAROUSEL -->
+      <div class="lobby-agent-selection">
+        <h4>SELECCIONA TU AGENTE PARA LA PARTIDA:</h4>
+        <div class="lobby-agents-row">
+          <div 
+            v-for="agent in Object.values(AGENTS)" 
+            :key="agent.id"
+            class="lobby-agent-card"
+            :class="{ selected: player.agentId === agent.id }"
+            @click="selectLobbyAgent(agent.id)"
+          >
+            <span class="card-avatar">{{ agent.avatar }}</span>
+            <span class="card-name">{{ agent.name }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- LOBBY CHAT & CONTROLS -->
+      <div class="lobby-footer">
+        <div class="lobby-chat-area">
+          <div class="chat-logs">
+            <div v-for="m in lobbyChatMessages" :key="m.id" class="chat-log-msg">
+              <strong :class="m.team === 'attackers' ? 'text-atk' : 'text-def'">{{ m.senderName }}:</strong> {{ m.text }}
+            </div>
+          </div>
+          <div class="chat-input-row">
+            <input 
+              v-model="lobbyChatInput" 
+              type="text" 
+              class="lobby-chat-input" 
+              placeholder="Mensaje de chat..." 
+              @keyup.enter="sendLobbyChat" 
+            />
+            <button class="btn-chat-send" @click="sendLobbyChat">ENVIAR</button>
+          </div>
+        </div>
+
+        <div class="lobby-action-btns">
+          <button class="btn-secondary" @click="leaveLobby">SALIR DE LA SALA</button>
+          <button class="btn-lockin-sm" @click="lockLobbyAgent">CONFIRMAR AGENTE</button>
+          <button 
+            v-if="isHost" 
+            class="btn-start-match" 
+            @click="startLobbyMatch"
+          >🎮 INICIAR PARTIDA 3D</button>
+          <div v-else class="waiting-host-msg">⏳ Esperando a que el anfitrión inicie la partida...</div>
         </div>
       </div>
     </div>
@@ -1760,4 +2103,266 @@ function buyItem(item) {
 .buy-card { background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); padding: 12px; border-radius: 8px; cursor: pointer; transition: all 0.15s ease; }
 .buy-card:hover { border-color: #38bdf8; background: rgba(56, 189, 248, 0.15); }
 .buy-cost { color: #eab308; font-weight: 800; }
+
+/* MULTIPLAYER SETUP & LOBBY STYLES */
+.mp-setup-card {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.mp-profile-row {
+  display: flex;
+  gap: 24px;
+  background: rgba(30, 41, 59, 0.7);
+  padding: 16px 20px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.input-group, .team-toggle-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.input-group label, .team-toggle-group label {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #94a3b8;
+  letter-spacing: 0.5px;
+}
+
+.mp-input {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  outline: none;
+}
+
+.mp-input:focus { border-color: #38bdf8; }
+
+.team-btns { display: flex; gap: 10px; }
+
+.btn-team {
+  flex: 1;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #94a3b8;
+  padding: 10px;
+  border-radius: 6px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-team.active {
+  border-color: #38bdf8;
+  color: #fff;
+  background: rgba(56, 189, 248, 0.2);
+}
+
+.mp-actions-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.mp-action-box {
+  background: rgba(30, 41, 59, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 24px;
+  border-radius: 12px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.box-icon { font-size: 2.2rem; }
+.mp-action-box h3 { font-size: 1.2rem; font-weight: 900; margin: 0; }
+.mp-action-box p { font-size: 0.85rem; color: #94a3b8; margin: 0; line-height: 1.4; }
+
+.join-input-row { display: flex; gap: 8px; width: 100%; margin-top: 8px; }
+.code-input { flex: 1; text-transform: uppercase; text-align: center; letter-spacing: 2px; }
+
+.btn-join {
+  background: #38bdf8;
+  color: #0f172a;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.public-rooms-section {
+  background: rgba(15, 23, 42, 0.6);
+  padding: 16px 20px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.public-rooms-section h4 { font-size: 0.85rem; color: #38bdf8; margin-bottom: 12px; }
+.no-rooms-msg { font-size: 0.85rem; color: #64748b; font-style: italic; }
+
+.rooms-list-grid { display: flex; flex-direction: column; gap: 8px; }
+.room-item-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(30, 41, 59, 0.8);
+  padding: 10px 16px;
+  border-radius: 6px;
+}
+
+.room-info { display: flex; gap: 12px; align-items: center; }
+.room-code-tag { background: #38bdf8; color: #0f172a; padding: 2px 8px; border-radius: 4px; font-weight: 900; font-size: 0.8rem; }
+.room-name { font-weight: 700; font-size: 0.9rem; }
+.room-count { font-size: 0.8rem; color: #94a3b8; }
+.btn-join-sm { background: #ff4655; color: #fff; border: none; padding: 6px 14px; border-radius: 4px; font-weight: 800; font-size: 0.8rem; cursor: pointer; }
+
+/* MULTIPLAYER LOBBY OVERLAY */
+.mp-lobby-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(8, 13, 26, 0.95);
+  backdrop-filter: blur(12px);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  z-index: 50;
+  overflow-y: auto;
+}
+
+.lobby-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 16px;
+}
+
+.lobby-tag { font-size: 0.75rem; font-weight: 900; color: #38bdf8; letter-spacing: 1px; }
+.lobby-title-wrap h2 { margin: 4px 0 0 0; font-weight: 900; font-size: 1.4rem; }
+
+.lobby-code-box {
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid #38bdf8;
+  padding: 8px 16px;
+  border-radius: 8px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+
+.lobby-code-box:hover { transform: scale(1.03); }
+.code-label { font-size: 0.75rem; color: #94a3b8; font-weight: 700; }
+.code-val { font-size: 1.2rem; font-weight: 900; color: #38bdf8; letter-spacing: 1.5px; }
+.copy-hint { font-size: 0.75rem; background: rgba(56, 189, 248, 0.2); padding: 2px 6px; border-radius: 4px; }
+
+.lobby-teams-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin: 16px 0;
+}
+
+.team-lobby-col {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.team-col-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 8px;
+}
+
+.team-col-header h3 { margin: 0; font-size: 1rem; font-weight: 900; }
+.btn-switch-team { background: transparent; border: 1px solid rgba(255, 255, 255, 0.2); color: #fff; font-size: 0.75rem; padding: 4px 10px; border-radius: 4px; cursor: pointer; }
+.btn-switch-team:hover { background: rgba(255, 255, 255, 0.1); }
+
+.team-players-list { display: flex; flex-direction: column; gap: 8px; }
+.player-lobby-badge {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(30, 41, 59, 0.6);
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+
+.player-lobby-badge.is-me { border-color: #38bdf8; background: rgba(56, 189, 248, 0.1); }
+.agent-ico { font-size: 1.6rem; }
+.p-details { flex: 1; }
+.p-name { display: block; font-weight: 800; font-size: 0.9rem; }
+.host-crown { color: #facc15; font-size: 0.75rem; margin-left: 6px; }
+.p-agent-name { font-size: 0.75rem; color: #94a3b8; }
+.ready-dot { font-size: 0.7rem; font-weight: 800; background: rgba(239, 68, 68, 0.2); color: #ef4444; padding: 3px 8px; border-radius: 4px; }
+.ready-dot.locked { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+
+.lobby-agent-selection { margin-bottom: 16px; }
+.lobby-agent-selection h4 { font-size: 0.85rem; color: #94a3b8; margin-bottom: 8px; }
+.lobby-agents-row { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; }
+
+.lobby-agent-card {
+  background: rgba(30, 41, 59, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 10px 16px;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  min-width: 90px;
+  transition: all 0.15s;
+}
+
+.lobby-agent-card.selected { border-color: #ff4655; background: rgba(255, 70, 85, 0.25); transform: translateY(-3px); }
+.card-avatar { font-size: 1.6rem; }
+.card-name { font-size: 0.75rem; font-weight: 800; }
+
+.lobby-footer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 16px;
+}
+
+.lobby-chat-area { display: flex; flex-direction: column; gap: 8px; }
+.chat-logs { height: 90px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 8px; overflow-y: auto; font-size: 0.8rem; display: flex; flex-direction: column; gap: 4px; }
+.chat-input-row { display: flex; gap: 8px; }
+.lobby-chat-input { flex: 1; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(255, 255, 255, 0.15); color: #fff; padding: 6px 10px; border-radius: 4px; font-size: 0.85rem; outline: none; }
+.btn-chat-send { background: #38bdf8; color: #0f172a; border: none; padding: 6px 14px; border-radius: 4px; font-weight: 800; font-size: 0.8rem; cursor: pointer; }
+
+.lobby-action-btns { display: flex; flex-direction: column; gap: 8px; justify-content: center; }
+.btn-secondary { background: rgba(255, 255, 255, 0.1); color: #fff; border: 1px solid rgba(255, 255, 255, 0.2); padding: 8px; border-radius: 6px; font-weight: 800; font-size: 0.85rem; cursor: pointer; }
+.btn-lockin-sm { background: #ff4655; color: #fff; border: none; padding: 10px; border-radius: 6px; font-weight: 900; font-size: 0.95rem; cursor: pointer; }
+.btn-start-match { background: #10b981; color: #fff; border: none; padding: 12px; border-radius: 6px; font-weight: 900; font-size: 1.05rem; cursor: pointer; box-shadow: 0 0 16px rgba(16, 185, 129, 0.4); }
+.waiting-host-msg { font-size: 0.85rem; color: #eab308; font-style: italic; text-align: center; }
+
 </style>
