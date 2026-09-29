@@ -95,6 +95,20 @@ const inDefuseZone = ref(false)
 const plantSiteName = ref('')
 const isAiming = computed(() => mouse.rightDown && isPointerLocked.value && !player.isReloading && player.alive)
 
+// Spectator Mode
+const isSpectating = ref(false)
+const spectateIndex = ref(0)
+const currentSpectatedPlayer = computed(() => {
+  if (player.alive) return null
+  let candidates = players.value.filter(p => p.team === player.team && p.alive && p.id !== player.id)
+  if (candidates.length === 0) {
+    candidates = players.value.filter(p => p.alive && p.id !== player.id)
+  }
+  if (candidates.length === 0) return null
+  const idx = Math.min(spectateIndex.value, candidates.length - 1)
+  return candidates[idx >= 0 ? idx : 0]
+})
+
 // Entities & Killfeed
 const players = ref([])
 const killfeed = ref([])
@@ -362,6 +376,62 @@ function updateGame3D(dt) {
     }
   }
 
+  // --- SPECTATOR MODE WHEN DEAD ---
+  if (!player.alive) {
+    if (weaponSystem && weaponSystem.gunGroup) {
+      weaponSystem.gunGroup.visible = false
+    }
+    isSpectating.value = true
+
+    // Find alive teammates first, or any alive player
+    let candidates = players.value.filter(p => p.team === player.team && p.alive && p.id !== player.id)
+    if (candidates.length === 0) {
+      candidates = players.value.filter(p => p.alive && p.id !== player.id)
+    }
+
+    if (candidates.length > 0) {
+      const idx = Math.min(spectateIndex.value, candidates.length - 1)
+      const target = candidates[idx >= 0 ? idx : 0]
+      if (target && target.pos && camera) {
+        const yaw = target.yaw !== undefined ? target.yaw : 0
+        const camDist = 3.0
+        const camHeight = 1.6
+        const targetCamX = target.pos.x - Math.sin(yaw) * camDist
+        const targetCamZ = target.pos.z - Math.cos(yaw) * camDist
+        const targetCamY = (target.pos.y || 1.7) + camHeight
+
+        camera.position.lerp(new THREE.Vector3(targetCamX, targetCamY, targetCamZ), dt * 7.0)
+        camera.lookAt(target.pos.x, (target.pos.y || 1.7) + 0.5, target.pos.z)
+      }
+    }
+
+    // Update Abilities & Spike even while spectating
+    abilitySystem.update(dt, player)
+    spikeObjective.update(
+      dt,
+      () => {},
+      (site) => { match.announcement = `¡SPIKE PLANTADA EN SITE ${site}!`; soundManager.play('spike_plant') },
+      () => { soundManager.play('spike_defused'); endRound('defenders', '¡Spike desactivada con éxito!') },
+      (pos) => { soundManager.play('explosion'); endRound('attackers', '¡La Spike ha detonado el objetivo!') }
+    )
+
+    // Update Bots AI & 3D Meshes while spectating
+    players.value.forEach(bot => {
+      if (bot.id !== player.id && !bot.isRemotePlayer) {
+        botAI.updateBot(bot, dt, player, match.phase, MAP_3D, (shooter, target) => {
+          weaponSystem.spawnTracer(new THREE.Vector3(shooter.pos.x, shooter.pos.y, shooter.pos.z), new THREE.Vector3(target.pos.x, target.pos.y, target.pos.z))
+          if (target.id === player.id) return
+          const res = DamageSystem.applyDamage(target, 25, false, false, 'bullet')
+          if (res.killed) {
+            handlePlayerKilled3D(target, shooter.id, 'Vandal', false)
+          }
+        })
+      }
+    })
+    updatePlayer3DMeshes()
+    return
+  }
+
   // Update Player Controller
   playerController.isLocked = isPointerLocked.value
   playerController.update(dt, keys, player.isSlowed, player.isStimmed)
@@ -440,7 +510,12 @@ function updateGame3D(dt) {
     if (bot.id !== player.id) {
       botAI.updateBot(bot, dt, player, match.phase, MAP_3D, (shooter, target) => {
         weaponSystem.spawnTracer(new THREE.Vector3(shooter.pos.x, shooter.pos.y, shooter.pos.z), new THREE.Vector3(target.pos.x, target.pos.y, target.pos.z))
-        if (!godMode.value) DamageSystem.applyDamage(target, 25, false, false, 'bullet')
+        if (!godMode.value) {
+          const res = DamageSystem.applyDamage(target, 25, false, false, 'bullet')
+          if (res.killed) {
+            handlePlayerKilled3D(target, shooter.id, 'Vandal', false)
+          }
+        }
       })
     }
   })
@@ -809,6 +884,12 @@ function resetRound(fullReset = false) {
   player.armor = 50
   player.ammo = 25
   player.reserveAmmo = 75
+  isSpectating.value = false
+  spectateIndex.value = 0
+
+  if (weaponSystem && weaponSystem.gunGroup) {
+    weaponSystem.gunGroup.visible = true
+  }
 
   const mySlots = player.team === 'attackers' ? MAP_3D.spawnAtkSlots : MAP_3D.spawnDefSlots
   const mySpawn = mySlots[2]
@@ -913,6 +994,16 @@ function handlePlayerKilled3D(victim, killerId, weaponName, isHeadshot) {
   const killer = players.value.find(p => p.id === killerId)
   if (killer) killer.kills++
 
+  if (victim.id === player.id) {
+    isSpectating.value = true
+    spectateIndex.value = 0
+    mouse.isDown = false
+    mouse.rightDown = false
+    if (weaponSystem && weaponSystem.gunGroup) {
+      weaponSystem.gunGroup.visible = false
+    }
+  }
+
   killfeed.value.unshift({
     id: Date.now() + Math.random(),
     killerName: killer ? killer.name : 'Ambiente',
@@ -923,6 +1014,27 @@ function handlePlayerKilled3D(victim, killerId, weaponName, isHeadshot) {
     isHeadshot
   })
   if (killfeed.value.length > 5) killfeed.value.pop()
+
+  // Check team elimination condition
+  const atkAlive = players.value.filter(p => p.team === 'attackers' && p.alive).length
+  const defAlive = players.value.filter(p => p.team === 'defenders' && p.alive).length
+
+  if (atkAlive === 0 && match.phase === 'ROUND_ACTIVE') {
+    if (spikeObjective.state !== SPIKE_STATES.PLANTED) {
+      endRound('defenders', '¡Equipo Atacante eliminado!')
+    }
+  } else if (defAlive === 0 && match.phase === 'ROUND_ACTIVE') {
+    endRound('attackers', '¡Equipo Defensor eliminado!')
+  }
+}
+
+function cycleSpectateTarget(dir = 1) {
+  let candidates = players.value.filter(p => p.team === player.team && p.alive && p.id !== player.id)
+  if (candidates.length === 0) {
+    candidates = players.value.filter(p => p.alive && p.id !== player.id)
+  }
+  if (candidates.length === 0) return
+  spectateIndex.value = (spectateIndex.value + dir + candidates.length) % candidates.length
 }
 
 function reloadWeapon3D(p) {
@@ -991,6 +1103,12 @@ function triggerFire() {
 }
 
 function onMouseDown(e) {
+  if (!player.alive) {
+    if (e.button === 0) cycleSpectateTarget(1)
+    if (e.button === 2) cycleSpectateTarget(-1)
+    return
+  }
+
   if (e.button === 0) {
     mouse.isDown = true
     if (isPointerLocked.value && player.shootCooldown <= 0 && !player.isReloading && match.phase !== 'BUY_PHASE') {
@@ -1007,8 +1125,15 @@ function onMouseUp(e) {
 
 function onKeyDown(e) {
   keys[e.code] = true
-  if (e.code === 'KeyB' && match.phase === 'BUY_PHASE') showBuyMenu.value = !showBuyMenu.value
   if (e.code === 'Tab') { e.preventDefault(); showScoreboard.value = true }
+
+  if (!player.alive) {
+    if (e.code === 'ArrowRight' || e.code === 'KeyD' || e.code === 'Space') cycleSpectateTarget(1)
+    if (e.code === 'ArrowLeft' || e.code === 'KeyA') cycleSpectateTarget(-1)
+    return
+  }
+
+  if (e.code === 'KeyB' && match.phase === 'BUY_PHASE') showBuyMenu.value = !showBuyMenu.value
   if (e.code === 'KeyR') reloadWeapon3D(player)
   if (e.code === 'KeyV') isThirdPerson.value = !isThirdPerson.value
   if (e.code === 'KeyC') abilitySystem.cast(player, 'C', players.value, (msg) => match.announcement = msg)
@@ -1525,12 +1650,12 @@ function buyItem(item) {
     <!-- 3D IN-GAME HUD LAYER -->
     <div v-else class="hud-layer">
       <!-- Pointer Lock Prompt -->
-      <div v-if="!isPointerLocked" class="pointer-lock-prompt" @click="requestPointerLock">
+      <div v-if="!isPointerLocked && player.alive" class="pointer-lock-prompt" @click="requestPointerLock">
         🖱️ HAZ CLIC AQUÍ PARA BLOQUEAR EL RATÓN Y APUNTAR EN 3D (FPS)
       </div>
 
-      <!-- 3D Crosshair (Hides during ADS so player looks through sight reticle) -->
-      <div v-if="!isAiming" class="crosshair-wrap">
+      <!-- 3D Crosshair (Hides during ADS or when dead) -->
+      <div v-if="player.alive && !isAiming" class="crosshair-wrap">
         <div class="crosshair-dot" :style="{ backgroundColor: settings.crosshairColor }"></div>
         <div class="crosshair-bar bar-top" :style="{ backgroundColor: settings.crosshairColor, transform: `translateY(-${5 + crosshairSpread * 14}px)` }"></div>
         <div class="crosshair-bar bar-bottom" :style="{ backgroundColor: settings.crosshairColor, transform: `translateY(${5 + crosshairSpread * 14}px)` }"></div>
@@ -1540,7 +1665,7 @@ function buyItem(item) {
       </div>
 
       <!-- Tactical Sniper Scope Fullscreen Overlay (For Operator / Marshal) -->
-      <div v-if="isAiming && (WEAPONS[player.weapon]?.category === WEAPON_CATEGORIES.SNIPERS)" class="sniper-scope-overlay">
+      <div v-if="player.alive && isAiming && (WEAPONS[player.weapon]?.category === WEAPON_CATEGORIES.SNIPERS)" class="sniper-scope-overlay">
         <div class="scope-reticle">
           <div class="scope-cross-h"></div>
           <div class="scope-cross-v"></div>
@@ -1551,7 +1676,7 @@ function buyItem(item) {
       </div>
 
       <!-- Tactical ADS Optic Focus Vignette (For Assault Rifles, SMGs, Pistols) -->
-      <div v-if="isAiming && (WEAPONS[player.weapon]?.category !== WEAPON_CATEGORIES.SNIPERS)" class="ads-focus-overlay"></div>
+      <div v-if="player.alive && isAiming && (WEAPONS[player.weapon]?.category !== WEAPON_CATEGORIES.SNIPERS)" class="ads-focus-overlay"></div>
 
       <!-- Tactical Minimap Radar -->
       <div class="radar-container">
@@ -1574,11 +1699,11 @@ function buyItem(item) {
       </div>
 
       <!-- PLANT / DEFUSE TACTICAL PROMPT -->
-      <div v-if="inPlantZone" class="tactical-zone-prompt plant-active">
+      <div v-if="player.alive && inPlantZone" class="tactical-zone-prompt plant-active">
         <span class="prompt-icon">🟢</span>
         <span class="prompt-text">ZONA DE PLANTADO <strong>{{ plantSiteName }}</strong> — MANTÉN <strong>[4]</strong> O <strong>[F]</strong> PARA PLANTAR LA SPIKE</span>
       </div>
-      <div v-else-if="inDefuseZone" class="tactical-zone-prompt defuse-active">
+      <div v-else-if="player.alive && inDefuseZone" class="tactical-zone-prompt defuse-active">
         <span class="prompt-icon">🔵</span>
         <span class="prompt-text">SPIKE DETECTADA — MANTÉN <strong>[4]</strong> O <strong>[F]</strong> PARA DESACTIVAR (DEFUSE)</span>
       </div>
@@ -1592,8 +1717,37 @@ function buyItem(item) {
         </div>
       </div>
 
-      <!-- BOTTOM HUD -->
-      <div class="hud-bottom">
+      <!-- SPECTATOR MODE HUD OVERLAY (WHEN LOCAL PLAYER IS ELIMINATED) -->
+      <div v-if="!player.alive" class="spectator-hud-overlay">
+        <div class="spectator-card">
+          <div class="spec-badge">👁️ MODO ESPECTADOR (EN 3RA PERSONA)</div>
+          <div v-if="currentSpectatedPlayer" class="spec-player-row">
+            <div class="spec-avatar-badge">{{ AGENTS[currentSpectatedPlayer.agentId]?.avatar || '⚔️' }}</div>
+            <div class="spec-player-info">
+              <div class="spec-player-name">
+                {{ currentSpectatedPlayer.name }}
+                <span class="spec-agent-tag">{{ (currentSpectatedPlayer.agentId || 'agente').toUpperCase() }}</span>
+              </div>
+              <div class="spec-stats-bar">
+                <span class="spec-stat text-green">❤️ {{ Math.round(currentSpectatedPlayer.health || 0) }} HP</span>
+                <span class="spec-stat text-cyan">🛡️ {{ Math.round(currentSpectatedPlayer.armor || 0) }}</span>
+                <span class="spec-stat text-gold">🔫 {{ (WEAPONS[currentSpectatedPlayer.weapon]?.name || currentSpectatedPlayer.weapon || 'VANDAL').toUpperCase() }}</span>
+              </div>
+            </div>
+          </div>
+          <div v-else class="no-alive-msg">
+            ⚠️ No quedan compañeros de equipo activos en la arena
+          </div>
+          <div class="spec-controls-tip">
+            <span>🖱️ <strong>CLIC IZQ / ➡️</strong> Siguiente Jugador</span>
+            <span class="spec-divider">|</span>
+            <span>🖱️ <strong>CLIC DER / ⬅️</strong> Jugador Anterior</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- BOTTOM HUD (WHEN ALIVE) -->
+      <div v-if="player.alive" class="hud-bottom">
         <div class="hud-hp-shield">
           <div class="hp-box">
             <span class="hud-label">VIDA</span>
@@ -2459,5 +2613,132 @@ function buyItem(item) {
 .btn-lockin-sm { background: #ff4655; color: #fff; border: none; padding: 10px; border-radius: 6px; font-weight: 900; font-size: 0.95rem; cursor: pointer; }
 .btn-start-match { background: #10b981; color: #fff; border: none; padding: 12px; border-radius: 6px; font-weight: 900; font-size: 1.05rem; cursor: pointer; box-shadow: 0 0 16px rgba(16, 185, 129, 0.4); }
 .waiting-host-msg { font-size: 0.85rem; color: #eab308; font-style: italic; text-align: center; }
+
+/* SPECTATOR HUD OVERLAY */
+.spectator-hud-overlay {
+  position: absolute;
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 25;
+  pointer-events: none;
+}
+
+.spectator-card {
+  background: rgba(10, 15, 29, 0.92);
+  border: 1.5px solid rgba(56, 189, 248, 0.5);
+  box-shadow: 0 0 25px rgba(0, 0, 0, 0.8), 0 0 15px rgba(56, 189, 248, 0.2);
+  backdrop-filter: blur(10px);
+  padding: 14px 24px;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  min-width: 380px;
+  animation: specPulse 2s infinite ease-in-out;
+}
+
+@keyframes specPulse {
+  0%, 100% { border-color: rgba(56, 189, 248, 0.4); box-shadow: 0 0 20px rgba(0, 0, 0, 0.8), 0 0 10px rgba(56, 189, 248, 0.15); }
+  50% { border-color: rgba(56, 189, 248, 0.8); box-shadow: 0 0 25px rgba(0, 0, 0, 0.9), 0 0 20px rgba(56, 189, 248, 0.35); }
+}
+
+.spec-badge {
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 2px;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.15);
+  padding: 3px 12px;
+  border-radius: 20px;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.spec-player-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+}
+
+.spec-avatar-badge {
+  font-size: 2.2rem;
+  background: rgba(30, 41, 59, 0.8);
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.spec-player-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.spec-player-name {
+  font-size: 1.15rem;
+  font-weight: 900;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.spec-agent-tag {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.spec-stats-bar {
+  display: flex;
+  gap: 14px;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.spec-stat {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.no-alive-msg {
+  color: #f87171;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.spec-controls-tip {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 8px;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.78rem;
+  color: #cbd5e1;
+}
+
+.spec-controls-tip strong {
+  color: #38bdf8;
+}
+
+.spec-divider {
+  color: rgba(255, 255, 255, 0.2);
+}
 
 </style>
