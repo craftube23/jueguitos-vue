@@ -507,71 +507,165 @@ function updatePlayer3DMeshes() {
       mesh = new THREE.Group()
 
       const isAtk = p.team === 'attackers'
-      const teamColor = isAtk ? 0xef4444 : 0x00f3ff
-      const darkArmorMat = new THREE.MeshStandardMaterial({
-        color: 0x1e293b,
-        roughness: 0.5,
-        metalness: 0.35
-      })
-      const teamGlowMat = new THREE.MeshBasicMaterial({ color: teamColor })
+      const baseTeamColor = isAtk ? 0xef4444 : 0x00f3ff
 
-      // 1. Legs (Dual tactical combat boots/legs)
-      const legGeo = new THREE.CylinderGeometry(0.09, 0.07, 0.75, 8)
-      const leftLeg = new THREE.Mesh(legGeo, darkArmorMat)
+      // Agent specific neon accent palette
+      const agentColors = {
+        jett: 0x38bdf8,
+        phoenix: 0xf97316,
+        reyna: 0xa855f7,
+        sova: 0x2563eb,
+        chamber: 0xeab308,
+        omen: 0x6366f1,
+        sage: 0x10b981,
+        brimstone: 0xe11d48,
+        killjoy: 0xfacc15
+      }
+      const agentColor = agentColors[p.agentId?.toLowerCase()] || baseTeamColor
+
+      const armorMat = new THREE.MeshStandardMaterial({
+        color: isAtk ? 0x18181b : 0x0f172a,
+        roughness: 0.45,
+        metalness: 0.4
+      })
+
+      const teamGlowMat = new THREE.MeshBasicMaterial({ color: baseTeamColor })
+      const agentGlowMat = new THREE.MeshBasicMaterial({ color: agentColor })
+
+      // 1. Dual Tactical Combat Legs
+      const legGeo = new THREE.CylinderGeometry(0.085, 0.065, 0.75, 8)
+      const leftLeg = new THREE.Mesh(legGeo, armorMat)
       leftLeg.position.set(-0.16, 0.38, 0)
       leftLeg.castShadow = true
       mesh.add(leftLeg)
 
-      const rightLeg = new THREE.Mesh(legGeo, darkArmorMat)
+      const rightLeg = new THREE.Mesh(legGeo, armorMat)
       rightLeg.position.set(0.16, 0.38, 0)
       rightLeg.castShadow = true
       mesh.add(rightLeg)
 
-      // 2. Torso (Armored tactical vest)
-      const torsoGeo = new THREE.CylinderGeometry(0.3, 0.22, 0.7, 8)
-      const torso = new THREE.Mesh(torsoGeo, darkArmorMat)
+      // Knee Guard Accents
+      const kneeGeo = new THREE.BoxGeometry(0.09, 0.08, 0.06)
+      const lKnee = new THREE.Mesh(kneeGeo, teamGlowMat)
+      lKnee.position.set(-0.16, 0.45, -0.07) // Front of knee
+      mesh.add(lKnee)
+
+      const rKnee = new THREE.Mesh(kneeGeo, teamGlowMat)
+      rKnee.position.set(0.16, 0.45, -0.07)
+      mesh.add(rKnee)
+
+      // 2. Torso (Armored Tactical Vest)
+      const torsoGeo = new THREE.CylinderGeometry(0.28, 0.22, 0.72, 8)
+      const torso = new THREE.Mesh(torsoGeo, armorMat)
       torso.position.set(0, 1.1, 0)
       torso.castShadow = true
       mesh.add(torso)
 
-      // 3. Chest Radianite Core (Glowing team badge)
+      // 3. Chest Radianite Core (Glowing Emblem on FRONT: -Z)
       const coreGeo = new THREE.CylinderGeometry(0.09, 0.09, 0.04, 8)
       coreGeo.rotateX(Math.PI / 2)
       const core = new THREE.Mesh(coreGeo, teamGlowMat)
-      core.position.set(0, 1.22, 0.22)
+      core.position.set(0, 1.22, -0.2) // FRONT: -Z
       mesh.add(core)
 
-      // 4. Armored Pauldrons (Shoulders)
+      // Agent Inner Core
+      const innerCoreGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.05, 8)
+      innerCoreGeo.rotateX(Math.PI / 2)
+      const innerCore = new THREE.Mesh(innerCoreGeo, agentGlowMat)
+      innerCore.position.set(0, 1.22, -0.21)
+      mesh.add(innerCore)
+
+      // 4. Armored Pauldrons (Shoulders with Agent Colored Beacon Lights)
       const pauldronGeo = new THREE.BoxGeometry(0.14, 0.12, 0.18)
-      const leftShoulder = new THREE.Mesh(pauldronGeo, darkArmorMat)
-      leftShoulder.position.set(-0.36, 1.35, 0)
+      const leftShoulder = new THREE.Mesh(pauldronGeo, armorMat)
+      leftShoulder.position.set(-0.35, 1.35, 0)
       mesh.add(leftShoulder)
 
-      const rightShoulder = new THREE.Mesh(pauldronGeo, darkArmorMat)
-      rightShoulder.position.set(0.36, 1.35, 0)
+      const rightShoulder = new THREE.Mesh(pauldronGeo, armorMat)
+      rightShoulder.position.set(0.35, 1.35, 0)
       mesh.add(rightShoulder)
 
-      // 5. Tactical Helmet & Glowing Visor Slit
+      const shoulderLightGeo = new THREE.BoxGeometry(0.06, 0.03, 0.12)
+      const lLight = new THREE.Mesh(shoulderLightGeo, agentGlowMat)
+      lLight.position.set(-0.36, 1.42, 0)
+      mesh.add(lLight)
+
+      const rLight = new THREE.Mesh(shoulderLightGeo, agentGlowMat)
+      rLight.position.set(0.36, 1.42, 0)
+      mesh.add(rLight)
+
+      // 5. Tactical Helmet
       const helmetGeo = new THREE.SphereGeometry(0.18, 16, 16)
-      helmetGeo.scale(1, 1.15, 1.1)
-      const helmet = new THREE.Mesh(helmetGeo, darkArmorMat)
+      helmetGeo.scale(1, 1.12, 1.1)
+      const helmet = new THREE.Mesh(helmetGeo, armorMat)
       helmet.position.set(0, 1.62, 0)
       helmet.castShadow = true
       mesh.add(helmet)
 
-      // Holographic / Neon Visor Slit
-      const visorGeo = new THREE.BoxGeometry(0.22, 0.05, 0.08)
-      const visor = new THREE.Mesh(visorGeo, teamGlowMat)
-      visor.position.set(0, 1.64, 0.14)
-      mesh.add(visor)
+      // 6. Glowing Tactical Eyes & Visor on the FRONT (-Z)
+      // Visor frame
+      const visorFrameGeo = new THREE.BoxGeometry(0.24, 0.08, 0.06)
+      const visorFrame = new THREE.Mesh(visorFrameGeo, armorMat)
+      visorFrame.position.set(0, 1.65, -0.15) // FRONT: -Z
+      mesh.add(visorFrame)
 
-      // 6. Tactical Rifle slung on back
+      // Left Eye Slit
+      const eyeGeo = new THREE.BoxGeometry(0.07, 0.03, 0.04)
+      const leftEye = new THREE.Mesh(eyeGeo, agentGlowMat)
+      leftEye.position.set(-0.065, 1.65, -0.17) // FRONT: -Z
+      mesh.add(leftEye)
+
+      // Right Eye Slit
+      const rightEye = new THREE.Mesh(eyeGeo, agentGlowMat)
+      rightEye.position.set(0.065, 1.65, -0.17) // FRONT: -Z
+      mesh.add(rightEye)
+
+      // Respirator / Face Plate on lower face (FRONT: -Z)
+      const maskGeo = new THREE.BoxGeometry(0.12, 0.09, 0.08)
+      const mask = new THREE.Mesh(maskGeo, armorMat)
+      mask.position.set(0, 1.54, -0.16) // FRONT: -Z
+      mesh.add(mask)
+
+      // 7. Tactical Rifle Slung on the BACK (+Z)
       const backRifleGeo = new THREE.BoxGeometry(0.08, 0.65, 0.1)
-      const backRifleMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.3, metalness: 0.8 })
+      const backRifleMat = new THREE.MeshStandardMaterial({ color: 0x090d16, roughness: 0.3, metalness: 0.85 })
       const backRifle = new THREE.Mesh(backRifleGeo, backRifleMat)
-      backRifle.position.set(0.1, 1.1, -0.22)
+      backRifle.position.set(0.1, 1.1, 0.22) // BACK: +Z
       backRifle.rotation.z = -0.4
       mesh.add(backRifle)
+
+      // 8. Floating Nameplate & Health HUD Sprite above Head
+      const canvas = document.createElement('canvas')
+      canvas.width = 256
+      canvas.height = 70
+      const ctx = canvas.getContext('2d')
+      
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.9)'
+      ctx.roundRect(4, 4, 248, 62, 8)
+      ctx.fill()
+      ctx.strokeStyle = isAtk ? '#ef4444' : '#00f3ff'
+      ctx.lineWidth = 4
+      ctx.stroke()
+
+      ctx.fillStyle = isAtk ? '#ef4444' : '#38bdf8'
+      ctx.font = 'bold 24px monospace'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      const label = `${p.name || 'Operador'} [${(p.agentId || 'Jett').toUpperCase()}]`
+      ctx.fillText(label, 128, 28)
+
+      // Mini Health Bar inside Nameplate
+      ctx.fillStyle = '#334155'
+      ctx.fillRect(24, 48, 208, 8)
+      ctx.fillStyle = isAtk ? '#ef4444' : '#10b981'
+      ctx.fillRect(24, 48, 208, 8)
+
+      const nameTex = new THREE.CanvasTexture(canvas)
+      const nameMat = new THREE.SpriteMaterial({ map: nameTex, transparent: true })
+      const nameSprite = new THREE.Sprite(nameMat)
+      nameSprite.scale.set(1.8, 0.5, 1.0)
+      nameSprite.position.set(0, 2.22, 0)
+      mesh.add(nameSprite)
 
       scene.add(mesh)
       playerMeshes.set(p.id, mesh)
@@ -580,7 +674,8 @@ function updatePlayer3DMeshes() {
     mesh.visible = p.alive
     mesh.position.set(p.pos.x, 0, p.pos.z)
     if (p.yaw !== undefined) {
-      mesh.rotation.y = p.yaw
+      // Invert yaw offset by Math.PI so front (-Z) faces the exact direction of travel/aim
+      mesh.rotation.y = p.yaw + Math.PI
     }
   })
 }
