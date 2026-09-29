@@ -7,6 +7,7 @@ defineEmits(['changeGame'])
 
 const gamesList = [
   { id: 'home', title: 'Inicio', icon: '🏠' },
+  { id: 'valoran3d2.0', title: 'Valoran3D 2.0', icon: '🔥' },
   { id: 'valorant', title: 'Valorant 2D', icon: '💣' },
   { id: 'tactical', title: 'Tactical Breach', icon: '🎯' },
   { id: 'survivor', title: 'Abyss Survivor', icon: '🔮' },

@@ -186,7 +186,8 @@ io.on('connection', (socket) => {
     room.matchState.phase = 'buy'
     room.matchState.phaseTimer = 15
 
-    // Posicionar jugadores en sus bases
+    // Posicionar jugadores en sus bases correspondientes a los puntos rojo (izq) y azul (der)
+    const spawnYCoords = [352, 416, 544, 672, 736]
     let atkIdx = 0
     let defIdx = 0
     room.players.forEach(p => {
@@ -194,11 +195,11 @@ io.on('connection', (socket) => {
       p.shield = 50
       p.state = 'Normal'
       if (p.team === 'attackers') {
-        p.x = 120
-        p.y = 500 + (atkIdx++ * 50)
+        p.x = 224
+        p.y = spawnYCoords[atkIdx++ % spawnYCoords.length]
       } else {
-        p.x = 1680
-        p.y = 500 + (defIdx++ * 50)
+        p.x = 1568
+        p.y = spawnYCoords[defIdx++ % spawnYCoords.length]
       }
     })
 
@@ -221,6 +222,18 @@ io.on('connection', (socket) => {
     socket.to(roomId).emit('game_event_broadcast', {
       senderId: socket.id,
       ...event
+    })
+  })
+
+  // Daño recibido en multijugador
+  socket.on('player_hit', ({ roomId, targetId, damage, weapon, headshot, killerName }) => {
+    io.to(roomId).emit('player_took_damage', {
+      targetId,
+      damage,
+      shooterId: socket.id,
+      weapon,
+      headshot,
+      killerName: killerName || 'Enemigo'
     })
   })
 

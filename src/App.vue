@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import Navbar from './components/Navbar.vue'
 import HomeLobby from './components/HomeLobby.vue'
 import ValorantGame from './games/Valorant2D/ValorantGame.vue'
+import Valorant3D2 from './games/Valorant3D2/Valorant3D2.vue'
 import TacticalGame from './games/TacticalBreach/TacticalGame.vue'
 import SurvivorGame from './games/AbyssSurvivor/SurvivorGame.vue'
 import TiendaGame from './games/TiendaTycoon/TiendaGame.vue'
@@ -31,6 +32,7 @@ const setGame = (gameId) => {
 
       <transition name="fade-slide" mode="out-in">
         <HomeLobby v-if="activeGame === 'home'" key="home" @selectGame="setGame" />
+        <Valorant3D2 v-else-if="activeGame === 'valoran3d2.0' || activeGame === 'valorant3d2'" key="valorant3d2" />
         <ValorantGame v-else-if="activeGame === 'valorant'" key="valorant" />
         <TacticalGame v-else-if="activeGame === 'tactical'" key="tactical" />
         <SurvivorGame v-else-if="activeGame === 'survivor'" key="survivor" />

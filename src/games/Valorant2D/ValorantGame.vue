@@ -1,6 +1,8 @@
 <script setup>
 import { ref, reactive, onMounted, onUnmounted, computed, watch } from 'vue'
 import { io } from 'socket.io-client'
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { AGENTS, WEAPONS, MAP_DATA } from './shared/gameData.js'
 
 // --- SOUND ENGINE (Web Audio API - DOOM & Tactical Edition) ---
@@ -131,6 +133,46 @@ function playSound(type) {
       gain.gain.exponentialRampToValueAtTime(0.01, now + 0.18)
       osc.connect(gain); gain.connect(audioCtx.destination)
       osc.start(now); osc.stop(now + 0.18)
+    } else if (type === 'dash') {
+      const osc = audioCtx.createOscillator()
+      const gain = audioCtx.createGain()
+      osc.type = 'sawtooth'
+      osc.frequency.setValueAtTime(600, now)
+      osc.frequency.exponentialRampToValueAtTime(100, now + 0.25)
+      gain.gain.setValueAtTime(0.4, now)
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25)
+      osc.connect(gain); gain.connect(audioCtx.destination)
+      osc.start(now); osc.stop(now + 0.25)
+    } else if (type === 'heal') {
+      const osc = audioCtx.createOscillator()
+      const gain = audioCtx.createGain()
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(440, now)
+      osc.frequency.linearRampToValueAtTime(880, now + 0.35)
+      gain.gain.setValueAtTime(0.35, now)
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.35)
+      osc.connect(gain); gain.connect(audioCtx.destination)
+      osc.start(now); osc.stop(now + 0.35)
+    } else if (type === 'knife_throw') {
+      const osc = audioCtx.createOscillator()
+      const gain = audioCtx.createGain()
+      osc.type = 'triangle'
+      osc.frequency.setValueAtTime(1200, now)
+      osc.frequency.exponentialRampToValueAtTime(300, now + 0.12)
+      gain.gain.setValueAtTime(0.4, now)
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12)
+      osc.connect(gain); gain.connect(audioCtx.destination)
+      osc.start(now); osc.stop(now + 0.12)
+    } else if (type === 'explosion') {
+      const osc = audioCtx.createOscillator()
+      const gain = audioCtx.createGain()
+      osc.type = 'sawtooth'
+      osc.frequency.setValueAtTime(160, now)
+      osc.frequency.exponentialRampToValueAtTime(20, now + 0.6)
+      gain.gain.setValueAtTime(0.7, now)
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.6)
+      osc.connect(gain); gain.connect(audioCtx.destination)
+      osc.start(now); osc.stop(now + 0.6)
     }
   } catch (e) {
     console.error(e)
@@ -314,35 +356,39 @@ function handleRemoteGameEvent(event) {
 
 // --- 2.5D RAYCASTER MAP & ENGINE CONSTANTS ---
 const CELL_SIZE = 64
-const MAP_COLS = 28
+const MAP_COLS = 34
 const MAP_ROWS = 18
 
-// 0: empty, 1: boundary steel wall, 2: site A cyber wall, 3: site B hazard wall, 4: cover pillar, 5: Site A zone, 6: Site B zone
+// 0: empty, 1: boundary wall, 4: orange walls/pillar/dividers, 5: Site A plant zone, 6: Site B plant zone
 const WORLD_GRID = [
-  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-  [1,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,2,2,2,2,2,0,0,0,0,1],
-  [1,0,0,0,0,0,1,0,0,4,0,0,0,1,0,0,0,0,2,5,5,5,2,0,0,0,0,1],
-  [1,0,0,0,0,0,1,1,1,1,0,0,0,1,0,0,0,0,2,5,5,5,2,0,4,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,2,2,2,2,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,1,1,1,0,0,0,1,1,1,0,0,0,1,1,0,0,0,0,0,1,1,1,1,1,1,1,1],
-  [1,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,1,0,0,4,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,1,1,1,0,0,0,1,1,1,0,0,0,1,1,0,0,0,0,0,1,1,1,1,1,1,1,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,3,3,3,0,0,0,0,1],
-  [1,0,0,0,0,0,1,1,1,1,0,0,0,1,0,0,0,0,3,6,6,6,3,0,4,0,0,1],
-  [1,0,0,0,0,0,1,0,0,4,0,0,0,1,0,0,0,0,3,6,6,6,3,0,0,0,0,1],
-  [1,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,3,3,3,3,3,0,0,0,0,1],
-  [1,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,5,5,5,5,5,5,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,5,5,5,5,5,5,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,4,4,4,0,5,5,5,5,5,5,0,4,4,4,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,4,4,4,0,0,0,0,0,4,4,4,4,0,0,0,0,0,4,4,4,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,4,4,4,0,0,0,0,0,4,4,4,4,0,0,0,0,0,4,4,4,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,4,4,4,0,6,6,6,6,6,6,0,4,4,4,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,6,6,6,6,6,6,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,6,6,6,6,6,6,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
 ]
 
 // --- ASSET MANAGEMENT ---
 const customSprites = reactive({})
+let spritesheetImg = null
 
 onMounted(() => {
+  spritesheetImg = new Image()
+  spritesheetImg.src = '/assets/agents_spritesheet.png'
+
   const neonImg = new Image(); neonImg.src = '/assets/agent_neon.png'; neonImg.onload = () => { customSprites.neon = neonImg }
   const gekkoImg = new Image(); gekkoImg.src = '/assets/agent_gekko.png'; gekkoImg.onload = () => { customSprites.gekko = gekkoImg }
   const chamberImg = new Image(); chamberImg.src = '/assets/agent_chamber.png'; chamberImg.onload = () => { customSprites.chamber = chamberImg }
@@ -354,6 +400,7 @@ onMounted(() => {
   window.addEventListener('mouseup', handleMouseUp)
 
   initAudio()
+  initThreeScene()
 })
 
 onUnmounted(() => {
@@ -367,23 +414,184 @@ onUnmounted(() => {
   window.removeEventListener('mouseup', handleMouseUp)
 })
 
-// --- GAME LOGIC & DOOM 2.5D FPS CONTROLLER ---
+// --- GAME LOGIC & DOOM 2.5D / THREE.JS 3D CONTROLLER ---
 const canvasRef = ref(null)
+const threeCanvasRef = ref(null)
 let ctx = null
 let animFrameId = null
 let roundTimerInterval = null
 
+// Three.js 3D WebGL GLB Map Renderer
+let threeRenderer = null
+let threeScene = null
+let threeCamera = null
+let map3DModel = null
+let mapColliders = []
+const downRaycaster = new THREE.Raycaster()
+const downVec = new THREE.Vector3(0, -1, 0)
+const hitRaycaster = new THREE.Raycaster()
+const isMap3DLoaded = ref(false)
+
+function initThreeScene() {
+  if (!threeCanvasRef.value) return
+  if (threeRenderer) return
+
+  threeScene = new THREE.Scene()
+  threeScene.background = new THREE.Color(0x0c1017)
+  threeScene.fog = new THREE.FogExp2(0x0c1017, 0.0006)
+
+  threeCamera = new THREE.PerspectiveCamera(70, 960 / 500, 0.1, 4000)
+
+  threeRenderer = new THREE.WebGLRenderer({
+    canvas: threeCanvasRef.value,
+    antialias: true,
+    powerPreference: 'high-performance'
+  })
+  threeRenderer.setSize(960, 500)
+  threeRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+  threeRenderer.toneMapping = THREE.ACESFilmicToneMapping
+  threeRenderer.toneMappingExposure = 1.25
+  threeRenderer.shadowMap.enabled = true
+  threeRenderer.shadowMap.type = THREE.PCFSoftShadowMap
+
+  // Cyber tactical Lighting
+  const ambientLight = new THREE.AmbientLight(0xffffff, 2.0)
+  threeScene.add(ambientLight)
+
+  const hemiLight = new THREE.HemisphereLight(0xffffff, 0x666677, 1.2)
+  threeScene.add(hemiLight)
+
+  const dirLight = new THREE.DirectionalLight(0xffeedd, 2.8)
+  dirLight.position.set(600, 1200, 500)
+  dirLight.castShadow = true
+  threeScene.add(dirLight)
+
+  const centerLight = new THREE.PointLight(0xffffff, 4.0, 1600)
+  centerLight.position.set(17 * CELL_SIZE, 280, 9 * CELL_SIZE)
+  threeScene.add(centerLight)
+
+  // Point lights at Site A and Site B
+  const siteALight = new THREE.PointLight(0x00e5ff, 6.0, 900)
+  siteALight.position.set(17 * CELL_SIZE, 75, 3.5 * CELL_SIZE)
+  threeScene.add(siteALight)
+
+  const siteBLight = new THREE.PointLight(0xffaa00, 6.0, 900)
+  siteBLight.position.set(17 * CELL_SIZE, 75, 14.5 * CELL_SIZE)
+  threeScene.add(siteBLight)
+
+  // Plant Site A Ground Hologram Ring (Green/Cyan)
+  const siteAGeom = new THREE.RingGeometry(20, 160, 32)
+  const siteAMat = new THREE.MeshBasicMaterial({ color: 0x00ff88, side: THREE.DoubleSide, transparent: true, opacity: 0.45 })
+  const siteAMesh = new THREE.Mesh(siteAGeom, siteAMat)
+  siteAMesh.rotation.x = -Math.PI / 2
+  siteAMesh.position.set(17 * CELL_SIZE, 2, 3.5 * CELL_SIZE)
+  threeScene.add(siteAMesh)
+
+  // Plant Site B Ground Hologram Ring (Green/Amber)
+  const siteBGeom = new THREE.RingGeometry(20, 160, 32)
+  const siteBMat = new THREE.MeshBasicMaterial({ color: 0x00ff88, side: THREE.DoubleSide, transparent: true, opacity: 0.45 })
+  const siteBMesh = new THREE.Mesh(siteBGeom, siteBMat)
+  siteBMesh.rotation.x = -Math.PI / 2
+  siteBMesh.position.set(17 * CELL_SIZE, 2, 14.5 * CELL_SIZE)
+  threeScene.add(siteBMesh)
+
+  // Load 3D Arena GLB Map
+  const gltfLoader = new GLTFLoader()
+  gltfLoader.load(
+    '/models/mapa.glb',
+    (gltf) => {
+      mapColliders = []
+      map3DModel = gltf.scene
+      map3DModel.traverse((child) => {
+        if (child.isMesh) {
+          child.castShadow = true
+          child.receiveShadow = true
+          if (child.material) {
+            child.material.side = THREE.DoubleSide
+            child.material.roughness = 0.5
+            child.material.metalness = 0.1
+          }
+          mapColliders.push(child)
+        }
+      })
+
+      // Scale and fit map to match arena dimensions
+      const bbox = new THREE.Box3().setFromObject(map3DModel)
+      const size = bbox.getSize(new THREE.Vector3())
+      const targetSizeX = MAP_COLS * CELL_SIZE
+      const targetSizeZ = MAP_ROWS * CELL_SIZE
+      const scale = Math.max(targetSizeX / (size.x || 1), targetSizeZ / (size.z || 1)) * 1.15
+      map3DModel.scale.set(scale, scale, scale)
+
+      const scaledBbox = new THREE.Box3().setFromObject(map3DModel)
+      const center = scaledBbox.getCenter(new THREE.Vector3())
+      map3DModel.position.x = (targetSizeX / 2) - center.x
+      map3DModel.position.z = (targetSizeZ / 2) - center.z
+      // Align interior walkable floor directly to Y = 0
+      map3DModel.position.y = -(scaledBbox.min.y + 1.05 * scale)
+
+      threeScene.add(map3DModel)
+      isMap3DLoaded.value = true
+    },
+    undefined,
+    (err) => {
+      console.warn('GLB map error:', err)
+    }
+  )
+}
+
 const selectedAgent = ref('jett')
 const selectedSide = ref('attackers') // 'attackers' | 'defenders'
 const isBuyMenuOpen = ref(false)
+const isPauseMenuOpen = ref(false)
+const isSpectating = ref(false)
+const spectatorIndex = ref(0)
 
 watch(isBuyMenuOpen, (isOpen) => {
-  if (isOpen) {
-    if (document.pointerLockElement) {
-      document.exitPointerLock()
-    }
+  if (isOpen && document.pointerLockElement) {
+    document.exitPointerLock()
   }
 })
+
+watch(isPauseMenuOpen, (isOpen) => {
+  if (isOpen && document.pointerLockElement) {
+    document.exitPointerLock()
+  }
+})
+
+function togglePauseMenu() {
+  if (isBuyMenuOpen.value) {
+    isBuyMenuOpen.value = false
+    return
+  }
+  isPauseMenuOpen.value = !isPauseMenuOpen.value
+}
+
+function changeAgentInGame() {
+  isPauseMenuOpen.value = false
+  isBuyMenuOpen.value = false
+  if (document.pointerLockElement) document.exitPointerLock()
+  if (roundTimerInterval) clearInterval(roundTimerInterval)
+  appState.value = 'agent_select'
+}
+
+function exitToMainMenu() {
+  isPauseMenuOpen.value = false
+  isBuyMenuOpen.value = false
+  if (document.pointerLockElement) {
+    document.exitPointerLock()
+  }
+  if (roundTimerInterval) clearInterval(roundTimerInterval)
+  if (animFrameId) {
+    cancelAnimationFrame(animFrameId)
+    animFrameId = null
+  }
+  if (gameMode.value === 'multiplayer' && socket && currentRoom.value) {
+    socket.emit('leave_room', { roomId: currentRoom.value.id })
+    currentRoom.value = null
+  }
+  appState.value = 'mode_select'
+}
 
 // Match State
 const matchState = reactive({
@@ -423,9 +631,10 @@ function addKillFeed(killer, victim, weapon, headshot = false, isAlly = true) {
 // DOOM First-Person Player State
 const player = reactive({
   x: 3.5 * CELL_SIZE,
-  y: 8.5 * CELL_SIZE,
+  y: 5.5 * CELL_SIZE,
+  currentFloorY: 0,
   angle: 0, // In radians
-  pitch: 0, // Look up/down offset
+  pitch: 0, // Look up/down offset (pitch in radians)
   speed: 3.6,
   rotSpeed: 0.045,
   hp: 100,
@@ -446,6 +655,11 @@ const player = reactive({
   state: 'Normal',
   isDead: false,
   team: 'attackers',
+
+  // Visual post-processing & effects
+  flashTimer: 0,
+  dashEffectTimer: 0,
+  healEffectTimer: 0,
 
   // Abilities
   ultPoints: 0,
@@ -477,8 +691,8 @@ const currentWeapon = computed(() => {
 const spike = reactive({
   planted: false,
   defused: false,
-  x: 20 * CELL_SIZE,
-  y: 3 * CELL_SIZE,
+  x: 13.5 * CELL_SIZE,
+  y: 3.5 * CELL_SIZE,
   timer: 45,
   site: null
 })
@@ -488,6 +702,7 @@ const bots = reactive([])
 const soulOrbs = reactive([])
 const smokeZones = reactive([])
 const hitParticles = reactive([])
+const bulletTracers = reactive([])
 
 // Keys
 const keys = reactive({
@@ -499,9 +714,53 @@ const keys = reactive({
 let isMouseDown = false
 let isPointerLocked = false
 
-// Spectator mode
-const spectatingIndex = ref(0)
-const isSpectating = ref(false)
+const aliveAlliesList = computed(() => {
+  if (gameMode.value === 'practice') {
+    return bots.filter(b => b.team === player.team && !b.isDead)
+  } else if (currentRoom.value) {
+    const list = []
+    currentRoom.value.players.filter(p => p.team === player.team && p.id !== socket?.id).forEach(p => {
+      const rp = remotePlayers[p.id]
+      if (!rp?.isDead && (rp?.hp ?? 100) > 0) {
+        list.push({
+          id: p.id,
+          name: p.name,
+          agentKey: p.agentId,
+          hp: rp?.hp ?? 100,
+          maxHp: 100,
+          shield: rp?.shield ?? 50,
+          x: rp?.x ?? p.x,
+          y: rp?.y ?? p.y,
+          floorY: rp?.floorY ?? 0,
+          angle: rp?.angle ?? 0,
+          pitch: rp?.pitch ?? 0,
+          weapon: rp?.weapon || 'vandal'
+        })
+      }
+    })
+    return list
+  }
+  return []
+})
+
+const currentSpectatedAlly = computed(() => {
+  const list = aliveAlliesList.value
+  if (list.length === 0) return null
+  const idx = Math.min(Math.max(0, spectatorIndex.value), list.length - 1)
+  return list[idx]
+})
+
+function nextSpectateTarget() {
+  const allies = aliveAlliesList.value
+  if (allies.length === 0) return
+  spectatorIndex.value = (spectatorIndex.value + 1) % allies.length
+}
+
+function prevSpectateTarget() {
+  const allies = aliveAlliesList.value
+  if (allies.length === 0) return
+  spectatorIndex.value = (spectatorIndex.value - 1 + allies.length) % allies.length
+}
 
 const aliveAllies = computed(() => {
   const list = []
@@ -586,18 +845,28 @@ function startRound(spawnPracticeBots = true) {
   player.shield = 50
   player.ammo = currentWeapon.value.magSize || 25
   player.isReloading = false
+  player.flashTimer = 0
+  player.dashEffectTimer = 0
+  player.healEffectTimer = 0
+  player.bladeStormKnives = 0
+  player.isEmpress = false
+  player.isDismissed = false
   player.actionProgress = 0
   player.isPlanting = false
   player.isDefusing = false
   player.team = selectedSide.value
+  player.currentFloorY = 0
+  player.pitch = 0
+  isSpectating.value = false
+  spectatorIndex.value = 0
 
   if (player.team === 'attackers') {
-    player.x = 2.5 * CELL_SIZE
-    player.y = 8.5 * CELL_SIZE
+    player.x = 4.0 * CELL_SIZE
+    player.y = 5.5 * CELL_SIZE
     player.angle = 0
   } else {
-    player.x = 25.5 * CELL_SIZE
-    player.y = 8.5 * CELL_SIZE
+    player.x = 30.0 * CELL_SIZE
+    player.y = 5.5 * CELL_SIZE
     player.angle = Math.PI
   }
 
@@ -618,16 +887,24 @@ function spawnPracticeBotTeam() {
   const agentKeys = Object.keys(AGENTS)
   const targetSite = Math.random() > 0.5 ? 'A' : 'B'
 
+  const allyOffsets = [
+    { x: 3.5, y: 4.2 },
+    { x: 3.5, y: 6.8 },
+    { x: 3.5, y: 11.2 },
+    { x: 3.5, y: 13.5 }
+  ]
+
   // 4 Allies
   for (let i = 0; i < 4; i++) {
     const k = agentKeys[(i + 2) % agentKeys.length]
+    const pos = allyOffsets[i]
     bots.push({
       id: 'ally_' + i,
       name: 'Bot_Aliado_' + (i + 1),
       team: player.team,
       agentKey: k,
-      x: player.team === 'attackers' ? (2.5 * CELL_SIZE) : (25.5 * CELL_SIZE),
-      y: (4 + i * 2.5) * CELL_SIZE,
+      x: player.team === 'attackers' ? (pos.x * CELL_SIZE) : ((34 - pos.x) * CELL_SIZE),
+      y: pos.y * CELL_SIZE,
       angle: player.team === 'attackers' ? 0 : Math.PI,
       radius: 20,
       speed: 2.3,
@@ -650,17 +927,26 @@ function spawnPracticeBotTeam() {
     })
   }
 
+  const enemyOffsets = [
+    { x: 3.5, y: 4.2 },
+    { x: 3.5, y: 6.8 },
+    { x: 2.5, y: 9.0 },
+    { x: 3.5, y: 11.2 },
+    { x: 3.5, y: 13.5 }
+  ]
+
   // 5 Enemies
   const enemyTeam = player.team === 'attackers' ? 'defenders' : 'attackers'
   for (let i = 0; i < 5; i++) {
     const k = agentKeys[(i + 6) % agentKeys.length]
+    const pos = enemyOffsets[i]
     bots.push({
       id: 'enemy_' + i,
       name: 'Rival_' + (i + 1),
       team: enemyTeam,
       agentKey: k,
-      x: enemyTeam === 'attackers' ? (2.5 * CELL_SIZE) : (25.5 * CELL_SIZE),
-      y: (3.5 + i * 2.5) * CELL_SIZE,
+      x: enemyTeam === 'attackers' ? (pos.x * CELL_SIZE) : ((34 - pos.x) * CELL_SIZE),
+      y: pos.y * CELL_SIZE,
       angle: enemyTeam === 'attackers' ? 0 : Math.PI,
       radius: 20,
       speed: 2.2,
@@ -773,6 +1059,29 @@ function endRound(winnerTeam, reason) {
 // --- FPS INPUT HANDLING ---
 function handleKeyDown(e) {
   const k = e.key.toLowerCase()
+
+  if (k === 'escape') {
+    if (isBuyMenuOpen.value) {
+      isBuyMenuOpen.value = false
+    } else if (isPauseMenuOpen.value) {
+      isPauseMenuOpen.value = false
+    } else if (appState.value === 'playing') {
+      isPauseMenuOpen.value = true
+    } else if (appState.value === 'agent_select' || appState.value === 'mp_lobby_browser') {
+      appState.value = 'mode_select'
+    } else if (appState.value === 'mp_room_lobby') {
+      leaveRoom()
+    }
+    return
+  }
+
+  // Spectator navigation when dead
+  if (player.isDead) {
+    if (k === 'a' || k === 'arrowleft') prevSpectateTarget()
+    if (k === 'd' || k === 'arrowright' || k === ' ') nextSpectateTarget()
+    return
+  }
+
   if (k === 'w') keys.w = true
   if (k === 's') keys.s = true
   if (k === 'a') keys.a = true
@@ -788,10 +1097,8 @@ function handleKeyDown(e) {
       document.exitPointerLock()
     }
   }
-  if (k === 'escape') {
-    if (isBuyMenuOpen.value) {
-      isBuyMenuOpen.value = false
-    }
+  if (k === 'p') {
+    if (appState.value === 'playing') togglePauseMenu()
   }
   if (k === 'r') reloadWeapon()
 
@@ -816,16 +1123,21 @@ function handleKeyUp(e) {
 }
 
 function handleMouseMove(e) {
-  if (isBuyMenuOpen.value) return // Allow free cursor navigation in buy shop
-  if (document.pointerLockElement === canvasRef.value) {
-    player.angle += e.movementX * 0.0036
-  } else if (canvasRef.value && isMouseDown) {
-    player.angle += e.movementX * 0.0036
+  if (player.isDead) return // Cannot look around while dead
+  if (isBuyMenuOpen.value || isPauseMenuOpen.value) return // Allow free cursor navigation in menus
+  if (document.pointerLockElement === canvasRef.value || (canvasRef.value && isMouseDown)) {
+    player.angle += e.movementX * 0.0032
+    player.pitch = Math.max(-0.75, Math.min(0.75, (player.pitch || 0) - e.movementY * 0.0032))
   }
 }
 
 function handleMouseDown(e) {
-  if (isBuyMenuOpen.value) return // Allow clicking weapons/buttons in buy menu without shooting
+  if (isBuyMenuOpen.value || isPauseMenuOpen.value) return // Allow clicking menu options without shooting
+  if (player.isDead) {
+    if (e.button === 0) nextSpectateTarget()
+    else if (e.button === 2) prevSpectateTarget()
+    return
+  }
   if (e.button === 0) {
     isMouseDown = true
     if (document.pointerLockElement !== canvasRef.value && canvasRef.value && appState.value === 'playing') {
@@ -845,21 +1157,114 @@ function skipBuyPhase() {
   isBuyMenuOpen.value = false
 }
 
+function safeDash(dist = 220, angle = player.angle) {
+  const steps = 14
+  const stepDist = dist / steps
+  const dx = Math.cos(angle) * stepDist
+  const dy = Math.sin(angle) * stepDist
+  for (let s = 0; s < steps; s++) {
+    if (!checkCollision(player.x + dx, player.y, 18)) {
+      player.x += dx
+    }
+    if (!checkCollision(player.x, player.y + dy, 18)) {
+      player.y += dy
+    }
+  }
+}
+
 function shootWeapon() {
-  if (player.isDead || player.isReloading) return
+  if (player.isDead || player.isReloading || matchState.isBuyPhase) return
+
+  // Jett Blade Storm Kunai
+  if (player.bladeStormKnives > 0) {
+    player.bladeStormKnives--
+    playSound('knife_throw')
+    player.muzzleFlashTimer = 3
+    player.recoilOffset = 10
+
+    // Add glowing golden knife tracer
+    bulletTracers.push({
+      startX: SCREEN_WIDTH / 2,
+      startY: SCREEN_HEIGHT - 60,
+      endX: SCREEN_WIDTH / 2,
+      endY: SCREEN_HEIGHT / 2,
+      color: '#ffd700',
+      width: 4.5,
+      alpha: 1.0,
+      life: 9,
+      maxLife: 9
+    })
+
+    let closestHit = null
+    let minDistance = 1600
+    for (const bot of bots) {
+      if (bot.isDead || bot.team === player.team) continue
+      const dx = bot.x - player.x
+      const dy = bot.y - player.y
+      const dist = Math.hypot(dx, dy)
+      let angleToBot = Math.atan2(dy, dx) - player.angle
+      while (angleToBot < -Math.PI) angleToBot += Math.PI * 2
+      while (angleToBot > Math.PI) angleToBot -= Math.PI * 2
+      if (Math.abs(angleToBot) < 0.22 && dist < minDistance) {
+        minDistance = dist
+        closestHit = bot
+      }
+    }
+
+    if (closestHit) {
+      playSound('headshot')
+      closestHit.hp = 0
+      closestHit.isDead = true
+      addKillFeed('Tú (Blade Storm)', closestHit.name, 'Kunai Dorado', true, true)
+      player.bladeStormKnives = 5 // Reset knives on kill!
+      player.credits += 200
+      hitParticles.push({ x: closestHit.x, y: closestHit.y, timer: 15 })
+    }
+    return
+  }
+
   if (player.ammo <= 0) {
     reloadWeapon()
     return
   }
   const now = Date.now()
   const wep = currentWeapon.value
-  if (now - player.lastShotTime < (wep.fireRate || 140)) return
+  const fireRate = player.isEmpress ? (wep.fireRate || 140) * 0.65 : (wep.fireRate || 140)
+  if (now - player.lastShotTime < fireRate) return
 
   player.lastShotTime = now
   player.ammo--
   player.muzzleFlashTimer = 4
   player.recoilOffset = 16
   playSound(wep.sound || 'vandal')
+
+  // 3D Wall Hitscan Raycasting
+  const rayOrigin = new THREE.Vector3(player.x, 36 + (player.currentFloorY || 0), player.y)
+  const rayDir = new THREE.Vector3(
+    Math.cos(player.angle) * Math.cos(player.pitch || 0),
+    Math.sin(player.pitch || 0),
+    Math.sin(player.angle) * Math.cos(player.pitch || 0)
+  ).normalize()
+
+  hitRaycaster.set(rayOrigin, rayDir)
+  hitRaycaster.far = 1800
+  const wallHits = (mapColliders && mapColliders.length > 0) ? hitRaycaster.intersectObjects(mapColliders, true) : []
+  const maxHitDist = wallHits.length > 0 ? wallHits[0].distance : 1800
+
+  // Add 3D / 2D glowing bullet tracer to crosshair
+  const spreadX = (Math.random() - 0.5) * (wep.spread || 12)
+  const spreadY = (Math.random() - 0.5) * (wep.spread || 12)
+  bulletTracers.push({
+    startX: SCREEN_WIDTH / 2 + 100,
+    startY: SCREEN_HEIGHT - 40,
+    endX: SCREEN_WIDTH / 2 + spreadX,
+    endY: SCREEN_HEIGHT / 2 + spreadY,
+    color: selectedSide.value === 'attackers' ? '#ffaa00' : '#00e5ff',
+    width: wep.id === 'operator' ? 4.5 : (wep.id === 'vandal' ? 3.0 : 2.0),
+    alpha: 1.0,
+    life: wep.id === 'operator' ? 10 : 7,
+    maxLife: wep.id === 'operator' ? 10 : 7
+  })
 
   // Hitscan raycast forward in FPS view
   let closestHit = null
@@ -875,26 +1280,76 @@ function shootWeapon() {
     while (angleToBot < -Math.PI) angleToBot += Math.PI * 2
     while (angleToBot > Math.PI) angleToBot -= Math.PI * 2
 
-    // Crosshair hit tolerance in radians (aiming directly at target)
-    if (Math.abs(angleToBot) < 0.16 && dist < minDistance) {
-      minDistance = dist
-      closestHit = bot
+    // Crosshair hit tolerance in radians (target must NOT be behind a wall)
+    if (Math.abs(angleToBot) < 0.18 && dist < maxHitDist && dist < minDistance) {
+      if (hasLineOfSight(player.x, player.y, bot.x, bot.y)) {
+        minDistance = dist
+        closestHit = bot
+      }
+    }
+  }
+
+  // Also check multiplayer remote opponents
+  if (gameMode.value === 'multiplayer') {
+    for (const [id, rP] of Object.entries(remotePlayers)) {
+      if (rP.isDead || rP.team === player.team || (rP.hp ?? 100) <= 0) continue
+      const dx = (rP.x ?? 0) - player.x
+      const dy = (rP.y ?? 0) - player.y
+      const dist = Math.hypot(dx, dy)
+      let angleToRemote = Math.atan2(dy, dx) - player.angle
+      while (angleToRemote < -Math.PI) angleToRemote += Math.PI * 2
+      while (angleToRemote > Math.PI) angleToRemote -= Math.PI * 2
+      if (Math.abs(angleToRemote) < 0.18 && dist < maxHitDist && dist < minDistance) {
+        if (hasLineOfSight(player.x, player.y, rP.x ?? 0, rP.y ?? 0)) {
+          minDistance = dist
+          closestHit = { ...rP, id, isRemote: true }
+        }
+      }
     }
   }
 
   if (closestHit) {
     playSound('headshot')
-    closestHit.hp -= (wep.damage || 35) * 1.5
-    hitParticles.push({ x: closestHit.x, y: closestHit.y, timer: 10 })
+    const damageDealt = (wep.damage || 35) * 1.5
 
-    if (closestHit.hp <= 0) {
-      closestHit.isDead = true
-      closestHit.hp = 0
-      addKillFeed('Tú', closestHit.name, wep.name, true, true)
-      player.credits += 200
-      player.ultPoints = Math.min(player.maxUltPoints, player.ultPoints + 1)
-      soulOrbs.push({ x: closestHit.x, y: closestHit.y, timer: 25 })
+    if (closestHit.isRemote) {
+      closestHit.hp = Math.max(0, (closestHit.hp ?? 100) - damageDealt)
+      hitParticles.push({ x: closestHit.x ?? 0, y: closestHit.y ?? 0, timer: 12 })
+      if (socket && currentRoom.value) {
+        socket.emit('game_event', {
+          roomId: currentRoom.value.id,
+          event: {
+            type: 'damage_player',
+            targetId: closestHit.id,
+            damage: damageDealt,
+            killerName: playerName.value,
+            weapon: wep.name
+          }
+        })
+      }
+      if (closestHit.hp <= 0) {
+        closestHit.isDead = true
+        addKillFeed('Tú', closestHit.name || 'Rival', wep.name, true, true)
+        player.credits += 200
+        player.ultPoints = Math.min(player.maxUltPoints, player.ultPoints + 1)
+      }
+    } else {
+      closestHit.hp -= damageDealt
+      hitParticles.push({ x: closestHit.x, y: closestHit.y, timer: 12 })
+
+      if (closestHit.hp <= 0) {
+        closestHit.isDead = true
+        closestHit.hp = 0
+        addKillFeed('Tú', closestHit.name, wep.name, true, true)
+        player.credits += 200
+        player.ultPoints = Math.min(player.maxUltPoints, player.ultPoints + 1)
+        if (player.isEmpress) player.hp = Math.min(player.maxHp, player.hp + 50)
+        soulOrbs.push({ x: closestHit.x, y: closestHit.y, timer: 25 })
+      }
     }
+  } else if (wallHits.length > 0) {
+    // Bullet hit 3D wall! Spawn wall spark
+    hitParticles.push({ x: wallHits[0].point.x, y: wallHits[0].point.z, timer: 8 })
   }
 
   if (gameMode.value === 'multiplayer' && socket && currentRoom.value) {
@@ -915,56 +1370,62 @@ function reloadWeapon() {
 }
 
 function triggerAbility(slot) {
-  if (player.isDead || player.suppressedDuration > 0) return
+  if (player.isDead || player.suppressedDuration > 0 || matchState.isBuyPhase) return
   playSound('ability')
 
   const agent = selectedAgent.value
 
   if (slot === 'E') {
-    // Primary Signature (Dash / Teleport / Scan / Wall)
+    // Primary Signature (Dash / Teleport / Scan / Heal)
     if (agent === 'jett' || agent === 'neon') {
-      player.x += Math.cos(player.angle) * 220
-      player.y += Math.sin(player.angle) * 220
-      checkWallCollision()
+      player.dashEffectTimer = 16
+      playSound('dash')
+      safeDash(240, player.angle)
     } else if (agent === 'reyna') {
       player.isDismissed = true
+      playSound('ability')
       setTimeout(() => { player.isDismissed = false }, 2500)
     } else if (agent === 'sage') {
-      player.hp = Math.min(player.maxHp, player.hp + 50)
+      player.healEffectTimer = 35
+      playSound('heal')
+      player.hp = Math.min(player.maxHp, player.hp + 60)
     } else if (agent === 'omen' || agent === 'chamber') {
-      player.x += Math.cos(player.angle) * 280
-      player.y += Math.sin(player.angle) * 280
-      checkWallCollision()
+      player.dashEffectTimer = 10
+      playSound('dash')
+      safeDash(260, player.angle)
     } else {
       // General pulse / scan
       bots.forEach(b => {
-        if (b.team !== player.team && Math.hypot(b.x - player.x, b.y - player.y) < 600) {
-          b.hp -= 25
+        if (b.team !== player.team && Math.hypot(b.x - player.x, b.y - player.y) < 700) {
+          b.hp -= 30
         }
       })
     }
   } else if (slot === 'Q') {
-    // Flash / Concussion / Heavy
+    // Flash / Concussion
     playSound('flash')
+    player.flashTimer = 10
     bots.forEach(b => {
-      if (b.team !== player.team && Math.hypot(b.x - player.x, b.y - player.y) < 600) {
+      if (b.team !== player.team && Math.hypot(b.x - player.x, b.y - player.y) < 700) {
         b.state = 'Blinded'
-        setTimeout(() => { b.state = 'Normal' }, 2500)
+        setTimeout(() => { b.state = 'Normal' }, 3000)
       }
     })
   } else if (slot === 'C') {
-    // Smoke / Molly / Trap
+    // Smoke / Molly / Field
+    const isMolly = ['phoenix', 'brimstone', 'viper', 'killjoy'].includes(agent)
     smokeZones.push({
       x: player.x + Math.cos(player.angle) * 160,
       y: player.y + Math.sin(player.angle) * 160,
-      radius: 80,
-      timer: 6.0
+      radius: 90,
+      timer: 8.0,
+      type: isMolly ? 'molly' : 'smoke'
     })
   }
 }
 
 function triggerSuper() {
-  if (player.isDead || player.ultPoints < player.maxUltPoints || player.suppressedDuration > 0) return
+  if (player.isDead || player.ultPoints < player.maxUltPoints || player.suppressedDuration > 0 || matchState.isBuyPhase) return
   player.ultPoints = 0
   playSound('ult_sound')
 
@@ -974,11 +1435,25 @@ function triggerSuper() {
     player.isEmpress = true
     player.hp = 100
     player.shield = 50
+    setTimeout(() => { player.isEmpress = false }, 18000)
   } else {
-    // Wipe nearby enemies
+    // High Impact Area Super / Bombardment
+    playSound('explosion')
+    player.dashEffectTimer = 10
+    const targetX = player.x + Math.cos(player.angle) * 250
+    const targetY = player.y + Math.sin(player.angle) * 250
+
+    smokeZones.push({
+      x: targetX,
+      y: targetY,
+      radius: 120,
+      timer: 5.0,
+      type: 'molly'
+    })
+
     bots.forEach(b => {
-      if (b.team !== player.team && Math.hypot(b.x - player.x, b.y - player.y) < 700) {
-        b.hp -= 80
+      if (b.team !== player.team && Math.hypot(b.x - targetX, b.y - targetY) < 450) {
+        b.hp -= 90
         if (b.hp <= 0) {
           b.isDead = true
           addKillFeed('Tú (SÚPER)', b.name, 'Definitiva', true, true)
@@ -1012,18 +1487,80 @@ function updateFPS() {
 
   if (player.recoilOffset > 0) player.recoilOffset -= 1.2
   if (player.muzzleFlashTimer > 0) player.muzzleFlashTimer--
+  if (player.flashTimer > 0) player.flashTimer--
+  if (player.dashEffectTimer > 0) player.dashEffectTimer--
+  if (player.healEffectTimer > 0) player.healEffectTimer--
 
-  // Keyboard turning
-  if (keys.arrowLeft) player.angle -= player.rotSpeed
-  if (keys.arrowRight) player.angle += player.rotSpeed
-
-  // Continuous shooting if mouse is held down
-  if (isMouseDown && !player.isDead) {
-    shootWeapon()
+  // Update bullet tracers
+  for (let i = bulletTracers.length - 1; i >= 0; i--) {
+    const t = bulletTracers[i]
+    t.life -= 1
+    t.alpha = t.life / t.maxLife
+    if (t.life <= 0) {
+      bulletTracers.splice(i, 1)
+    }
   }
 
-  // Movement
-  if (!player.isDead) {
+  // Detect floor / stair elevation at player position
+  if (isMap3DLoaded.value && mapColliders.length > 0) {
+    downRaycaster.set(new THREE.Vector3(player.x, 300, player.y), downVec)
+    const floorHits = downRaycaster.intersectObjects(mapColliders, true)
+    if (floorHits.length > 0) {
+      for (const hit of floorHits) {
+        if (hit.point.y >= -15 && hit.point.y <= 240) {
+          player.currentFloorY += (hit.point.y - (player.currentFloorY || 0)) * 0.35
+          break
+        }
+      }
+    }
+  }
+
+  // Check death state & trigger spectator
+  if (player.hp <= 0 && !player.isDead) {
+    player.isDead = true
+    player.hp = 0
+    isSpectating.value = true
+    spectatorIndex.value = 0
+  }
+
+  // Update Smoke / Molly zones
+  for (let i = smokeZones.length - 1; i >= 0; i--) {
+    const sm = smokeZones[i]
+    sm.timer -= 0.016
+    if (sm.type === 'molly') {
+      bots.forEach(b => {
+        if (!b.isDead && Math.hypot(b.x - sm.x, b.y - sm.y) < sm.radius) {
+          b.hp -= 0.4
+          if (b.hp <= 0) {
+            b.isDead = true
+            b.hp = 0
+            addKillFeed('Habilidad', b.name, 'Zona Fuego', false, true)
+          }
+        }
+      })
+    }
+    if (sm.timer <= 0) {
+      smokeZones.splice(i, 1)
+    }
+  }
+
+  // Freeze player if in buy phase or dead
+  if (matchState.isBuyPhase || player.isDead) {
+    player.isWalking = false
+    if (player.isDead && aliveAlliesList.value.length === 0) {
+      isSpectating.value = false
+    }
+  } else {
+    // Keyboard turning
+    if (keys.arrowLeft) player.angle -= player.rotSpeed
+    if (keys.arrowRight) player.angle += player.rotSpeed
+
+    // Continuous shooting if mouse is held down
+    if (isMouseDown) {
+      shootWeapon()
+    }
+
+    // Movement
     let moveX = 0; let moveY = 0
     const forwardX = Math.cos(player.angle)
     const forwardY = Math.sin(player.angle)
@@ -1040,9 +1577,16 @@ function updateFPS() {
       player.walkCycle += 0.18
       const curSpeed = player.speed * (keys.shift ? 0.5 : 1)
       const mag = Math.hypot(moveX, moveY)
-      player.x += (moveX / mag) * curSpeed
-      player.y += (moveY / mag) * curSpeed
-      checkWallCollision()
+      const stepX = (moveX / mag) * curSpeed
+      const stepY = (moveY / mag) * curSpeed
+
+      // Smooth axis-separated sliding collision
+      if (!checkCollision(player.x + stepX, player.y, 16)) {
+        player.x += stepX
+      }
+      if (!checkCollision(player.x, player.y + stepY, 16)) {
+        player.y += stepY
+      }
     } else {
       player.isWalking = false
     }
@@ -1074,6 +1618,24 @@ function updateFPS() {
   if (gameMode.value === 'practice' && !matchState.isBuyPhase) {
     updateBotsFPS()
   }
+}
+
+function isSolidTile(col, row) {
+  if (row <= 0 || row >= MAP_ROWS - 1 || col <= 0 || col >= MAP_COLS - 1) return true
+  const tile = (WORLD_GRID[row] && WORLD_GRID[row][col]) ?? 1
+  return tile === 1 || tile === 4
+}
+
+function checkCollision(x, y, radius = 16) {
+  const angles = [0, 0.785, 1.57, 2.356, 3.141, 3.926, 4.712, 5.497]
+  for (let i = 0; i < 8; i++) {
+    const px = x + Math.cos(angles[i]) * radius
+    const py = y + Math.sin(angles[i]) * radius
+    const col = Math.floor(px / CELL_SIZE)
+    const row = Math.floor(py / CELL_SIZE)
+    if (isSolidTile(col, row)) return true
+  }
+  return false
 }
 
 function handleSpikeActionsFPS() {
@@ -1117,43 +1679,25 @@ function handleSpikeActionsFPS() {
 
 function hasLineOfSight(x1, y1, x2, y2) {
   const dist = Math.hypot(x2 - x1, y2 - y1)
-  const steps = Math.ceil(dist / 28)
+  if (dist < 10) return true
+  const steps = Math.ceil(dist / 14)
   const dx = (x2 - x1) / steps
   const dy = (y2 - y1) / steps
 
   for (let i = 1; i < steps; i++) {
     const cx = Math.floor((x1 + dx * i) / CELL_SIZE)
     const cy = Math.floor((y1 + dy * i) / CELL_SIZE)
-    if (WORLD_GRID[cy] && (WORLD_GRID[cy][cx] === 1 || WORLD_GRID[cy][cx] === 2 || WORLD_GRID[cy][cx] === 3 || WORLD_GRID[cy][cx] === 4)) {
+    if (isSolidTile(cx, cy)) {
       return false
     }
   }
   return true
 }
 
-function checkBotWallCollision(bot) {
-  const margin = 16
-  const testPoints = [
-    { x: bot.x - margin, y: bot.y },
-    { x: bot.x + margin, y: bot.y },
-    { x: bot.x, y: bot.y - margin },
-    { x: bot.x, y: bot.y + margin }
-  ]
-
-  for (const p of testPoints) {
-    const col = Math.floor(p.x / CELL_SIZE)
-    const row = Math.floor(p.y / CELL_SIZE)
-    if (WORLD_GRID[row] && (WORLD_GRID[row][col] === 1 || WORLD_GRID[row][col] === 2 || WORLD_GRID[row][col] === 3 || WORLD_GRID[row][col] === 4)) {
-      bot.x = Math.max(CELL_SIZE * 1.2, Math.min((MAP_COLS - 1.2) * CELL_SIZE, bot.x))
-      bot.y = Math.max(CELL_SIZE * 1.2, Math.min((MAP_ROWS - 1.2) * CELL_SIZE, bot.y))
-    }
-  }
-}
-
 function updateBotsFPS() {
-  const siteAPos = { x: 20.5 * CELL_SIZE, y: 3.5 * CELL_SIZE }
-  const siteBPos = { x: 20.5 * CELL_SIZE, y: 14.5 * CELL_SIZE }
-  const midPos = { x: 14.0 * CELL_SIZE, y: 8.5 * CELL_SIZE }
+  const siteAPos = { x: 17.0 * CELL_SIZE, y: 3.5 * CELL_SIZE }
+  const siteBPos = { x: 17.0 * CELL_SIZE, y: 14.5 * CELL_SIZE }
+  const midPos = { x: 17.0 * CELL_SIZE, y: 9.0 * CELL_SIZE }
 
   for (const bot of bots) {
     if (bot.isDead) continue
@@ -1202,9 +1746,8 @@ function updateBotsFPS() {
       }
       const strafeX = -Math.sin(bot.angle) * bot.strafeDir * 1.6
       const strafeY = Math.cos(bot.angle) * bot.strafeDir * 1.6
-      bot.x += strafeX
-      bot.y += strafeY
-      checkBotWallCollision(bot)
+      if (!checkCollision(bot.x + strafeX, bot.y, 16)) bot.x += strafeX
+      if (!checkCollision(bot.x, bot.y + strafeY, 16)) bot.y += strafeY
 
       // Burst Fire with Recoil & Spread
       bot.shootCooldown = (bot.shootCooldown || 0) + 1
@@ -1248,9 +1791,10 @@ function updateBotsFPS() {
           bot.hp = Math.min(bot.maxHp, bot.hp + 45)
           playSound('ability')
         } else if (bot.agentKey === 'jett' || bot.agentKey === 'neon') {
-          bot.x += Math.cos(bot.angle + Math.PI / 2 * bot.strafeDir) * 120
-          bot.y += Math.sin(bot.angle + Math.PI / 2 * bot.strafeDir) * 120
-          checkBotWallCollision(bot)
+          const dashX = Math.cos(bot.angle + Math.PI / 2 * bot.strafeDir) * 120
+          const dashY = Math.sin(bot.angle + Math.PI / 2 * bot.strafeDir) * 120
+          if (!checkCollision(bot.x + dashX, bot.y, 16)) bot.x += dashX
+          if (!checkCollision(bot.x, bot.y + dashY, 16)) bot.y += dashY
           playSound('ability')
         }
       }
@@ -1317,7 +1861,7 @@ function updateBotsFPS() {
       }
     }
 
-    // Move toward objective waypoint
+    // Move toward objective waypoint with sliding collision
     const navDx = destPos.x - bot.x
     const navDy = destPos.y - bot.y
     const navDist = Math.hypot(navDx, navDy)
@@ -1325,29 +1869,10 @@ function updateBotsFPS() {
     if (navDist > 40) {
       const targetMoveAngle = Math.atan2(navDy, navDx)
       bot.angle = targetMoveAngle
-      bot.x += (navDx / navDist) * bot.speed
-      bot.y += (navDy / navDist) * bot.speed
-      checkBotWallCollision(bot)
-    }
-  }
-}
-
-function checkWallCollision() {
-  const margin = 18
-  const testPoints = [
-    { x: player.x - margin, y: player.y },
-    { x: player.x + margin, y: player.y },
-    { x: player.x, y: player.y - margin },
-    { x: player.x, y: player.y + margin }
-  ]
-
-  for (const p of testPoints) {
-    const col = Math.floor(p.x / CELL_SIZE)
-    const row = Math.floor(p.y / CELL_SIZE)
-    if (WORLD_GRID[row] && (WORLD_GRID[row][col] === 1 || WORLD_GRID[row][col] === 2 || WORLD_GRID[row][col] === 3 || WORLD_GRID[row][col] === 4)) {
-      // Revert slight offset
-      player.x = Math.max(CELL_SIZE * 1.2, Math.min((MAP_COLS - 1.2) * CELL_SIZE, player.x))
-      player.y = Math.max(CELL_SIZE * 1.2, Math.min((MAP_ROWS - 1.2) * CELL_SIZE, player.y))
+      const bStepX = (navDx / navDist) * bot.speed
+      const bStepY = (navDy / navDist) * bot.speed
+      if (!checkCollision(bot.x + bStepX, bot.y, 16)) bot.x += bStepX
+      if (!checkCollision(bot.x, bot.y + bStepY, 16)) bot.y += bStepY
     }
   }
 }
@@ -1362,194 +1887,324 @@ function renderDOOMScene() {
   if (!canvasRef.value) return
   ctx = canvasRef.value.getContext('2d')
 
-  // 1. Draw DOOM Ceiling & Floor with Depth Gradient
-  const gradCeiling = ctx.createLinearGradient(0, 0, 0, SCREEN_HEIGHT / 2)
-  gradCeiling.addColorStop(0, '#0a0d12')
-  gradCeiling.addColorStop(1, '#182230')
-  ctx.fillStyle = gradCeiling
-  ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT / 2)
+  const isSpectatingDead = player.isDead && currentSpectatedAlly.value
+  const observer = isSpectatingDead ? currentSpectatedAlly.value : player
 
-  const gradFloor = ctx.createLinearGradient(0, SCREEN_HEIGHT / 2, 0, SCREEN_HEIGHT)
-  gradFloor.addColorStop(0, '#1c222b')
-  gradFloor.addColorStop(1, '#0e1217')
-  ctx.fillStyle = gradFloor
-  ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)
+  // 1. Render 3D WebGL GLB Arena with Three.js (Follows spectated teammate if dead)
+  if (threeRenderer && threeScene && threeCamera) {
+    const camX = observer.x
+    const camZ = observer.y
+    const eyeY = 36 + (observer.floorY || observer.currentFloorY || 0)
+    const pitch = observer.pitch || 0
+    const yaw = observer.angle || 0
 
-  // 2. Cast Rays for 3D Walls
-  const zBuffer = new Array(NUM_RAYS).fill(10000)
-  const sliceWidth = SCREEN_WIDTH / NUM_RAYS
-  const projDist = (SCREEN_WIDTH / 2) / Math.tan(FOV / 2)
-
-  for (let i = 0; i < NUM_RAYS; i++) {
-    const rayAngle = (player.angle - FOV / 2) + (i / NUM_RAYS) * FOV
-    const cosAngle = Math.cos(rayAngle)
-    const sinAngle = Math.sin(rayAngle)
-
-    let dist = 0
-    let hitWall = 0
-    let isVertical = false
-
-    // DDA Step
-    while (dist < 1400) {
-      dist += 4
-      const checkX = player.x + cosAngle * dist
-      const checkY = player.y + sinAngle * dist
-      const gridX = Math.floor(checkX / CELL_SIZE)
-      const gridY = Math.floor(checkY / CELL_SIZE)
-
-      if (gridX >= 0 && gridX < MAP_COLS && gridY >= 0 && gridY < MAP_ROWS) {
-        const val = WORLD_GRID[gridY][gridX]
-        if (val === 1 || val === 2 || val === 3 || val === 4) {
-          hitWall = val
-          break
-        }
-      }
-    }
-
-    // Fish-eye correction
-    const correctedDist = dist * Math.cos(rayAngle - player.angle)
-    zBuffer[i] = correctedDist
-
-    // Calculate Slice Height
-    const wallHeight = (CELL_SIZE / correctedDist) * projDist
-    const wallTop = (SCREEN_HEIGHT / 2) - (wallHeight / 2)
-
-    // Distance Shading (DOOM Atmospheric Lighting)
-    const brightness = Math.max(0.12, Math.min(1.0, 500 / correctedDist))
-
-    if (hitWall === 1) {
-      ctx.fillStyle = `rgb(${Math.floor(60 * brightness)}, ${Math.floor(75 * brightness)}, ${Math.floor(95 * brightness)})`
-    } else if (hitWall === 2) {
-      // Site A (Cyan)
-      ctx.fillStyle = `rgb(${Math.floor(0 * brightness)}, ${Math.floor(229 * brightness)}, ${Math.floor(255 * brightness)})`
-    } else if (hitWall === 3) {
-      // Site B (Hazard Gold)
-      ctx.fillStyle = `rgb(${Math.floor(255 * brightness)}, ${Math.floor(190 * brightness)}, ${Math.floor(0 * brightness)})`
-    } else if (hitWall === 4) {
-      // Pillar
-      ctx.fillStyle = `rgb(${Math.floor(140 * brightness)}, ${Math.floor(150 * brightness)}, ${Math.floor(165 * brightness)})`
-    }
-
-    ctx.fillRect(i * sliceWidth, wallTop, sliceWidth + 0.5, wallHeight)
+    threeCamera.position.set(camX, eyeY, camZ)
+    threeCamera.lookAt(
+      camX + Math.cos(yaw) * Math.cos(pitch) * 200,
+      eyeY + Math.sin(pitch) * 200,
+      camZ + Math.sin(yaw) * Math.cos(pitch) * 200
+    )
+    threeRenderer.render(threeScene, threeCamera)
   }
 
-  // 3. Render 3D Billboard Sprites (Bots, Allies, Spike)
-  const sprites = []
+  // 2. Clear 2D HUD Canvas Layer
+  ctx.clearRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)
 
-  // Add Bots
-  for (const bot of bots) {
-    if (!bot.isDead) {
-      sprites.push({
-        x: bot.x, y: bot.y,
-        name: bot.name,
-        agentKey: bot.agentKey,
-        isAlly: bot.team === player.team,
-        hp: bot.hp,
-        type: 'bot'
-      })
-    }
+  if (!isMap3DLoaded.value) {
+    ctx.fillStyle = 'rgba(12, 16, 23, 0.88)'
+    ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)
+    ctx.fillStyle = '#00e5ff'
+    ctx.font = 'bold 18px "Plus Jakarta Sans", sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText('CARGANDO MAPA TÁCTICO 3D...', SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2)
   }
 
-  // Add Multiplayer Remote Players
-  if (gameMode.value === 'multiplayer') {
-    for (const [id, rP] of Object.entries(remotePlayers)) {
-      if (!rP.isDead) {
-        sprites.push({
-          x: rP.x, y: rP.y,
-          name: rP.name || 'Agente',
-          agentKey: rP.agentId || 'jett',
-          isAlly: rP.team === player.team,
-          hp: rP.hp || 100,
+  // 3. Render 3D Billboard Characters & Spike on 2D Overlay
+  if (threeCamera) {
+    const renderList = []
+
+    // Collect bots
+    for (const bot of bots) {
+      if (!bot.isDead && !(isSpectatingDead && bot.id === observer.id)) {
+        renderList.push({
+          id: bot.id,
+          x: bot.x,
+          y: bot.y,
+          floorY: bot.floorY || 0,
+          name: bot.name,
+          agentKey: bot.agentKey,
+          isAlly: bot.team === player.team,
+          hp: bot.hp,
+          maxHp: bot.maxHp || 100,
+          shield: bot.shield || 0,
+          state: bot.state,
           type: 'bot'
         })
       }
     }
-  }
 
-  // Add Spike
-  if (spike.planted) {
-    sprites.push({
-      x: spike.x, y: spike.y,
-      type: 'spike'
+    // Collect remote multiplayer players
+    if (gameMode.value === 'multiplayer') {
+      for (const [id, rP] of Object.entries(remotePlayers)) {
+        if (!rP.isDead && (rP.hp ?? 100) > 0 && !(isSpectatingDead && id === observer.id)) {
+          renderList.push({
+            id: id,
+            x: rP.x ?? 0,
+            y: rP.y ?? 0,
+            floorY: rP.floorY || 0,
+            name: rP.name || 'Rival',
+            agentKey: rP.agentId || 'jett',
+            isAlly: rP.team === player.team,
+            hp: rP.hp ?? 100,
+            maxHp: 100,
+            shield: rP.shield ?? 0,
+            state: 'combat',
+            type: 'bot'
+          })
+        }
+      }
+    }
+
+    // Collect Spike
+    if (spike.planted) {
+      renderList.push({
+        x: spike.x,
+        y: spike.y,
+        floorY: spike.floorY || 0,
+        type: 'spike'
+      })
+    }
+
+    // Sort by distance from active observer
+    renderList.forEach(item => {
+      item.dist = Math.hypot(item.x - observer.x, item.y - observer.y)
     })
-  }
+    renderList.sort((a, b) => b.dist - a.dist)
 
-  // Sort sprites back-to-front
-  sprites.forEach(s => {
-    s.dist = Math.hypot(s.x - player.x, s.y - player.y)
-    let angle = Math.atan2(s.y - player.y, s.x - player.x) - player.angle
-    while (angle < -Math.PI) angle += Math.PI * 2
-    while (angle > Math.PI) angle -= Math.PI * 2
-    s.angle = angle
-  })
-  sprites.sort((a, b) => b.dist - a.dist)
+    const projVec = new THREE.Vector3()
 
-  // Draw Sprites
-  for (const sp of sprites) {
-    if (Math.abs(sp.angle) < FOV) {
-      const screenX = (SCREEN_WIDTH / 2) + Math.tan(sp.angle) * projDist
-      const spriteSize = (CELL_SIZE / sp.dist) * projDist
-      const rayIdx = Math.floor((screenX / SCREEN_WIDTH) * NUM_RAYS)
+    for (const item of renderList) {
+      if (item.dist < 8) continue // Too close to camera
 
-      if (rayIdx >= 0 && rayIdx < NUM_RAYS && sp.dist < zBuffer[rayIdx]) {
-        const topY = (SCREEN_HEIGHT / 2) - (spriteSize / 2)
+      // Calculate 3D center point
+      const entElevation = item.floorY + (item.type === 'spike' ? 10 : 32)
 
-        if (sp.type === 'bot') {
-          // Billboard Body & Face
-          ctx.fillStyle = sp.isAlly ? '#00e5ff' : '#ff4655'
+      // Occlusion culling: do not render characters/spike behind walls
+      if (!hasLineOfSight(observer.x, observer.y, item.x, item.y)) {
+        continue
+      }
+
+      projVec.set(item.x, entElevation, item.y)
+      projVec.project(threeCamera)
+
+      // Only draw if in front of camera frustum
+      if (projVec.z > -1.0 && projVec.z < 1.0) {
+        const screenX = (projVec.x * 0.5 + 0.5) * SCREEN_WIDTH
+        const screenY = (-projVec.y * 0.5 + 0.5) * SCREEN_HEIGHT
+
+        // Screen size inversely proportional to distance
+        const baseSize = item.type === 'spike' ? 56 : 96
+        const spriteSize = Math.max(20, Math.min(280, (baseSize / item.dist) * 450))
+
+        if (item.type === 'bot') {
+          const feetVec = new THREE.Vector3(item.x, item.floorY + 2, item.y).project(threeCamera)
+          const feetX = (feetVec.x * 0.5 + 0.5) * SCREEN_WIDTH
+          const feetY = (-feetVec.y * 0.5 + 0.5) * SCREEN_HEIGHT
+
+          // 1. Team Glow Ring at feet
+          ctx.save()
           ctx.beginPath()
-          ctx.arc(screenX, topY + spriteSize * 0.45, spriteSize * 0.28, 0, Math.PI * 2)
+          ctx.ellipse(feetX, feetY, spriteSize * 0.4, spriteSize * 0.16, 0, 0, Math.PI * 2)
+          ctx.fillStyle = item.isAlly ? 'rgba(0, 229, 255, 0.35)' : 'rgba(255, 70, 85, 0.35)'
+          ctx.fill()
+          ctx.strokeStyle = item.isAlly ? '#00e5ff' : '#ff4655'
+          ctx.lineWidth = Math.max(1.5, spriteSize * 0.035)
+          ctx.stroke()
+          ctx.restore()
+
+          // 2. 2D Billboard Agent Sprite
+          const ag = AGENTS[item.agentKey]
+          const customImg = customSprites[item.agentKey]
+
+          if (customImg && customImg.complete && customImg.naturalWidth > 0) {
+            ctx.drawImage(
+              customImg,
+              screenX - spriteSize / 2,
+              screenY - spriteSize / 2,
+              spriteSize,
+              spriteSize
+            )
+          } else if (spritesheetImg && spritesheetImg.complete && spritesheetImg.naturalWidth > 0 && ag) {
+            const frameW = spritesheetImg.naturalWidth / 4
+            const frameH = spritesheetImg.naturalHeight / 4
+            const sx = (ag.col || 0) * frameW
+            const sy = (ag.row || 0) * frameH
+
+            ctx.imageSmoothingEnabled = false
+            ctx.drawImage(
+              spritesheetImg,
+              sx, sy, frameW, frameH,
+              screenX - spriteSize / 2,
+              screenY - spriteSize / 2,
+              spriteSize,
+              spriteSize
+            )
+          } else {
+            // Fallback Billboard Chibi Circle
+            ctx.beginPath()
+            ctx.arc(screenX, screenY, spriteSize * 0.35, 0, Math.PI * 2)
+            ctx.fillStyle = ag?.color || (item.isAlly ? '#00e5ff' : '#ff4655')
+            ctx.fill()
+            ctx.strokeStyle = '#ffffff'
+            ctx.lineWidth = 2
+            ctx.stroke()
+          }
+
+          // 3. Overhead Tactical Health & Shield Bar
+          const barWidth = Math.max(36, spriteSize * 0.7)
+          const barHeight = Math.max(4, spriteSize * 0.09)
+          const barY = screenY - spriteSize * 0.55 - 12
+
+          ctx.fillStyle = 'rgba(10, 14, 20, 0.85)'
+          ctx.fillRect(screenX - barWidth / 2 - 1, barY - 1, barWidth + 2, barHeight + 2)
+
+          const hpWidth = Math.max(0, (item.hp / item.maxHp) * barWidth)
+          ctx.fillStyle = item.isAlly ? '#00e5ff' : '#ff4655'
+          ctx.fillRect(screenX - barWidth / 2, barY, hpWidth, barHeight)
+
+          // 4. Overhead Name & Status Tag
+          ctx.fillStyle = '#ffffff'
+          ctx.font = `bold ${Math.max(10, Math.min(14, spriteSize * 0.18))}px "Plus Jakarta Sans", sans-serif`
+          ctx.textAlign = 'center'
+          ctx.shadowColor = 'rgba(0,0,0,0.8)'
+          ctx.shadowBlur = 4
+
+          let statusTag = item.name
+          if (item.state === 'planting') statusTag += ' 💣 [PLANTANDO]'
+          if (item.state === 'defusing') statusTag += ' 🛡️ [DESACTIVANDO]'
+          if (item.state === 'Blinded') statusTag += ' 🎯 [CEGADO]'
+
+          ctx.fillText(statusTag, screenX, barY - 4)
+          ctx.shadowBlur = 0
+        } else if (item.type === 'spike') {
+          // Planted Spike 3D Marker
+          ctx.save()
+          const pulse = Math.sin(Date.now() * 0.008) * 0.2 + 1.0
+          ctx.beginPath()
+          ctx.arc(screenX, screenY, spriteSize * 0.3 * pulse, 0, Math.PI * 2)
+          ctx.fillStyle = 'rgba(255, 23, 68, 0.4)'
+          ctx.fill()
+
+          ctx.beginPath()
+          ctx.arc(screenX, screenY, spriteSize * 0.18, 0, Math.PI * 2)
+          ctx.fillStyle = '#ff1744'
           ctx.fill()
           ctx.strokeStyle = '#ffffff'
           ctx.lineWidth = 2
           ctx.stroke()
 
-          // Overhead HP Bar
-          ctx.fillStyle = 'rgba(0,0,0,0.7)'
-          ctx.fillRect(screenX - 30, topY - 14, 60, 6)
-          ctx.fillStyle = sp.isAlly ? '#00e5ff' : '#ff4655'
-          ctx.fillRect(screenX - 30, topY - 14, (sp.hp / 100) * 60, 6)
-
-          // Overhead Name
           ctx.fillStyle = '#ffffff'
-          ctx.font = 'bold 12px sans-serif'
+          ctx.font = 'bold 12px "Plus Jakarta Sans", sans-serif'
           ctx.textAlign = 'center'
-          ctx.fillText(sp.name, screenX, topY - 20)
-        } else if (sp.type === 'spike') {
-          // Spike 3D Beacon
-          ctx.fillStyle = '#ff1744'
-          ctx.beginPath()
-          ctx.arc(screenX, topY + spriteSize * 0.6, spriteSize * 0.2, 0, Math.PI * 2)
-          ctx.fill()
+          ctx.fillText(`SPIKE: ${spike.timer}s`, screenX, screenY - spriteSize * 0.35)
+          ctx.restore()
         }
       }
     }
   }
 
-  // 4. Render DOOM First-Person Animated Weapon
+  // 4. Render Laser Bullet Tracers & Hit Particles
+  renderTracersAndEffects()
+
+  // 5. Render First-Person Animated Weapon
   renderFirstPersonWeapon()
 
-  // 5. Crosshair
-  ctx.strokeStyle = '#00ffff'
-  ctx.lineWidth = 2
-  ctx.beginPath()
-  ctx.moveTo(SCREEN_WIDTH / 2 - 8, SCREEN_HEIGHT / 2)
-  ctx.lineTo(SCREEN_WIDTH / 2 + 8, SCREEN_HEIGHT / 2)
-  ctx.moveTo(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - 8)
-  ctx.lineTo(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 8)
-  ctx.stroke()
+  // 6. Crosshair
+  renderTacticalCrosshair()
 
-  // 6. Tactical DOOM Minimap Radar (Top-Right)
+  // 7. Tactical Radar Minimap (Top-Right)
   renderMinimapRadar()
 }
 
-function renderFirstPersonWeapon() {
-  const bobX = player.isWalking ? Math.sin(player.walkCycle) * 12 : 0
-  const bobY = player.isWalking ? Math.abs(Math.cos(player.walkCycle)) * 10 : 0
-  const gunCenterX = SCREEN_WIDTH / 2 + 110 + bobX
-  const gunCenterY = SCREEN_HEIGHT - 30 + bobY + player.recoilOffset
+function renderTracersAndEffects() {
+  // Laser Bullet Tracers
+  for (const t of bulletTracers) {
+    ctx.save()
+    ctx.beginPath()
+    ctx.moveTo(t.startX, t.startY)
+    ctx.lineTo(t.endX, t.endY)
+    ctx.strokeStyle = t.color
+    ctx.lineWidth = t.width
+    ctx.globalAlpha = Math.max(0, t.alpha)
+    ctx.shadowColor = t.color
+    ctx.shadowBlur = 10
+    ctx.stroke()
+    ctx.restore()
+  }
 
-  // Gun Body (Vandal / DOOM Plasma Cannon vibe)
+  // Hit Spark Particles
+  for (let i = hitParticles.length - 1; i >= 0; i--) {
+    const hp = hitParticles[i]
+    hp.timer--
+    if (hp.timer <= 0) {
+      hitParticles.splice(i, 1)
+      continue
+    }
+    if (threeCamera) {
+      const pVec = new THREE.Vector3(hp.x, 32, hp.y).project(threeCamera)
+      if (pVec.z > -1 && pVec.z < 1) {
+        const sx = (pVec.x * 0.5 + 0.5) * SCREEN_WIDTH
+        const sy = (-pVec.y * 0.5 + 0.5) * SCREEN_HEIGHT
+        ctx.save()
+        ctx.fillStyle = '#ffd700'
+        ctx.shadowColor = '#ff4655'
+        ctx.shadowBlur = 8
+        ctx.beginPath()
+        ctx.arc(sx + (Math.random() - 0.5) * 16, sy + (Math.random() - 0.5) * 16, 3.5, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.restore()
+      }
+    }
+  }
+}
+
+function renderTacticalCrosshair() {
+  const cx = SCREEN_WIDTH / 2
+  const cy = SCREEN_HEIGHT / 2
+  const spread = player.recoilOffset * 0.6 + (player.isWalking ? 4 : 0)
+
+  ctx.save()
+  ctx.strokeStyle = '#00ffff'
+  ctx.lineWidth = 2
+  ctx.shadowColor = '#00e5ff'
+  ctx.shadowBlur = 4
+
+  ctx.beginPath()
+  ctx.moveTo(cx - 10 - spread, cy)
+  ctx.lineTo(cx - 3 - spread, cy)
+  ctx.moveTo(cx + 3 + spread, cy)
+  ctx.lineTo(cx + 10 + spread, cy)
+  ctx.moveTo(cx, cy - 10 - spread)
+  ctx.lineTo(cx, cy - 3 - spread)
+  ctx.moveTo(cx, cy + 3 + spread)
+  ctx.lineTo(cx, cy + 10 + spread)
+  ctx.stroke()
+
+  ctx.fillStyle = '#ffffff'
+  ctx.beginPath()
+  ctx.arc(cx, cy, 1.2, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.restore()
+}
+
+function renderFirstPersonWeapon() {
+  const isSpectatingDead = player.isDead && currentSpectatedAlly.value
+  const bobX = (player.isWalking && !player.isDead) ? Math.sin(player.walkCycle) * 12 : 0
+  const bobY = (player.isWalking && !player.isDead) ? Math.abs(Math.cos(player.walkCycle)) * 10 : 0
+  const gunCenterX = SCREEN_WIDTH / 2 + 110 + bobX
+  const gunCenterY = SCREEN_HEIGHT - 30 + bobY + (player.isDead ? 0 : player.recoilOffset)
+
+  // Gun Body (Tactical Rifle style)
   ctx.fillStyle = '#1c2430'
   ctx.fillRect(gunCenterX - 36, gunCenterY - 130, 72, 140)
 
@@ -1568,7 +2223,7 @@ function renderFirstPersonWeapon() {
   ctx.fill()
 
   // Muzzle Flash
-  if (player.muzzleFlashTimer > 0) {
+  if (!player.isDead && player.muzzleFlashTimer > 0) {
     ctx.fillStyle = '#ffd700'
     ctx.beginPath()
     ctx.arc(gunCenterX, gunCenterY - 200, 32 + Math.random() * 12, 0, Math.PI * 2)
@@ -1585,40 +2240,85 @@ function renderMinimapRadar() {
   const radarX = SCREEN_WIDTH - radarSize - 14
   const radarY = 14
 
-  ctx.fillStyle = 'rgba(10, 14, 20, 0.85)'
+  ctx.save()
+  ctx.fillStyle = 'rgba(10, 14, 20, 0.88)'
   ctx.fillRect(radarX, radarY, radarSize, radarSize)
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)'
-  ctx.lineWidth = 2
+  ctx.lineWidth = 1.5
   ctx.strokeRect(radarX, radarY, radarSize, radarSize)
 
   const scale = radarSize / (MAP_COLS * CELL_SIZE)
 
-  // Draw Player on Radar
-  const pRx = radarX + player.x * scale
-  const pRy = radarY + player.y * scale
+  // Draw Plant Sites A and B on Radar (Green Zones)
+  ctx.fillStyle = 'rgba(0, 255, 136, 0.35)'
+  ctx.fillRect(radarX + 14 * CELL_SIZE * scale, radarY + 2 * CELL_SIZE * scale, 6 * CELL_SIZE * scale, 4 * CELL_SIZE * scale)
+  ctx.fillRect(radarX + 14 * CELL_SIZE * scale, radarY + 13 * CELL_SIZE * scale, 6 * CELL_SIZE * scale, 4 * CELL_SIZE * scale)
 
-  ctx.fillStyle = '#00ffff'
+  ctx.fillStyle = '#00ff88'
+  ctx.font = 'bold 8px sans-serif'
+  ctx.textAlign = 'center'
+  ctx.fillText('SITE A', radarX + 17 * CELL_SIZE * scale, radarY + 4 * CELL_SIZE * scale)
+  ctx.fillText('SITE B', radarX + 17 * CELL_SIZE * scale, radarY + 15 * CELL_SIZE * scale)
+
+  // Draw Central Orange Pillar
+  ctx.fillStyle = '#ff8800'
+  ctx.fillRect(radarX + 15 * CELL_SIZE * scale, radarY + 8 * CELL_SIZE * scale, 4 * CELL_SIZE * scale, 2 * CELL_SIZE * scale)
+
+  const isSpectatingDead = player.isDead && currentSpectatedAlly.value
+  const observer = isSpectatingDead ? currentSpectatedAlly.value : player
+
+  // Draw Observer on Radar
+  const pRx = radarX + observer.x * scale
+  const pRy = radarY + observer.y * scale
+
+  ctx.fillStyle = isSpectatingDead ? '#ffd700' : '#00ffff'
   ctx.beginPath()
-  ctx.arc(pRx, pRy, 4, 0, Math.PI * 2)
+  ctx.arc(pRx, pRy, isSpectatingDead ? 5.5 : 4.5, 0, Math.PI * 2)
   ctx.fill()
+  if (isSpectatingDead) {
+    ctx.strokeStyle = '#ffffff'
+    ctx.lineWidth = 1.5
+    ctx.stroke()
+  }
 
   // FOV Cone on Radar
-  ctx.strokeStyle = 'rgba(0, 229, 255, 0.4)'
+  ctx.strokeStyle = isSpectatingDead ? 'rgba(255, 215, 0, 0.6)' : 'rgba(0, 229, 255, 0.5)'
   ctx.beginPath()
   ctx.moveTo(pRx, pRy)
-  ctx.lineTo(pRx + Math.cos(player.angle - FOV / 2) * 25, pRy + Math.sin(player.angle - FOV / 2) * 25)
+  ctx.lineTo(pRx + Math.cos(observer.angle - FOV / 2) * 26, pRy + Math.sin(observer.angle - FOV / 2) * 26)
   ctx.moveTo(pRx, pRy)
-  ctx.lineTo(pRx + Math.cos(player.angle + FOV / 2) * 25, pRy + Math.sin(player.angle + FOV / 2) * 25)
+  ctx.lineTo(pRx + Math.cos(observer.angle + FOV / 2) * 26, pRy + Math.sin(observer.angle + FOV / 2) * 26)
   ctx.stroke()
 
   // Draw Bots on Radar
   for (const bot of bots) {
-    if (bot.isDead) continue
+    if (bot.isDead || (isSpectatingDead && bot.id === observer.id)) continue
     ctx.fillStyle = bot.team === player.team ? '#00e5ff' : '#ff4655'
     ctx.beginPath()
-    ctx.arc(radarX + bot.x * scale, radarY + bot.y * scale, 3, 0, Math.PI * 2)
+    ctx.arc(radarX + bot.x * scale, radarY + bot.y * scale, 3.5, 0, Math.PI * 2)
     ctx.fill()
   }
+
+  if (gameMode.value === 'multiplayer') {
+    for (const [id, rP] of Object.entries(remotePlayers)) {
+      if (!rP.isDead && (rP.hp ?? 100) > 0 && !(isSpectatingDead && id === observer.id)) {
+        ctx.fillStyle = rP.team === player.team ? '#00e5ff' : '#ff4655'
+        ctx.beginPath()
+        ctx.arc(radarX + (rP.x ?? 0) * scale, radarY + (rP.y ?? 0) * scale, 3.5, 0, Math.PI * 2)
+        ctx.fill()
+      }
+    }
+  }
+
+  // Draw Planted Spike on Radar
+  if (spike.planted) {
+    ctx.fillStyle = '#ff1744'
+    ctx.beginPath()
+    ctx.arc(radarX + spike.x * scale, radarY + spike.y * scale, 4, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  ctx.restore()
 }
 </script>
 
@@ -1796,7 +2496,11 @@ function renderMinimapRadar() {
     <!-- AGENT SELECTOR (PRACTICE MODE) -->
     <div v-if="appState === 'agent_select'" class="modal-overlay">
       <div class="modal-content">
-        <span class="modal-badge">VALORANT DOOM · FIRST PERSON</span>
+        <div class="browser-header">
+          <button class="btn-back-mode" @click="appState = 'mode_select'">← CAMBIAR MODO</button>
+          <span class="modal-badge">VALORANT DOOM · MODO PRÁCTICA</span>
+          <div style="width: 100px;"></div>
+        </div>
         <h2>SELECCIONA TU AGENTE & BANDO</h2>
         <p class="subtitle">19 agentes con perspectiva en primera persona, físicas de disparo y habilidades tácticas.</p>
 
@@ -1844,7 +2548,7 @@ function renderMinimapRadar() {
     </div>
 
     <!-- TOP HEADER -->
-    <header class="match-header-official" v-if="appState === 'playing'">
+    <header class="match-header-official" v-show="appState === 'playing'">
       <div class="roster-side allies">
         <span class="team-badge-text ally">ALIADOS ({{ aliveAllies.length }})</span>
       </div>
@@ -1863,14 +2567,37 @@ function renderMinimapRadar() {
         <div class="hex-score enemy-score">{{ matchState.scoreEnemy }}</div>
       </div>
 
-      <div class="roster-side enemies">
+      <div class="roster-side enemies-and-menu">
         <span class="team-badge-text enemy">RIVALES ({{ aliveEnemies.length }})</span>
+        <button class="btn-pause-menu" @click="togglePauseMenu" title="Menú / Salir de la partida">⚙️ MENÚ (ESC)</button>
       </div>
     </header>
 
     <!-- 3D FIRST PERSON CANVAS VIEWPORT -->
-    <main class="fps-canvas-wrapper" v-if="appState === 'playing'">
-      <canvas ref="canvasRef" width="960" height="500"></canvas>
+    <main class="fps-canvas-wrapper" v-show="appState === 'playing'">
+      <canvas ref="threeCanvasRef" width="960" height="500" class="three-canvas-layer"></canvas>
+      <canvas ref="canvasRef" width="960" height="500" class="hud-canvas-layer"></canvas>
+
+      <!-- SPECTATOR HUD BANNER (CAMERA DE COMPAÑEROS) -->
+      <div v-if="player.isDead && currentSpectatedAlly" class="spectator-hud-overlay">
+        <div class="spectator-card">
+          <div class="spectator-badge-row">
+            <span class="spectator-tag">👁️ MODO ESPECTADOR</span>
+            <span class="spectator-index-tag">ALIADO {{ spectatorIndex + 1 }} DE {{ aliveAlliesList.length }}</span>
+          </div>
+          <div class="spectator-player-row">
+            <span class="spectated-target-name">{{ currentSpectatedAlly.name }}</span>
+            <span class="spectated-agent-pill" :style="{ borderColor: AGENTS[currentSpectatedAlly.agentKey]?.color || '#00e5ff', color: AGENTS[currentSpectatedAlly.agentKey]?.color || '#00e5ff' }">
+              {{ AGENTS[currentSpectatedAlly.agentKey]?.name || 'AGENTE' }}
+            </span>
+          </div>
+          <div class="spectator-controls-help">
+            <button class="btn-spectate-nav" @click.stop="prevSpectateTarget">◀ [A / CLIC DER]</button>
+            <span class="spectator-hint-text">Cambiar Cámara</span>
+            <button class="btn-spectate-nav" @click.stop="nextSpectateTarget">[D / ESPACIO / CLIC IZQ] ▶</button>
+          </div>
+        </div>
+      </div>
 
       <!-- KILLFEED -->
       <div class="killfeed-container">
@@ -1923,42 +2650,79 @@ function renderMinimapRadar() {
       </div>
     </div>
 
+    <!-- PAUSE / IN-GAME MENU MODAL -->
+    <div v-if="isPauseMenuOpen" class="modal-overlay">
+      <div class="modal-content pause-modal-box">
+        <span class="modal-badge">PARTIDA EN CURSO · MENÚ TÁCTICO</span>
+        <h2>PAUSA / OPCIONES</h2>
+        <p class="subtitle">Modo: {{ gameMode === 'practice' ? 'Práctica Offline' : 'Multijugador 5v5' }} · Ronda {{ matchState.round }}</p>
+
+        <div class="pause-menu-actions">
+          <button class="btn-pause-opt resume" @click="isPauseMenuOpen = false">
+            ▶ REANUDAR PARTIDA (ESC)
+          </button>
+          <button v-if="gameMode === 'practice'" class="btn-pause-opt agent" @click="changeAgentInGame">
+            🔄 CAMBIAR AGENTE / BANDO
+          </button>
+          <button class="btn-pause-opt exit" @click="exitToMainMenu">
+            🚪 SALIR AL MENÚ PRINCIPAL (CAMBIAR MODO)
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- RETRO DOOM HUD STATUS BAR -->
-    <footer class="doom-hud-bar" v-if="appState === 'playing'">
+    <footer class="doom-hud-bar" v-show="appState === 'playing'">
       <!-- HP BLOCK -->
       <div class="doom-block">
-        <div class="doom-stat-label">SALUD</div>
-        <div class="doom-stat-val text-cyan">{{ Math.max(0, Math.ceil(player.hp)) }}%</div>
+        <div class="doom-stat-label">{{ player.isDead && currentSpectatedAlly ? 'SALUD (ALIADO)' : 'SALUD' }}</div>
+        <div class="doom-stat-val text-cyan">
+          {{ player.isDead && currentSpectatedAlly ? Math.max(0, Math.ceil(currentSpectatedAlly.hp)) : Math.max(0, Math.ceil(player.hp)) }}%
+        </div>
       </div>
 
       <!-- SHIELD BLOCK -->
       <div class="doom-block">
-        <div class="doom-stat-label">ESCUDO</div>
-        <div class="doom-stat-val text-gold">{{ Math.ceil(player.shield) }}</div>
+        <div class="doom-stat-label">{{ player.isDead && currentSpectatedAlly ? 'ESCUDO (ALIADO)' : 'ESCUDO' }}</div>
+        <div class="doom-stat-val text-gold">
+          {{ player.isDead && currentSpectatedAlly ? Math.ceil(currentSpectatedAlly.shield || 0) : Math.ceil(player.shield) }}
+        </div>
       </div>
 
       <!-- AGENT DOOM FACE IN CENTER -->
       <div class="doom-face-block">
         <div class="doom-face-frame">
-          <div class="doom-face-avatar" :style="{ backgroundColor: AGENTS[selectedAgent]?.color || '#00ffff' }">
-            <span class="doom-face-icon">{{ player.hp <= 30 ? '😵' : (player.ultPoints >= player.maxUltPoints ? '👑' : '😎') }}</span>
+          <div
+            class="doom-face-avatar"
+            :style="{ backgroundColor: player.isDead && currentSpectatedAlly ? (AGENTS[currentSpectatedAlly.agentKey]?.color || '#00ffff') : (AGENTS[selectedAgent]?.color || '#00ffff') }"
+          >
+            <span class="doom-face-icon">{{ player.isDead ? '👁️' : (player.hp <= 30 ? '😵' : (player.ultPoints >= player.maxUltPoints ? '👑' : '😎')) }}</span>
           </div>
         </div>
-        <span class="doom-agent-name">{{ AGENTS[selectedAgent]?.name }}</span>
+        <span class="doom-agent-name">
+          {{ player.isDead && currentSpectatedAlly ? currentSpectatedAlly.name : AGENTS[selectedAgent]?.name }}
+        </span>
       </div>
 
       <!-- AMMO BLOCK -->
       <div class="doom-block">
-        <div class="doom-stat-label">{{ currentWeapon.name.toUpperCase() }}</div>
+        <div class="doom-stat-label">
+          {{ player.isDead && currentSpectatedAlly ? (currentSpectatedAlly.weapon || 'vandal').toUpperCase() : currentWeapon.name.toUpperCase() }}
+        </div>
         <div class="doom-stat-val text-red">
-          {{ player.isReloading ? 'RECARGA' : `${player.ammo} / ${currentWeapon.magSize}` }}
+          {{ player.isDead ? 'EN VIVO' : (player.isReloading ? 'RECARGA' : `${player.ammo} / ${currentWeapon.magSize}`) }}
         </div>
       </div>
 
       <!-- ABILITIES BLOCK -->
       <div class="doom-block abilities-doom">
-        <div class="doom-stat-label">HABILIDADES (CLIC O TECLA)</div>
-        <div class="doom-ability-pills">
+        <div class="doom-stat-label">{{ player.isDead ? 'CÁMARA DE ALIADOS' : 'HABILIDADES (CLIC O TECLA)' }}</div>
+        <div v-if="player.isDead" class="spectator-hud-pills">
+          <button class="btn-spectate-pill" @click="prevSpectateTarget">◀ ANT</button>
+          <span class="spectate-pill-text">{{ spectatorIndex + 1 }}/{{ aliveAlliesList.length }}</span>
+          <button class="btn-spectate-pill" @click="nextSpectateTarget">SIG ▶</button>
+        </div>
+        <div v-else class="doom-ability-pills">
           <span class="ab-badge clickable" @click="triggerAbility('C')">C</span>
           <span class="ab-badge clickable" @click="triggerAbility('Q')">Q</span>
           <span class="ab-badge clickable" @click="triggerAbility('E')">E</span>
@@ -1971,13 +2735,15 @@ function renderMinimapRadar() {
 
 <style scoped>
 .doom-valorant-container {
-  max-width: 960px;
+  width: 100%;
+  max-width: 1240px;
   margin: 0 auto;
   font-family: 'Plus Jakarta Sans', sans-serif;
   color: #ffffff;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding: 0 12px;
 }
 
 /* MODALS */
@@ -2122,16 +2888,35 @@ function renderMinimapRadar() {
 /* FPS CANVAS VIEWPORT */
 .fps-canvas-wrapper {
   position: relative;
-  width: 960px;
-  height: 500px;
+  width: 100%;
+  aspect-ratio: 960 / 500;
+  max-height: 70vh;
   background: #000;
-  border-radius: 10px;
+  border-radius: 12px;
   overflow: hidden;
-  border: 2px solid rgba(255, 255, 255, 0.15);
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
   cursor: crosshair;
 }
 
-canvas { display: block; }
+.three-canvas-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.hud-canvas-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+}
 
 /* RETRO DOOM HUD BAR */
 .doom-hud-bar {
@@ -2275,6 +3060,83 @@ canvas { display: block; }
   to { transform: scale(1.04); }
 }
 
+.enemies-and-menu {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.btn-pause-menu {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-pause-menu:hover {
+  background: rgba(255, 70, 85, 0.25);
+  border-color: #ff4655;
+}
+
+/* PAUSE MODAL */
+.pause-modal-box {
+  max-width: 480px;
+}
+
+.pause-menu-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.btn-pause-opt {
+  width: 100%;
+  padding: 14px;
+  border-radius: 8px;
+  border: none;
+  font-weight: 800;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-pause-opt.resume {
+  background: #00e5ff;
+  color: #000;
+}
+
+.btn-pause-opt.resume:hover {
+  background: #26ecff;
+  transform: translateY(-2px);
+}
+
+.btn-pause-opt.agent {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.btn-pause-opt.agent:hover {
+  background: rgba(255, 255, 255, 0.15);
+  transform: translateY(-2px);
+}
+
+.btn-pause-opt.exit {
+  background: #ff4655;
+  color: #fff;
+}
+
+.btn-pause-opt.exit:hover {
+  background: #ff2a3c;
+  transform: translateY(-2px);
+}
+
 .ab-badge.clickable {
   cursor: pointer;
   transition: all 0.15s;
@@ -2364,4 +3226,130 @@ canvas { display: block; }
 .lobby-actions { display: flex; flex-direction: column; gap: 6px; justify-content: center; }
 .btn-lock-agent { padding: 10px; background: #00e5ff; color: #000; font-weight: 800; border: none; border-radius: 6px; cursor: pointer; }
 .btn-start-match-host { padding: 10px; background: #ff4655; color: #fff; font-weight: 800; border: none; border-radius: 6px; cursor: pointer; }
+
+/* SPECTATOR HUD STYLES */
+.spectator-hud-overlay {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  pointer-events: auto;
+}
+
+.spectator-card {
+  background: rgba(15, 23, 35, 0.92);
+  border: 2px solid #ffd700;
+  box-shadow: 0 0 16px rgba(255, 215, 0, 0.4), inset 0 0 10px rgba(0, 0, 0, 0.6);
+  border-radius: 10px;
+  padding: 8px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 320px;
+}
+
+.spectator-badge-row {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  align-items: center;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.spectator-tag {
+  color: #ffd700;
+  letter-spacing: 1px;
+}
+
+.spectator-index-tag {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: #8c9ba5;
+}
+
+.spectator-player-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0;
+}
+
+.spectated-target-name {
+  font-size: 1.15rem;
+  font-weight: 900;
+  color: #ffffff;
+}
+
+.spectated-agent-pill {
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.spectator-controls-help {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.btn-spectate-nav {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-spectate-nav:hover {
+  background: #ffd700;
+  color: #000;
+  border-color: #ffd700;
+}
+
+.spectator-hint-text {
+  font-size: 0.65rem;
+  color: #8c9ba5;
+  font-weight: 700;
+}
+
+.spectator-hud-pills {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.btn-spectate-pill {
+  background: rgba(255, 215, 0, 0.2);
+  border: 1px solid #ffd700;
+  color: #ffd700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.btn-spectate-pill:hover {
+  background: #ffd700;
+  color: #000;
+}
+
+.spectate-pill-text {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #ffffff;
+}
 </style>

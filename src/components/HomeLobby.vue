@@ -13,23 +13,34 @@ const playerProfile = ref({
 })
 
 const featuredGame = ref({
-  id: 'valorant',
-  title: 'Valorant 2D: Spike Rush',
-  subtitle: 'Tactical 5v5 Spike Plant & Defuse Shooter',
-  tag: '🔥 NUEVO ESTRENO TÁCTICO 5v5',
-  desc: 'Elige tu Agente (Jett, Phoenix, Sova, Brimstone), compra tu arsenal en la fase de compra, domina los mapas tácticos con Site A y Site B, y planta o desactiva la Spike con tu equipo.',
-  icon: '💣',
+  id: 'valoran3d2.0',
+  title: 'Valoran3D 2.0: Tactical Arena',
+  subtitle: 'Shooter Táctico 5v5 con Mapa 3D mapa.glb, Habilidades y Multijugador',
+  tag: '🔥 NUEVO ESTRENO VALORAN3D 2.0',
+  desc: 'Juego táctico definitivo inspirado en Valorant. Carga el mapa 3D mapa.glb, utiliza habilidades únicas (Jett, Phoenix, Sova, Reyna, Sage, Chamber), compra armas con retroceso y penetración, y compite en salas online.',
+  icon: '🔥',
   accentColor: '#ff4655'
 })
 
 const games = [
+  {
+    id: 'valoran3d2.0',
+    title: 'Valoran3D 2.0: Tactical Arena',
+    category: 'Shooter Táctico 3D/2D 5v5',
+    desc: 'Motor 3D Three.js con mapa.glb, agentes completos, habilidades C/Q/E/X, economía, Spike plant/defuse y salas multijugador online.',
+    icon: '🔥',
+    badge: 'Nuevo · 3D Engine',
+    rating: '5.0 ⭐',
+    difficulty: 'Táctico / Competitivo',
+    tags: ['Valorant 3D', 'Spike Plant', 'Multijugador', 'Habilidades']
+  },
   {
     id: 'valorant',
     title: 'Valorant 2D: Spike Rush',
     category: 'Shooter Táctico 5v5',
     desc: 'Elige tu bando (Atacante/Defensor), compra armas tácticas (Vandal, Phantom, Operator), usa habilidades de Agentes y defiende los Sites.',
     icon: '💣',
-    badge: 'Nuevo · 5v5',
+    badge: '5v5 Clásico',
     rating: '5.0 ⭐',
     difficulty: 'Táctico / Habilidades',
     tags: ['Valorant', 'Spike Plant', 'Habilidades', 'Agentes']
