@@ -181,10 +181,10 @@ export class WeaponSystem3D {
 
     // Smooth ADS Transition (0: Hipfire, 1: Aiming Down Sights)
     const targetAds = (isAiming && !isReloading) ? 1.0 : 0.0
-    this.adsProgress = THREE.MathUtils.lerp(this.adsProgress, targetAds, dt * 16.0)
+    this.adsProgress = THREE.MathUtils.lerp(this.adsProgress, targetAds, dt * 18.0)
 
-    // Dynamic FOV Zoom (Punchy optical zoom in ADS)
-    const targetFov = isSniper ? 20.0 : 42.0
+    // Dynamic FOV Zoom (Comfortable 1.4x zoom in ADS, high zoom for Snipers)
+    const targetFov = isSniper ? 20.0 : 54.0
     const currentFov = THREE.MathUtils.lerp(baseFov, targetFov, this.adsProgress)
     if (Math.abs(this.camera.fov - currentFov) > 0.01) {
       this.camera.fov = currentFov
@@ -192,20 +192,20 @@ export class WeaponSystem3D {
     }
 
     // Natural Idle Breathing Bobbing (stabilized in ADS)
-    const bobFactor = THREE.MathUtils.lerp(1.0, 0.15, this.adsProgress)
+    const bobFactor = THREE.MathUtils.lerp(1.0, 0.1, this.adsProgress)
     const idleBobX = Math.sin(this.idleTimer * 1.5) * 0.002 * bobFactor
     const idleBobY = Math.cos(this.idleTimer * 3.0) * 0.002 * bobFactor
 
     // Coordinates calibrated for the animated AK-74u character model:
     // Hipfire Coordinates (Comfortably placed on bottom-right viewport)
-    const hipX = 0.06 + this.swayX * 0.4 + idleBobX
-    const hipY = -1.62 + this.swayY * 0.4 + idleBobY + this.recoil * 0.02
+    const hipX = 0.07 + this.swayX * 0.4 + idleBobX
+    const hipY = -1.63 + this.swayY * 0.4 + idleBobY + this.recoil * 0.02
     const hipZ = -0.26 + this.recoil * 0.05
 
-    // ADS Coordinates (Center aligned iron sights)
-    const adsX = -0.067 + this.swayX * 0.06 + idleBobX
-    const adsY = -1.558 + this.swayY * 0.06 + idleBobY + this.recoil * 0.01
-    const adsZ = -0.20 + this.recoil * 0.02
+    // ADS Coordinates (Lowered gun body for crystal clear target visibility and perfect sight line alignment)
+    const adsX = -0.067 + this.swayX * 0.04 + idleBobX
+    const adsY = -1.585 + this.swayY * 0.04 + idleBobY + this.recoil * 0.005
+    const adsZ = -0.22 + this.recoil * 0.01
 
     this.gunGroup.position.x = THREE.MathUtils.lerp(hipX, adsX, this.adsProgress)
     this.gunGroup.position.y = THREE.MathUtils.lerp(hipY, adsY, this.adsProgress)
@@ -216,8 +216,8 @@ export class WeaponSystem3D {
     const hipRotY = (Math.random() - 0.5) * this.recoil * 0.02 + this.swayX * 1.0
     const hipRotZ = -this.swayX * 0.8
 
-    const adsRotX = this.recoil * 0.04 - this.swayY * 0.15
-    const adsRotY = this.swayX * 0.15
+    const adsRotX = this.recoil * 0.02 - this.swayY * 0.08
+    const adsRotY = this.swayX * 0.08
     const adsRotZ = 0
 
     this.gunGroup.rotation.x = THREE.MathUtils.lerp(hipRotX, adsRotX, this.adsProgress)
@@ -277,8 +277,8 @@ export class WeaponSystem3D {
       this.playAnimation('SHOOT', false, 2.2)
     }
 
-    // Recoil kick & Visual Muzzle Flash (reduced in ADS)
-    const recoilKick = (wep.recoil || 0.35) * (isAiming ? 0.5 : 1.0)
+    // Recoil kick & Visual Muzzle Flash (reduced by 75% in ADS for superior precision)
+    const recoilKick = (wep.recoil || 0.35) * (isAiming ? 0.25 : 1.0)
     this.recoil = Math.min(1.0, this.recoil + recoilKick)
     this.flashTimer = 0.06
 
@@ -296,12 +296,14 @@ export class WeaponSystem3D {
     const origin = new THREE.Vector3(shooter.pos.x, shooter.pos.y, shooter.pos.z)
     const dir = new THREE.Vector3(0, 0, -1).applyEuler(this.camera.rotation)
 
-    // Spread (reduced in ADS)
+    // Spread (Zero spread in ADS = Pinpoint Laser Precision!)
     const baseSpread = shooter.isSilent ? 0 : wep.spread
-    const spreadVal = baseSpread * (isAiming ? 0.2 : 1.0)
-    dir.x += (Math.random() - 0.5) * spreadVal
-    dir.y += (Math.random() - 0.5) * spreadVal
-    dir.normalize()
+    const spreadVal = isAiming ? 0.0 : baseSpread
+    if (spreadVal > 0) {
+      dir.x += (Math.random() - 0.5) * spreadVal
+      dir.y += (Math.random() - 0.5) * spreadVal
+      dir.normalize()
+    }
     raycaster.set(origin, dir)
 
     // 1. Raycast against World Geometry (Walls, Obstacles, Platforms)

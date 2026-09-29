@@ -37,14 +37,26 @@ const settings = reactive({
   fov: 75
 })
 
+// Custom 1v1 & Match Settings (1v1.LOL Style)
+const customSettings = reactive({
+  gameType: '1V1_DUEL', // '1V1_DUEL', 'CUSTOM_MATCH', 'CLASSIC_5V5'
+  enableBots: true,
+  enemyBotCount: 1, // 0 to 5 (0 = 1v1 PvP puro sin bots)
+  allyBotCount: 0,  // 0 to 4
+  maxRounds: 5,     // First to 5
+  roundDuration: 90,
+  startingCredits: 5000,
+  infiniteAmmo: false
+})
+
 // Match Stats & Phases
 const match = reactive({
   round: 1,
-  maxRounds: 13,
+  maxRounds: 5,
   scoreAtk: 0,
   scoreDef: 0,
   phase: 'BUY_PHASE', // 'BUY_PHASE', 'ROUND_ACTIVE', 'ROUND_ENDED'
-  timer: 20,
+  timer: 15,
   winner: null,
   announcement: ''
 })
@@ -933,6 +945,16 @@ function setup3DBots() {
     return
   }
 
+  // If online multiplayer without bots or bots disabled
+  if (isOnline.value && (!customSettings.enableBots || customSettings.enemyBotCount === 0)) {
+    return
+  }
+
+  // If bots are disabled in custom match
+  if (!customSettings.enableBots) {
+    return
+  }
+
   const mySlots = player.team === 'attackers' ? MAP_3D.spawnAtkSlots : MAP_3D.spawnDefSlots
   const enemySlots = player.team === 'attackers' ? MAP_3D.spawnDefSlots : MAP_3D.spawnAtkSlots
 
@@ -942,9 +964,10 @@ function setup3DBots() {
   player.pos.y = mySpawn.y
   player.pos.z = mySpawn.z
 
-  // 4 Allies take slots 0, 1, 3, 4
+  // Spawn Allies based on custom match settings
+  const numAllies = Math.max(0, Math.min(customSettings.allyBotCount, 4))
   const allySlotIndices = [0, 1, 3, 4]
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < numAllies; i++) {
     const slot = mySlots[allySlotIndices[i]]
     players.value.push({
       id: `ally_${i}`,
@@ -959,13 +982,14 @@ function setup3DBots() {
     })
   }
 
-  // 5 Enemies take the 5 slots of the enemy team
+  // Spawn Enemies based on custom match settings (e.g. 1 for 1v1 duel)
+  const numEnemies = Math.max(0, Math.min(customSettings.enemyBotCount, 5))
   const enemyTeam = player.team === 'attackers' ? 'defenders' : 'attackers'
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < numEnemies; i++) {
     const slot = enemySlots[i]
     players.value.push({
       id: `enemy_${i}`,
-      name: `Rival ${i + 1}`,
+      name: numEnemies === 1 ? 'Rival 1v1' : `Rival ${i + 1}`,
       team: enemyTeam,
       agentId: botAgents[(i + 2) % botAgents.length],
       pos: { x: slot.x, y: slot.y, z: slot.z },
@@ -1331,7 +1355,34 @@ function setupOnlinePlayers(room) {
   })
 }
 
+function start1v1Duel() {
+  customSettings.gameType = '1V1_DUEL'
+  customSettings.enableBots = true
+  customSettings.enemyBotCount = 1
+  customSettings.allyBotCount = 0
+  customSettings.maxRounds = 5
+  match.maxRounds = 5
+  player.credits = 5000
+  gameMode.value = 'IN_GAME'
+  resetRound(true)
+  setTimeout(requestPointerLock, 100)
+}
+
+function startCustomMatch() {
+  customSettings.gameType = 'CUSTOM_MATCH'
+  match.maxRounds = customSettings.maxRounds
+  player.credits = customSettings.startingCredits
+  gameMode.value = 'IN_GAME'
+  resetRound(true)
+  setTimeout(requestPointerLock, 100)
+}
+
 function startStandardGame() {
+  customSettings.gameType = 'CLASSIC_5V5'
+  customSettings.enableBots = true
+  customSettings.enemyBotCount = 5
+  customSettings.allyBotCount = 4
+  match.maxRounds = 13
   gameMode.value = 'AGENT_SELECT'
 }
 
@@ -1373,26 +1424,142 @@ function buyItem(item) {
     <!-- MAIN MENU OVERLAY -->
     <div v-if="gameMode === 'MENU'" class="menu-overlay">
       <div class="menu-header">
-        <div class="logo-badge">VALORAN3D 2.0</div>
-        <h1 class="game-title">TACTICAL 3D FPS ARENA</h1>
-        <p class="game-subtitle">Motor 3D Three.js con mapa.glb, Balística, Habilidades y Multijugador</p>
+        <div class="logo-badge">ARENA 1v1 // FPS TÁCTICO</div>
+        <h1 class="game-title">1v1.LOL 3D TACTICAL ARENA</h1>
+        <p class="game-subtitle">Duelos 1v1 Rápidos, Partidas Personalizadas con Bots Configurables y Multijugador</p>
       </div>
 
       <div class="menu-nav-tabs">
-        <button class="menu-tab" :class="{ active: activeTab === 'play' }" @click="activeTab = 'play'">⚔️ JUGAR 3D</button>
-        <button class="menu-tab" :class="{ active: activeTab === 'training' }" @click="activeTab = 'training'">🎯 PRÁCTICA 3D</button>
-        <button class="menu-tab" :class="{ active: activeTab === 'agents' }" @click="activeTab = 'agents'">👥 AGENTES</button>
+        <button class="menu-tab" :class="{ active: activeTab === 'play' }" @click="activeTab = 'play'">⚔️ DUELO 1v1</button>
+        <button class="menu-tab" :class="{ active: activeTab === 'custom' }" @click="activeTab = 'custom'">🛠️ PERSONALIZADA</button>
+        <button class="menu-tab" :class="{ active: activeTab === 'training' }" @click="activeTab = 'training'">🎯 PRÁCTICA</button>
+        <button class="menu-tab" :class="{ active: activeTab === 'multiplayer' }" @click="activeTab = 'multiplayer'">🌐 MULTIJUGADOR 1v1</button>
         <button class="menu-tab" :class="{ active: activeTab === 'weapons' }" @click="activeTab = 'weapons'">🔫 ARMAS</button>
-        <button class="menu-tab" :class="{ active: activeTab === 'multiplayer' }" @click="activeTab = 'multiplayer'">🌐 MULTIJUGADOR</button>
+        <button class="menu-tab" :class="{ active: activeTab === 'agents' }" @click="activeTab = 'agents'">👥 AGENTES</button>
       </div>
 
-      <!-- PLAY TAB -->
+      <!-- PLAY / 1V1 TAB -->
       <div v-if="activeTab === 'play'" class="tab-content">
-        <div class="mode-card" @click="startStandardGame">
-          <div class="mode-icon">💣</div>
-          <h3>PARTIDA CLÁSICA 5v5 3D</h3>
-          <p>Shooter táctico en primera persona 3D con plantado y desactivación de Spike en Haven 3D.</p>
-          <button class="btn-primary">ENTRAR A LA ARENA</button>
+        <div class="modes-grid-duels">
+          <!-- 1v1 Duel Mode Card -->
+          <div class="mode-card featured-1v1" @click="start1v1Duel">
+            <div class="mode-badge-top">🔥 MODO 1v1 INMEDIATO</div>
+            <div class="mode-icon">⚡</div>
+            <h3>DUELO 1v1 RÁPIDO (1v1.LOL STYLE)</h3>
+            <p>Enfréntate directamente en combate individual 1 contra 1. Sin aliados que molesten, solo tú y tu rival. ¡El primero a 5 rondas gana!</p>
+            <button class="btn-primary-glow">⚔️ ENTRAR AL DUELO 1v1</button>
+          </div>
+
+          <!-- Custom Match Shortcut Card -->
+          <div class="mode-card" @click="activeTab = 'custom'">
+            <div class="mode-icon">🛠️</div>
+            <h3>PARTIDA PERSONALIZADA</h3>
+            <p>Elige si quieres bots o no, selecciona cuántos rivales meter (0 a 5 bots) y las rondas a jugar.</p>
+            <button class="btn-secondary">CONFIGURAR BOTS Y REGLAS</button>
+          </div>
+
+          <!-- 5v5 Tactical Mode Card -->
+          <div class="mode-card" @click="startStandardGame">
+            <div class="mode-icon">💣</div>
+            <h3>PARTIDA EN EQUIPO 5v5</h3>
+            <p>Enfrentamiento táctico con plantado y desactivación de Spike en Haven 3D.</p>
+            <button class="btn-secondary">JUGAR 5v5</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- CUSTOM MATCH TAB -->
+      <div v-if="activeTab === 'custom'" class="tab-content custom-panel-tab">
+        <div class="custom-setup-box">
+          <div class="custom-box-header">
+            <h3>⚙️ CONFIGURACIÓN DE PARTIDA PERSONALIZADA (1v1 / FFA)</h3>
+            <p>Decide si entran bots, cuántos rivales meter y las reglas de la arena.</p>
+          </div>
+
+          <div class="custom-options-grid">
+            <!-- Toggle Bots -->
+            <div class="custom-opt-item">
+              <label class="opt-label">🤖 ¿INCLUIR BOTS EN LA PARTIDA?</label>
+              <div class="opt-btn-group">
+                <button 
+                  class="btn-opt" 
+                  :class="{ active: customSettings.enableBots }" 
+                  @click="customSettings.enableBots = true; if(customSettings.enemyBotCount === 0) customSettings.enemyBotCount = 1"
+                >🟢 SÍ, METER BOTS</button>
+                <button 
+                  class="btn-opt" 
+                  :class="{ active: !customSettings.enableBots }" 
+                  @click="customSettings.enableBots = false; customSettings.enemyBotCount = 0; customSettings.allyBotCount = 0"
+                >🔴 NO, SIN BOTS (SOLO TÚ / 1v1 PVP)</button>
+              </div>
+            </div>
+
+            <!-- Enemy Bots Count -->
+            <div v-if="customSettings.enableBots" class="custom-opt-item">
+              <label class="opt-label">🎯 CANTIDAD DE BOTS ENEMIGOS / RIVALES:</label>
+              <div class="bot-count-selector">
+                <button 
+                  v-for="count in [0, 1, 2, 3, 4, 5]" 
+                  :key="'enemy_' + count" 
+                  class="btn-count" 
+                  :class="{ active: customSettings.enemyBotCount === count }"
+                  @click="customSettings.enemyBotCount = count"
+                >
+                  {{ count === 0 ? '0 (Sin Rivales)' : (count === 1 ? '1 (Duelo 1v1)' : `${count} Rivales`) }}
+                </button>
+              </div>
+            </div>
+
+            <!-- Ally Bots Count -->
+            <div v-if="customSettings.enableBots" class="custom-opt-item">
+              <label class="opt-label">👥 CANTIDAD DE BOTS ALIADOS EN TU EQUIPO:</label>
+              <div class="bot-count-selector">
+                <button 
+                  v-for="count in [0, 1, 2, 3, 4]" 
+                  :key="'ally_' + count" 
+                  class="btn-count" 
+                  :class="{ active: customSettings.allyBotCount === count }"
+                  @click="customSettings.allyBotCount = count"
+                >
+                  {{ count === 0 ? '0 (Solo Tú - Duelo)' : `${count} Aliados` }}
+                </button>
+              </div>
+            </div>
+
+            <!-- Rounds to Win -->
+            <div class="custom-opt-item">
+              <label class="opt-label">🏆 RONDAS PARA GANAR LA PARTIDA:</label>
+              <div class="opt-btn-group">
+                <button 
+                  v-for="r in [3, 5, 7, 13]" 
+                  :key="'rounds_' + r" 
+                  class="btn-opt" 
+                  :class="{ active: customSettings.maxRounds === r }" 
+                  @click="customSettings.maxRounds = r"
+                >{{ r }} RONDAS</button>
+              </div>
+            </div>
+
+            <!-- Starting Credits -->
+            <div class="custom-opt-item">
+              <label class="opt-label">💰 CRÉDITOS INICIALES PARA ARMAS:</label>
+              <div class="opt-btn-group">
+                <button 
+                  v-for="c in [800, 2900, 5000, 9999]" 
+                  :key="'cred_' + c" 
+                  class="btn-opt" 
+                  :class="{ active: customSettings.startingCredits === c }" 
+                  @click="customSettings.startingCredits = c"
+                >${{ c }}</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="custom-launch-bar">
+            <button class="btn-start-custom" @click="startCustomMatch">
+              🚀 INICIAR PARTIDA PERSONALIZADA ({{ customSettings.enemyBotCount === 1 ? '1v1 DUEL' : customSettings.enemyBotCount + ' RIVALES' }})
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1675,8 +1842,16 @@ function buyItem(item) {
         <div v-if="hitmarkerActive" class="hitmarker scope-hit" :class="{ headshot: hitmarkerHeadshot }">✕</div>
       </div>
 
-      <!-- Tactical ADS Optic Focus Vignette (For Assault Rifles, SMGs, Pistols) -->
+      <!-- Tactical ADS Optic Focus Vignette & Precision Reflex Reticle (For Rifles, SMGs, Pistols) -->
       <div v-if="player.alive && isAiming && (WEAPONS[player.weapon]?.category !== WEAPON_CATEGORIES.SNIPERS)" class="ads-focus-overlay"></div>
+      <div v-if="player.alive && isAiming && (WEAPONS[player.weapon]?.category !== WEAPON_CATEGORIES.SNIPERS)" class="ads-reflex-reticle">
+        <div class="reflex-glow-ring"></div>
+        <div class="reflex-center-dot" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+        <div class="reflex-side-notch notch-left"></div>
+        <div class="reflex-side-notch notch-right"></div>
+        <div class="reflex-bottom-post"></div>
+        <div v-if="hitmarkerActive" class="hitmarker" :class="{ headshot: hitmarkerHeadshot }">✕</div>
+      </div>
 
       <!-- Tactical Minimap Radar -->
       <div class="radar-container">
@@ -2739,6 +2914,255 @@ function buyItem(item) {
 
 .spec-divider {
   color: rgba(255, 255, 255, 0.2);
+}
+
+/* 1V1 DUELS & MODES GRID */
+.modes-grid-duels {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
+  gap: 20px;
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.mode-card.featured-1v1 {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(15, 23, 42, 0.95));
+  border: 2px solid #ff4655;
+  box-shadow: 0 0 30px rgba(255, 70, 85, 0.25);
+  position: relative;
+  overflow: hidden;
+}
+
+.mode-badge-top {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  background: #ff4655;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 900;
+  padding: 3px 8px;
+  border-radius: 4px;
+  letter-spacing: 1px;
+}
+
+.btn-primary-glow {
+  background: linear-gradient(135deg, #ff4655, #f43f5e);
+  color: #ffffff;
+  border: none;
+  padding: 12px 20px;
+  border-radius: 6px;
+  font-weight: 900;
+  font-size: 1rem;
+  cursor: pointer;
+  letter-spacing: 1px;
+  box-shadow: 0 0 20px rgba(255, 70, 85, 0.5);
+  transition: all 0.2s;
+  width: 100%;
+  margin-top: auto;
+}
+
+.btn-primary-glow:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 28px rgba(255, 70, 85, 0.7);
+}
+
+/* CUSTOM MATCH SETUP PANEL */
+.custom-panel-tab {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.custom-setup-box {
+  background: rgba(15, 23, 42, 0.9);
+  border: 1.5px solid rgba(56, 189, 248, 0.35);
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 850px;
+  width: 100%;
+  box-shadow: 0 0 30px rgba(0, 0, 0, 0.7);
+}
+
+.custom-box-header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 14px;
+  margin-bottom: 18px;
+}
+
+.custom-box-header h3 {
+  margin: 0;
+  font-size: 1.3rem;
+  color: #38bdf8;
+  font-weight: 900;
+}
+
+.custom-box-header p {
+  margin: 4px 0 0 0;
+  color: #94a3b8;
+  font-size: 0.85rem;
+}
+
+.custom-options-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.custom-opt-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.opt-label {
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: #e2e8f0;
+}
+
+.opt-btn-group {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.btn-opt {
+  background: rgba(30, 41, 59, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #94a3b8;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-opt:hover {
+  background: rgba(56, 189, 248, 0.15);
+  color: #ffffff;
+}
+
+.btn-opt.active {
+  background: #38bdf8;
+  color: #0f172a;
+  border-color: #38bdf8;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.4);
+}
+
+.bot-count-selector {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.btn-count {
+  background: rgba(30, 41, 59, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #cbd5e1;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-count:hover {
+  background: rgba(255, 70, 85, 0.15);
+}
+
+.btn-count.active {
+  background: #ff4655;
+  color: #ffffff;
+  border-color: #ff4655;
+  box-shadow: 0 0 12px rgba(255, 70, 85, 0.4);
+}
+
+.custom-launch-bar {
+  margin-top: 22px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 16px;
+}
+
+.btn-start-custom {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #ffffff;
+  border: none;
+  padding: 14px;
+  border-radius: 8px;
+  font-weight: 900;
+  font-size: 1.1rem;
+  cursor: pointer;
+  width: 100%;
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
+  transition: all 0.2s;
+}
+
+.btn-start-custom:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 30px rgba(16, 185, 129, 0.6);
+}
+
+/* ADS HOLOGRAPHIC REFLEX RETICLE */
+.ads-reflex-reticle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 32px;
+  height: 32px;
+  pointer-events: none;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.reflex-center-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  box-shadow: 0 0 6px #00f3ff, 0 0 14px #00f3ff, 0 0 22px #00f3ff;
+}
+
+.reflex-glow-ring {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border: 1.5px dashed rgba(0, 243, 255, 0.45);
+  border-radius: 50%;
+  animation: reflexPulse 2s infinite ease-in-out;
+}
+
+@keyframes reflexPulse {
+  0%, 100% { transform: scale(1); opacity: 0.5; }
+  50% { transform: scale(1.08); opacity: 0.85; }
+}
+
+.reflex-side-notch {
+  position: absolute;
+  width: 5px;
+  height: 1.5px;
+  background: rgba(0, 243, 255, 0.6);
+}
+
+.reflex-side-notch.notch-left {
+  left: 0;
+}
+
+.reflex-side-notch.notch-right {
+  right: 0;
+}
+
+.reflex-bottom-post {
+  position: absolute;
+  bottom: 0;
+  width: 1.5px;
+  height: 4px;
+  background: rgba(0, 243, 255, 0.6);
 }
 
 </style>
