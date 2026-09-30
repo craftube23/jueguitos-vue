@@ -81,7 +81,7 @@ export class PlayerController3D {
     this.pitch = Math.max(-Math.PI / 2.15, Math.min(Math.PI / 2.15, this.pitch))
   }
 
-  update(dt, keys, isSlowed = false, isStimmed = false) {
+  update(dt, keys, isSlowed = false, isStimmed = false, isThirdPerson = false) {
     // 1. Update Camera Rotation (Yaw/Pitch)
     this.camera.rotation.order = 'YXZ'
     this.camera.rotation.y = this.yaw
@@ -188,9 +188,47 @@ export class PlayerController3D {
       }
     }
 
-    // Camera Bobbing
+    // Camera Positioning
     const bobOffset = (len > 0 && this.onGround) ? Math.sin(this.walkBobTimer) * 0.04 : 0
-    this.camera.position.set(this.position.x, this.position.y + bobOffset, this.position.z)
+
+    if (isThirdPerson) {
+      // Third Person Over-the-Shoulder Camera
+      const headPos = new THREE.Vector3(this.position.x, this.position.y + 0.15, this.position.z)
+
+      const forward = new THREE.Vector3(0, 0, -1)
+      forward.applyAxisAngle(new THREE.Vector3(1, 0, 0), this.pitch)
+      forward.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw)
+
+      const right = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw)
+
+      const maxDist = 2.7
+      const shoulderOffset = 0.42
+      const heightOffset = 0.28
+
+      const targetCamPos = headPos.clone()
+        .add(new THREE.Vector3(0, heightOffset, 0))
+        .add(right.clone().multiplyScalar(shoulderOffset))
+        .sub(forward.clone().multiplyScalar(maxDist))
+
+      // Raycast from head to targetCamPos to prevent camera from clipping inside walls
+      if (this.meshColliders && this.meshColliders.length > 0) {
+        const rayDir = new THREE.Vector3().subVectors(targetCamPos, headPos)
+        const rayDist = rayDir.length()
+        if (rayDist > 0.01) {
+          rayDir.normalize()
+          const camRay = new THREE.Raycaster(headPos, rayDir, 0.1, rayDist)
+          const hits = camRay.intersectObjects(this.meshColliders, false)
+          if (hits.length > 0 && hits[0].distance < rayDist) {
+            const safeDist = Math.max(0.3, hits[0].distance - 0.25)
+            targetCamPos.copy(headPos).add(rayDir.multiplyScalar(safeDist))
+          }
+        }
+      }
+
+      this.camera.position.copy(targetCamPos)
+    } else {
+      this.camera.position.set(this.position.x, this.position.y + bobOffset, this.position.z)
+    }
   }
 
   resolveCollisions(currX, currZ, targetX, targetZ) {

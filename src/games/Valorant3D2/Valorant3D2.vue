@@ -565,7 +565,7 @@ function updateGame3D(dt) {
 
   // Update Player Controller
   playerController.isLocked = isPointerLocked.value
-  playerController.update(dt, keys, player.isSlowed, player.isStimmed)
+  playerController.update(dt, keys, player.isSlowed, player.isStimmed, isThirdPerson.value)
   player.pos.x = playerController.position.x
   player.pos.y = playerController.position.y
   player.pos.z = playerController.position.z
@@ -596,6 +596,9 @@ function updateGame3D(dt) {
   const isSniper = wep.category === WEAPON_CATEGORIES.SNIPERS
   const reloadProgress = player.isReloading ? (1.0 - player.reloadTimer / (wep.reloadTime || 2.2)) : 0
   weaponSystem.update(dt, player.isReloading, reloadProgress, isAiming.value, settings.fov, isSniper)
+  if (isThirdPerson.value && weaponSystem && weaponSystem.gunGroup) {
+    weaponSystem.gunGroup.visible = false
+  }
 
   // Dynamically scale mouse sensitivity with camera zoom
   if (camera && playerController) {
@@ -678,7 +681,13 @@ function updatePlayer3DMeshes() {
         charClone.scale.set(0.01, 0.01, 0.01)
         charClone.rotation.y = 0
 
+        const bones = {}
+        const baseRot = {}
         charClone.traverse((c) => {
+          if (c.isBone) {
+            bones[c.name] = c
+            baseRot[c.name] = { x: c.rotation.x, y: c.rotation.y, z: c.rotation.z }
+          }
           if (c.isMesh) {
             c.castShadow = true
             c.receiveShadow = true
@@ -693,6 +702,55 @@ function updatePlayer3DMeshes() {
             }
           }
         })
+
+        // Tactical 3D Rifle Prop attached to Right Hand
+        if (bones['CC_Base_R_Hand_013']) {
+          const rifleGroup = new THREE.Group()
+          const gunMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.35, metalness: 0.75 })
+          const gunTrimMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.25, metalness: 0.9 })
+
+          // Rifle Receiver / Body
+          const gunBodyGeo = new THREE.BoxGeometry(4.2, 8.5, 42)
+          const gunBody = new THREE.Mesh(gunBodyGeo, gunMat)
+          gunBody.position.set(0, 2, 8)
+          rifleGroup.add(gunBody)
+
+          // Long Tactical Barrel & Flash Hider
+          const barrelGeo = new THREE.CylinderGeometry(1.2, 1.2, 28, 8)
+          barrelGeo.rotateX(Math.PI / 2)
+          const barrel = new THREE.Mesh(barrelGeo, gunTrimMat)
+          barrel.position.set(0, 3.2, 38)
+          rifleGroup.add(barrel)
+
+          // Curved Magazine
+          const magGeo = new THREE.BoxGeometry(3.0, 14, 8)
+          magGeo.rotateX(-0.25)
+          const mag = new THREE.Mesh(magGeo, gunTrimMat)
+          mag.position.set(0, -6.5, 12)
+          rifleGroup.add(mag)
+
+          // Red Dot Sight Optic
+          const opticGeo = new THREE.BoxGeometry(3.2, 4.5, 9)
+          const optic = new THREE.Mesh(opticGeo, gunMat)
+          optic.position.set(0, 8.5, 6)
+          rifleGroup.add(optic)
+
+          // Tactical Stock
+          const stockGeo = new THREE.BoxGeometry(3.6, 7.5, 16)
+          const stock = new THREE.Mesh(stockGeo, gunMat)
+          stock.position.set(0, 1.5, -16)
+          rifleGroup.add(stock)
+
+          rifleGroup.rotation.set(-Math.PI / 2, 0, Math.PI / 2)
+          bones['CC_Base_R_Hand_013'].add(rifleGroup)
+        }
+
+        mesh.userData.bones = bones
+        mesh.userData.baseRot = baseRot
+        mesh.userData.walkTimer = 0
+        mesh.userData.lastX = p.pos.x
+        mesh.userData.lastZ = p.pos.z
+        mesh.userData.moveSpeed = 0
         mesh.add(charClone)
 
         // Tactical Team Identification Disc / Halo Ring at feet
@@ -785,6 +843,81 @@ function updatePlayer3DMeshes() {
     mesh.position.set(p.pos.x, 0, p.pos.z)
     if (p.yaw !== undefined) {
       mesh.rotation.y = p.yaw
+    }
+
+    // Procedural Articulation Animation for Rigged Military Soldiers
+    const bones = mesh.userData.bones
+    const baseRot = mesh.userData.baseRot
+    if (bones && baseRot && p.alive) {
+      const lastX = mesh.userData.lastX !== undefined ? mesh.userData.lastX : p.pos.x
+      const lastZ = mesh.userData.lastZ !== undefined ? mesh.userData.lastZ : p.pos.z
+      const moveDist = Math.hypot(p.pos.x - lastX, p.pos.z - lastZ)
+      const instantSpeed = Math.min(8.0, moveDist / 0.016)
+      mesh.userData.lastX = p.pos.x
+      mesh.userData.lastZ = p.pos.z
+      mesh.userData.moveSpeed = THREE.MathUtils.lerp(mesh.userData.moveSpeed || 0, instantSpeed, 0.22)
+
+      const isMoving = mesh.userData.moveSpeed > 0.15
+      if (isMoving) {
+        mesh.userData.walkTimer = (mesh.userData.walkTimer || 0) + mesh.userData.moveSpeed * 0.16
+      } else {
+        mesh.userData.walkTimer = (mesh.userData.walkTimer || 0) * 0.86
+      }
+
+      const walkTimer = mesh.userData.walkTimer || 0
+      const walkWeight = Math.min(1.0, mesh.userData.moveSpeed / 2.5)
+      const walkSwing = Math.sin(walkTimer) * 0.58 * walkWeight
+      const idleTime = performance.now() * 0.0022
+      const breath = Math.sin(idleTime) * 0.02
+
+      // 1. Legs Locomotion Cycle (Thighs, Calfs, Feet)
+      if (bones['CC_Base_R_Thigh_097'] && baseRot['CC_Base_R_Thigh_097']) {
+        bones['CC_Base_R_Thigh_097'].rotation.x = baseRot['CC_Base_R_Thigh_097'].x + walkSwing
+      }
+      if (bones['CC_Base_L_Thigh_0117'] && baseRot['CC_Base_L_Thigh_0117']) {
+        bones['CC_Base_L_Thigh_0117'].rotation.x = baseRot['CC_Base_L_Thigh_0117'].x - walkSwing
+      }
+      if (bones['CC_Base_R_Calf_0100'] && baseRot['CC_Base_R_Calf_0100']) {
+        const calfFlex = Math.max(0, -Math.sin(walkTimer)) * 0.78 * walkWeight
+        bones['CC_Base_R_Calf_0100'].rotation.x = baseRot['CC_Base_R_Calf_0100'].x + calfFlex
+      }
+      if (bones['CC_Base_L_Calf_0120'] && baseRot['CC_Base_L_Calf_0120']) {
+        const calfFlex = Math.max(0, Math.sin(walkTimer)) * 0.78 * walkWeight
+        bones['CC_Base_L_Calf_0120'].rotation.x = baseRot['CC_Base_L_Calf_0120'].x + calfFlex
+      }
+      if (bones['CC_Base_R_Foot_0104'] && baseRot['CC_Base_R_Foot_0104']) {
+        bones['CC_Base_R_Foot_0104'].rotation.x = baseRot['CC_Base_R_Foot_0104'].x + walkSwing * 0.35
+      }
+      if (bones['CC_Base_L_Foot_0124'] && baseRot['CC_Base_L_Foot_0124']) {
+        bones['CC_Base_L_Foot_0124'].rotation.x = baseRot['CC_Base_L_Foot_0124'].x - walkSwing * 0.35
+      }
+
+      // 2. Arms Tactical Combat Hold & Stance (Hands holding rifle)
+      if (bones['CC_Base_R_Upperarm_06'] && baseRot['CC_Base_R_Upperarm_06']) {
+        bones['CC_Base_R_Upperarm_06'].rotation.x = baseRot['CC_Base_R_Upperarm_06'].x + 0.85 + breath
+        bones['CC_Base_R_Upperarm_06'].rotation.y = baseRot['CC_Base_R_Upperarm_06'].y - 0.45
+        bones['CC_Base_R_Upperarm_06'].rotation.z = baseRot['CC_Base_R_Upperarm_06'].z - 0.35
+      }
+      if (bones['CC_Base_R_Forearm_09'] && baseRot['CC_Base_R_Forearm_09']) {
+        bones['CC_Base_R_Forearm_09'].rotation.x = baseRot['CC_Base_R_Forearm_09'].x + 1.15
+      }
+      if (bones['CC_Base_L_Upperarm_035'] && baseRot['CC_Base_L_Upperarm_035']) {
+        bones['CC_Base_L_Upperarm_035'].rotation.x = baseRot['CC_Base_L_Upperarm_035'].x + 0.95 + breath
+        bones['CC_Base_L_Upperarm_035'].rotation.y = baseRot['CC_Base_L_Upperarm_035'].y + 0.55
+        bones['CC_Base_L_Upperarm_035'].rotation.z = baseRot['CC_Base_L_Upperarm_035'].z + 0.35
+      }
+      if (bones['CC_Base_L_Forearm_038'] && baseRot['CC_Base_L_Forearm_038']) {
+        bones['CC_Base_L_Forearm_038'].rotation.x = baseRot['CC_Base_L_Forearm_038'].x + 1.35
+      }
+
+      // 3. Torso & Head Pitch Aiming (looking up/down with player/bot view)
+      const aimPitch = p.pitch || 0
+      if (bones['CC_Base_Spine01_03'] && baseRot['CC_Base_Spine01_03']) {
+        bones['CC_Base_Spine01_03'].rotation.x = baseRot['CC_Base_Spine01_03'].x - aimPitch * 0.35 + breath * 0.5
+      }
+      if (bones['CC_Base_Head_075'] && baseRot['CC_Base_Head_075']) {
+        bones['CC_Base_Head_075'].rotation.x = baseRot['CC_Base_Head_075'].x - aimPitch * 0.45
+      }
     }
   })
 }
