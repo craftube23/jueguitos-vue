@@ -336,6 +336,12 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  if (document.pointerLockElement) {
+    document.exitPointerLock()
+  }
+  if (navigator.keyboard?.unlock) {
+    navigator.keyboard.unlock()
+  }
   if (animFrameId) cancelAnimationFrame(animFrameId)
   if (renderer) renderer.dispose()
   if (networkSystem) networkSystem.leaveRoom()
@@ -1527,7 +1533,7 @@ function reloadWeapon3D(p) {
   soundManager.play('buy')
 }
 
-// --- INPUT LISTENERS ---
+// --- INPUT LISTENERS & POINTER LOCK SAFEGUARDS ---
 function setupEventListeners() {
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('keyup', onKeyUp)
@@ -1535,6 +1541,9 @@ function setupEventListeners() {
   window.addEventListener('mousedown', onMouseDown)
   window.addEventListener('mouseup', onMouseUp)
   window.addEventListener('wheel', onWheel, { passive: false })
+  window.addEventListener('blur', onWindowBlur)
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  window.addEventListener('beforeunload', onBeforeUnload)
   document.addEventListener('pointerlockchange', onPointerLockChange)
 }
 
@@ -1545,7 +1554,36 @@ function removeEventListeners() {
   window.removeEventListener('mousedown', onMouseDown)
   window.removeEventListener('mouseup', onMouseUp)
   window.removeEventListener('wheel', onWheel)
+  window.removeEventListener('blur', onWindowBlur)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+  window.removeEventListener('beforeunload', onBeforeUnload)
   document.removeEventListener('pointerlockchange', onPointerLockChange)
+}
+
+function onWindowBlur() {
+  if (document.pointerLockElement) {
+    document.exitPointerLock()
+  }
+  isPointerLocked.value = false
+  // Clear all pressed keys so player doesn't get stuck walking/crouching
+  Object.keys(keys).forEach(k => { keys[k] = false })
+  mouse.isDown = false
+  mouse.rightDown = false
+}
+
+function onVisibilityChange() {
+  if (document.hidden) {
+    onWindowBlur()
+  }
+}
+
+function onBeforeUnload() {
+  if (document.pointerLockElement) {
+    document.exitPointerLock()
+  }
+  if (navigator.keyboard?.unlock) {
+    navigator.keyboard.unlock()
+  }
 }
 
 function requestPointerLock() {
@@ -1556,7 +1594,20 @@ function requestPointerLock() {
 }
 
 function onPointerLockChange() {
-  isPointerLocked.value = document.pointerLockElement === threeCanvasRef.value
+  const isLocked = document.pointerLockElement === threeCanvasRef.value
+  isPointerLocked.value = isLocked
+  if (isLocked) {
+    if (navigator.keyboard?.lock) {
+      navigator.keyboard.lock(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'KeyR', 'KeyC', 'KeyZ', 'ControlLeft', 'ControlRight', 'ShiftLeft', 'Tab', 'Space']).catch(() => {})
+    }
+  } else {
+    mouse.isDown = false
+    mouse.rightDown = false
+    Object.keys(keys).forEach(k => { keys[k] = false })
+    if (navigator.keyboard?.unlock) {
+      navigator.keyboard.unlock()
+    }
+  }
 }
 
 function onMouseMove(e) {
@@ -1620,8 +1671,20 @@ function onMouseUp(e) {
 }
 
 function onKeyDown(e) {
+  // Prevent browser native shortcuts (Ctrl+W to close tab, Ctrl+R to reload, Ctrl+S to save, Tab) while playing
+  if (isPointerLocked.value || gameMode.value === 'IN_GAME' || gameMode.value === 'PRACTICE') {
+    if (e.ctrlKey || e.metaKey || e.altKey) {
+      if (['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyR', 'KeyQ', 'KeyE', 'KeyC', 'KeyZ', 'KeyP', 'KeyT', 'KeyN', 'KeyU'].includes(e.code) || e.key.toLowerCase() === 'w') {
+        e.preventDefault()
+      }
+    }
+    if (e.code === 'Tab') {
+      e.preventDefault()
+      showScoreboard.value = true
+    }
+  }
+
   keys[e.code] = true
-  if (e.code === 'Tab') { e.preventDefault(); showScoreboard.value = true }
 
   if (e.code === 'Escape') {
     if (showBuyMenu.value) {
