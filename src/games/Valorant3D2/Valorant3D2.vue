@@ -313,6 +313,17 @@ onMounted(() => {
     resetRound(true)
     lastTime = performance.now()
     animFrameId = requestAnimationFrame(gameLoop)
+
+    // Check URL query parameters for direct room join
+    try {
+      const params = new URLSearchParams(window.location.search)
+      const urlRoom = params.get('v3droom') || params.get('room')
+      if (urlRoom) {
+        joinCodeInput.value = urlRoom
+        activeTab.value = 'multiplayer'
+        showEconomyNotification(`🔑 Código cargado desde enlace: ${urlRoom.slice(0, 8)}...`)
+      }
+    } catch (e) {}
   })
 })
 
@@ -1801,8 +1812,19 @@ function leaveLobby() {
 }
 
 function copyRoomCode() {
-  if (navigator.clipboard) {
+  if (navigator.clipboard && roomCode.value) {
     navigator.clipboard.writeText(roomCode.value)
+    showEconomyNotification('📋 ¡CÓDIGO DE SALA COPIADO!')
+  }
+}
+
+function copyRoomLink() {
+  if (roomCode.value) {
+    const url = `${window.location.origin}${window.location.pathname}?v3droom=${encodeURIComponent(roomCode.value)}`
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url)
+    }
+    showEconomyNotification('🔗 ¡ENLACE DIRECTO COPIADO!')
   }
 }
 
@@ -2214,7 +2236,7 @@ function buyItem(item) {
               <h3>UNIRSE A SALA</h3>
               <p>Ingresa el código de 6 caracteres de una sala existente para entrar a la partida.</p>
               <div class="join-input-row">
-                <input v-model="joinCodeInput" type="text" class="mp-input code-input" placeholder="CÓDIGO (EJ: AB12CD)" maxlength="8" />
+                <input v-model="joinCodeInput" type="text" class="mp-input code-input" placeholder="PEGA EL CÓDIGO DE SALA AQUÍ..." maxlength="64" />
                 <button class="btn-join" @click="joinMultiplayerRoom(joinCodeInput)">UNIRSE</button>
               </div>
             </div>
@@ -2248,15 +2270,16 @@ function buyItem(item) {
           <span class="lobby-tag">LOBBY MULTIJUGADOR 3D</span>
           <h2>{{ (MAPS_3D.find(m => m.id === selectedMapId)?.name || 'MAPA TÁCTICO 3D').toUpperCase() }} // PRE-PARTIDA</h2>
         </div>
-        <div class="lobby-header-right" style="display: flex; align-items: center; gap: 12px;">
+        <div class="lobby-header-right" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
           <div class="net-badge" :style="{ color: networkStatus === 'CONNECTED' ? '#4ade80' : '#facc15' }" style="font-size: 0.75rem; padding: 6px 12px; border-radius: 6px; font-weight: 800; display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1);">
             <span>{{ networkStatus === 'CONNECTED' ? '🟢' : '🟡' }}</span>
             <span>{{ networkStatus === 'CONNECTED' ? 'EN LÍNEA (P2P)' : 'CONECTANDO...' }}</span>
           </div>
-          <div class="lobby-code-box" @click="copyRoomCode">
-            <span class="code-label">CÓDIGO DE SALA:</span>
-            <span class="code-val">{{ roomCode }}</span>
-            <span class="copy-hint">📋 Copiar</span>
+          <div class="lobby-code-box" style="display: flex; align-items: center; gap: 8px;">
+            <span class="code-label">SALA:</span>
+            <span class="code-val" style="font-size: 0.85rem; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ roomCode }}</span>
+            <button class="btn-copy-sm" @click="copyRoomCode" title="Copiar código de sala" style="background: #3b82f6; border: none; color: #fff; padding: 4px 8px; border-radius: 4px; font-weight: 700; cursor: pointer;">📋 Código</button>
+            <button class="btn-copy-sm" @click="copyRoomLink" title="Copiar enlace para entrar directo" style="background: #10b981; border: none; color: #fff; padding: 4px 8px; border-radius: 4px; font-weight: 700; cursor: pointer;">🔗 Enlace</button>
           </div>
         </div>
       </div>

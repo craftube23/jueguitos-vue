@@ -81,7 +81,7 @@ export class NetworkSystem {
 
       // --- JOINING ROOM VIA BROADCAST CHANNEL ---
       else if (msg.type === 'BC_JOIN_REQ') {
-        if (this.isHost && this.currentRoom && (this.currentRoom.id.toUpperCase() === (msg.roomId || '').toUpperCase())) {
+        if (this.isHost && this.currentRoom && (this.currentRoom.id === msg.roomId || (this.currentRoom.id || '').toUpperCase() === (msg.roomId || '').toUpperCase())) {
           this.addOrUpdatePlayerInHost(msg.player)
           const roomClone = this.cloneRoom()
           this.bc.postMessage({ type: 'BC_ROOM_UPDATED', room: roomClone })
@@ -91,7 +91,7 @@ export class NetworkSystem {
       }
 
       // --- LOBBY ACTIONS ---
-      else if (msg.type === 'BC_SWITCH_TEAM' && this.isHost && this.currentRoom && (this.currentRoom.id.toUpperCase() === (msg.roomId || '').toUpperCase())) {
+      else if (msg.type === 'BC_SWITCH_TEAM' && this.isHost && this.currentRoom) {
         const p = this.currentRoom.players.find(x => x.id === msg.playerId)
         if (p) {
           p.team = msg.targetTeam
@@ -100,7 +100,7 @@ export class NetworkSystem {
           this.broadcastToAll({ type: 'ROOM_UPDATE', room: roomClone })
           this.emitInternal('room_updated', roomClone)
         }
-      } else if (msg.type === 'BC_SELECT_AGENT' && this.isHost && this.currentRoom && (this.currentRoom.id.toUpperCase() === (msg.roomId || '').toUpperCase())) {
+      } else if (msg.type === 'BC_SELECT_AGENT' && this.isHost && this.currentRoom) {
         const p = this.currentRoom.players.find(x => x.id === msg.playerId)
         if (p) {
           p.agentId = msg.agentId
@@ -109,7 +109,7 @@ export class NetworkSystem {
           this.broadcastToAll({ type: 'ROOM_UPDATE', room: roomClone })
           this.emitInternal('room_updated', roomClone)
         }
-      } else if (msg.type === 'BC_LOCK_AGENT' && this.isHost && this.currentRoom && (this.currentRoom.id.toUpperCase() === (msg.roomId || '').toUpperCase())) {
+      } else if (msg.type === 'BC_LOCK_AGENT' && this.isHost && this.currentRoom) {
         const p = this.currentRoom.players.find(x => x.id === msg.playerId)
         if (p) {
           p.isLocked = true
@@ -119,26 +119,26 @@ export class NetworkSystem {
           this.broadcastToAll({ type: 'ROOM_UPDATE', room: roomClone })
           this.emitInternal('room_updated', roomClone)
         }
-      } else if (msg.type === 'BC_ROOM_UPDATED' && this.currentRoom && (this.currentRoom.id.toUpperCase() === (msg.room.id || '').toUpperCase())) {
+      } else if (msg.type === 'BC_ROOM_UPDATED' && this.currentRoom && (this.currentRoom.id === msg.room.id || (this.currentRoom.id || '').toUpperCase() === (msg.room.id || '').toUpperCase())) {
         this.handleClientRoomUpdate(msg.room)
-      } else if (msg.type === 'BC_START_MATCH' && this.currentRoom && (this.currentRoom.id.toUpperCase() === (msg.roomId || '').toUpperCase())) {
+      } else if (msg.type === 'BC_START_MATCH' && this.currentRoom) {
         this.currentRoom = msg.room || this.currentRoom
         this.currentRoom.status = 'in_game'
         this.emitInternal('match_started', this.cloneRoom())
       }
 
       // --- IN-GAME REAL-TIME SYNC ---
-      else if (msg.type === 'BC_PLAYER_SYNC' && this.currentRoom && (this.currentRoom.id.toUpperCase() === (msg.roomId || '').toUpperCase())) {
+      else if (msg.type === 'BC_PLAYER_SYNC' && this.currentRoom) {
         if (this.myPlayer && msg.data.id !== this.myPlayer.id) {
           this.emitInternal('player_moved', msg.data)
         }
-      } else if (msg.type === 'BC_GAME_EVENT' && this.currentRoom && (this.currentRoom.id.toUpperCase() === (msg.roomId || '').toUpperCase())) {
+      } else if (msg.type === 'BC_GAME_EVENT' && this.currentRoom) {
         if (this.myPlayer && msg.event.senderId !== this.myPlayer.id) {
           this.emitInternal('game_event', msg.event)
         }
-      } else if (msg.type === 'BC_PLAYER_HIT' && this.currentRoom && (this.currentRoom.id.toUpperCase() === (msg.roomId || '').toUpperCase())) {
+      } else if (msg.type === 'BC_PLAYER_HIT' && this.currentRoom) {
         this.emitInternal('player_took_damage', msg.data)
-      } else if (msg.type === 'BC_CHAT' && this.currentRoom && (this.currentRoom.id.toUpperCase() === (msg.roomId || '').toUpperCase())) {
+      } else if (msg.type === 'BC_CHAT' && this.currentRoom) {
         this.emitInternal('chat_received', msg.chat)
       }
     }
@@ -191,15 +191,6 @@ export class NetworkSystem {
     }
   }
 
-  generateCode() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-    let code = ''
-    for (let i = 0; i < 6; i++) {
-      code += chars.charAt(Math.floor(Math.random() * chars.length))
-    }
-    return code
-  }
-
   // --- HOST: CREATE ROOM ---
   createRoom(roomName, playerName, team = 'attackers', customConfig = null) {
     if (this.peer) {
@@ -209,12 +200,10 @@ export class NetworkSystem {
     if (this.joinRetryInterval) clearInterval(this.joinRetryInterval)
     if (this.connectRetryTimer) clearInterval(this.connectRetryTimer)
 
-    const roomId = this.generateCode()
-    const peerRoomId = `v3d_${roomId.toLowerCase()}`
-
     this.isHost = true
     this.connections = []
     this.connectionStatus = 'CONNECTING'
+    this.emitInternal('network_status', 'CONNECTING')
 
     const hostPlayer = {
       id: `host_${Date.now()}`,
@@ -244,8 +233,8 @@ export class NetworkSystem {
     }
 
     const room = {
-      id: roomId,
-      name: roomName || `Sala ${roomId}`,
+      id: 'GENERANDO...',
+      name: roomName || 'Sala 3D',
       status: 'lobby',
       hostId: hostPlayer.id,
       players: [hostPlayer],
@@ -254,9 +243,9 @@ export class NetworkSystem {
 
     this.currentRoom = room
     this.myPlayer = hostPlayer
-    this.connected = true
+    this.connected = false
 
-    // Continuous Room Announcement and Sync Heartbeat (every 1s)
+    // Heartbeat Sync
     this.heartbeatInterval = setInterval(() => {
       if (this.isHost && this.currentRoom && this.currentRoom.status === 'lobby') {
         const roomClone = this.cloneRoom()
@@ -269,12 +258,14 @@ export class NetworkSystem {
     }, 1000)
 
     try {
-      this.peer = new Peer(peerRoomId, {
+      // Connect to PeerServer with server-issued ID (instant cloud handshake)
+      this.peer = new Peer({
         config: this.peerIceConfig
       })
 
       this.peer.on('open', (id) => {
-        console.log('✅ PeerJS Host Ready with ID:', id)
+        console.log('✅ PeerJS Host Registered Successfully with ID:', id)
+        this.currentRoom.id = id
         this.connected = true
         this.connectionStatus = 'CONNECTED'
         this.emitInternal('network_status', 'CONNECTED')
@@ -287,7 +278,6 @@ export class NetworkSystem {
           if (!this.connections.includes(conn)) {
             this.connections.push(conn)
           }
-          // Send instant full room state to newly connected client
           try {
             conn.send({ type: 'ROOM_UPDATE', room: this.cloneRoom() })
           } catch (e) {}
@@ -318,7 +308,6 @@ export class NetworkSystem {
 
       this.peer.on('error', (err) => {
         console.warn('PeerJS Host Error:', err)
-        this.emitInternal('room_joined', { room: this.cloneRoom(), player: hostPlayer })
       })
     } catch (e) {
       console.warn('Peer fallback error:', e)
@@ -338,12 +327,10 @@ export class NetworkSystem {
       }
 
       const roomClone = this.cloneRoom()
-      // Reply directly to client
       try {
         conn.send({ type: 'ROOM_UPDATE', room: roomClone })
       } catch (e) {}
 
-      // Broadcast updated room state to all peers and cross-tab
       this.broadcastToAll({ type: 'ROOM_UPDATE', room: roomClone })
       this.emitInternal('room_updated', roomClone)
     } else if (msg.type === 'SWITCH_TEAM') {
@@ -392,7 +379,6 @@ export class NetworkSystem {
         try { c.send(data) } catch (e) {}
       }
     })
-    // Local BroadcastChannel sync
     if (this.bc && this.currentRoom) {
       if (data.type === 'ROOM_UPDATE') this.bc.postMessage({ type: 'BC_ROOM_UPDATED', room: data.room })
       else if (data.type === 'START_MATCH') this.bc.postMessage({ type: 'BC_START_MATCH', roomId: this.currentRoom.id, room: data.room })
@@ -412,11 +398,10 @@ export class NetworkSystem {
     if (this.joinRetryInterval) clearInterval(this.joinRetryInterval)
     if (this.connectRetryTimer) clearInterval(this.connectRetryTimer)
 
-    const cleanCode = (roomId || '').trim().toUpperCase()
-    const peerTargetId = `v3d_${cleanCode.toLowerCase()}`
-
+    const cleanCode = (roomId || '').trim()
     this.isHost = false
     this.connectionStatus = 'CONNECTING'
+    this.emitInternal('network_status', 'CONNECTING')
 
     const joinPlayer = {
       id: `peer_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
@@ -434,7 +419,7 @@ export class NetworkSystem {
 
     const placeholderRoom = {
       id: cleanCode,
-      name: `Sala ${cleanCode}`,
+      name: `Sala ${cleanCode.slice(0, 8)}`,
       status: 'lobby',
       hostId: 'host',
       players: [joinPlayer],
@@ -454,10 +439,9 @@ export class NetworkSystem {
 
     this.currentRoom = placeholderRoom
     this.myPlayer = joinPlayer
-    this.connected = true
+    this.connected = false
 
     this.sendJoinRequest = () => {
-      // 1. Cross-tab BroadcastChannel
       if (this.bc) {
         this.bc.postMessage({
           type: 'BC_JOIN_REQ',
@@ -465,7 +449,6 @@ export class NetworkSystem {
           player: this.myPlayer
         })
       }
-      // 2. PeerJS DataConnection
       if (this.hostConn && this.hostConn.open) {
         try {
           this.hostConn.send({
@@ -491,15 +474,15 @@ export class NetworkSystem {
         try { this.hostConn.close() } catch (e) {}
       }
 
-      console.log('Connecting to Host peer:', peerTargetId)
+      console.log('Connecting to Host peer ID:', cleanCode)
       try {
-        this.hostConn = this.peer.connect(peerTargetId, {
+        this.hostConn = this.peer.connect(cleanCode, {
           reliable: true
         })
 
         if (this.hostConn) {
           this.hostConn.on('open', () => {
-            console.log('✅ PeerJS Client DataConnection OPENED with Host:', peerTargetId)
+            console.log('✅ PeerJS Client DataConnection OPENED with Host:', cleanCode)
             this.connected = true
             this.connectionStatus = 'CONNECTED'
             this.emitInternal('network_status', 'CONNECTED')
@@ -511,7 +494,7 @@ export class NetworkSystem {
           })
 
           this.hostConn.on('error', (err) => {
-            console.warn('hostConn error (auto-reconnecting):', err)
+            console.warn('hostConn notice (will auto-retry):', err)
           })
 
           this.hostConn.on('close', () => {
@@ -534,7 +517,6 @@ export class NetworkSystem {
         console.log('✅ PeerJS Client ready with ID:', id)
         attemptConnectToHost()
 
-        // Active connection keeper / auto-retry loop every 1.5s until connected
         this.connectRetryTimer = setInterval(() => {
           if (!this.connected || !this.hostConn || !this.hostConn.open) {
             attemptConnectToHost()
@@ -550,7 +532,6 @@ export class NetworkSystem {
       console.warn('Peer connect error:', e)
     }
 
-    // Enter lobby UI immediately
     this.emitInternal('room_joined', { room: this.cloneRoom(), player: joinPlayer })
   }
 
@@ -558,10 +539,8 @@ export class NetworkSystem {
     if (!incomingRoom || !incomingRoom.players) return
     const cloned = JSON.parse(JSON.stringify(incomingRoom))
 
-    // Ensure myPlayer is present in client-side room rendering
     const hasMe = cloned.players.some(p => p.id === this.myPlayer?.id)
     if (!hasMe && this.myPlayer) {
-      // Re-trigger join request immediately
       if (this.sendJoinRequest) this.sendJoinRequest()
       cloned.players.push(this.myPlayer)
     } else if (hasMe && this.myPlayer) {
