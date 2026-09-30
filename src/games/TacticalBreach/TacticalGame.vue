@@ -116,22 +116,27 @@ const player = {
   size: 14
 }
 
-// MAPA TÁCTICO: MUROS Y HABITACIONES CQB
+// MAPA TÁCTICO: MUROS Y HABITACIONES CQB CON PUERTAS ACCESIBLES
 const walls = [
   // Bordes exteriores
   { x: 0, y: 0, w: 800, h: 20 },
   { x: 0, y: 580, w: 800, h: 20 },
   { x: 0, y: 0, w: 20, h: 600 },
   { x: 780, y: 0, w: 20, h: 600 },
-  // Habitaciones interiores
+  // Habitaciones interiores con accesos y puertas
   { x: 250, y: 20, w: 20, h: 220 },
   { x: 250, y: 320, w: 20, h: 260 },
-  { x: 250, y: 300, w: 280, h: 20 },
+  // Puerta superior de la habitación central (abertura de 80px entre X=340 y X=420)
+  { x: 250, y: 300, w: 90, h: 20 },
+  { x: 420, y: 300, w: 110, h: 20 },
+  // Paredes derechas con puertas
   { x: 530, y: 20, w: 20, h: 180 },
-  { x: 530, y: 280, w: 20, h: 300 },
-  // Cajas de cobertura
+  { x: 530, y: 280, w: 20, h: 100 },
+  { x: 530, y: 460, w: 20, h: 120 },
+  // Cajas de cobertura táctica
   { x: 120, y: 280, w: 45, h: 45 },
   { x: 380, y: 120, w: 50, h: 50 },
+  { x: 330, y: 450, w: 45, h: 45 },
   { x: 650, y: 400, w: 60, h: 40 },
   { x: 680, y: 160, w: 45, h: 45 }
 ]
