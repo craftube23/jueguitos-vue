@@ -179,11 +179,14 @@ function playSound(type) {
   }
 }
 
+import { NetworkSystem2D } from './shared/NetworkSystem2D.js'
+
 // --- STATE MANAGEMENT ---
 const appState = ref('mode_select') // 'mode_select' | 'agent_select' | 'mp_lobby_browser' | 'mp_room_lobby' | 'playing'
 const gameMode = ref('practice') // 'practice' | 'multiplayer'
 
-// Socket.io Connection
+// Network & Multiplayer
+const network = new NetworkSystem2D()
 let socket = null
 const isSocketConnected = ref(false)
 const playerName = ref(localStorage.getItem('val2d_player_name') || 'DoomAgent_' + Math.floor(100 + Math.random() * 900))
@@ -202,16 +205,12 @@ function savePlayerName() {
   localStorage.setItem('val2d_player_name', playerName.value)
 }
 
-function initMultiplayerSocket() {
-  if (socket) return
-  const socketUrl = window.location.hostname === 'localhost' ? 'http://localhost:3001' : `${window.location.protocol}//${window.location.hostname}:3001`
-  socket = io(socketUrl, { transports: ['websocket', 'polling'] })
+function initMultiplayerNetwork() {
+  // Wire NetworkSystem2D (PeerJS + BroadcastChannel WebRTC)
+  network.on('connect', () => { isSocketConnected.value = true })
+  network.on('rooms_list', (rooms) => { roomsList.value = rooms })
 
-  socket.on('connect', () => { isSocketConnected.value = true })
-  socket.on('disconnect', () => { isSocketConnected.value = false })
-  socket.on('rooms_list', (rooms) => { roomsList.value = rooms })
-
-  socket.on('room_joined', ({ room, player }) => {
+  network.on('room_joined', ({ room, player }) => {
     currentRoom.value = room
     myMultiplayerPlayer.value = player
     selectedAgent.value = player.agentId || 'jett'
@@ -220,24 +219,22 @@ function initMultiplayerSocket() {
     mpErrorMessage.value = ''
   })
 
-  socket.on('room_updated', (room) => {
+  network.on('room_updated', (room) => {
     currentRoom.value = room
-    if (socket) {
-      const me = room.players.find(p => p.id === socket.id)
-      if (me) {
-        myMultiplayerPlayer.value = me
-        selectedAgent.value = me.agentId
-        selectedSide.value = me.team
-      }
+    const me = room.players.find(p => p.id === (myMultiplayerPlayer.value?.id || network.myPlayer?.id))
+    if (me) {
+      myMultiplayerPlayer.value = me
+      selectedAgent.value = me.agentId
+      selectedSide.value = me.team
     }
   })
 
-  socket.on('match_started', (room) => {
+  network.on('match_started', (room) => {
     currentRoom.value = room
     startMultiplayerMatch()
   })
 
-  socket.on('player_moved', (data) => {
+  network.on('player_moved', (data) => {
     remotePlayers[data.id] = {
       ...(remotePlayers[data.id] || {}),
       ...data,
@@ -245,19 +242,62 @@ function initMultiplayerSocket() {
     }
   })
 
-  socket.on('game_event_broadcast', (event) => {
+  network.on('game_event_broadcast', (event) => {
     handleRemoteGameEvent(event)
   })
 
-  socket.on('chat_received', (msg) => {
+  network.on('chat_received', (msg) => {
     chatMessages.value.push(msg)
     if (chatMessages.value.length > 30) chatMessages.value.shift()
   })
 
-  socket.on('error_message', (err) => {
+  network.on('error_message', (err) => {
     mpErrorMessage.value = err
     setTimeout(() => { mpErrorMessage.value = '' }, 4000)
   })
+
+  // Optional Socket.io server connection fallback
+  if (!socket) {
+    try {
+      const socketUrl = window.location.hostname === 'localhost' ? 'http://localhost:3001' : `${window.location.protocol}//${window.location.hostname}:3001`
+      socket = io(socketUrl, { transports: ['websocket', 'polling'], timeout: 3000 })
+
+      socket.on('connect', () => { isSocketConnected.value = true })
+      socket.on('disconnect', () => {})
+      socket.on('rooms_list', (rooms) => {
+        if (rooms && rooms.length > 0) roomsList.value = rooms
+      })
+      socket.on('room_joined', ({ room, player }) => {
+        currentRoom.value = room
+        myMultiplayerPlayer.value = player
+        selectedAgent.value = player.agentId || 'jett'
+        selectedSide.value = player.team
+        appState.value = 'mp_room_lobby'
+      })
+      socket.on('room_updated', (room) => {
+        currentRoom.value = room
+      })
+      socket.on('match_started', (room) => {
+        currentRoom.value = room
+        startMultiplayerMatch()
+      })
+      socket.on('player_moved', (data) => {
+        remotePlayers[data.id] = {
+          ...(remotePlayers[data.id] || {}),
+          ...data,
+          lastUpdate: Date.now()
+        }
+      })
+      socket.on('game_event_broadcast', (event) => {
+        handleRemoteGameEvent(event)
+      })
+      socket.on('chat_received', (msg) => {
+        chatMessages.value.push(msg)
+      })
+    } catch (e) {
+      console.warn('Socket.io optional notice:', e)
+    }
+  }
 }
 
 function selectMode(mode) {
@@ -265,30 +305,35 @@ function selectMode(mode) {
   if (mode === 'practice') {
     appState.value = 'agent_select'
   } else {
-    initMultiplayerSocket()
+    initMultiplayerNetwork()
     appState.value = 'mp_lobby_browser'
   }
 }
 
 function createRoom() {
-  if (!socket) return
   savePlayerName()
-  socket.emit('create_room', {
-    roomName: newRoomName.value || `Sala de ${playerName.value}`,
-    playerName: playerName.value,
-    team: selectedSide.value
-  })
+  const rName = newRoomName.value || `Sala de ${playerName.value}`
+  network.createRoom(rName, playerName.value, selectedSide.value)
+  if (socket && socket.connected) {
+    socket.emit('create_room', {
+      roomName: rName,
+      playerName: playerName.value,
+      team: selectedSide.value
+    })
+  }
   newRoomName.value = ''
 }
 
 function joinRoom(roomId) {
-  if (!socket) return
   savePlayerName()
-  socket.emit('join_room', {
-    roomId,
-    playerName: playerName.value,
-    team: selectedSide.value
-  })
+  network.joinRoom(roomId, playerName.value, selectedSide.value)
+  if (socket && socket.connected) {
+    socket.emit('join_room', {
+      roomId,
+      playerName: playerName.value,
+      team: selectedSide.value
+    })
+  }
 }
 
 function joinByCode() {
@@ -298,43 +343,53 @@ function joinByCode() {
 }
 
 function switchTeam(team) {
-  if (!socket || !currentRoom.value) return
   selectedSide.value = team
-  socket.emit('switch_team', { roomId: currentRoom.value.id, targetTeam: team })
+  network.switchTeam(team)
+  if (socket && socket.connected && currentRoom.value) {
+    socket.emit('switch_team', { roomId: currentRoom.value.id, targetTeam: team })
+  }
 }
 
 function selectAgentMp(agentKey) {
   selectedAgent.value = agentKey
-  if (socket && currentRoom.value) {
+  network.selectAgent(agentKey)
+  if (socket && socket.connected && currentRoom.value) {
     socket.emit('select_agent', { roomId: currentRoom.value.id, agentId: agentKey })
   }
 }
 
 function lockAgentMp() {
-  if (socket && currentRoom.value) {
+  network.lockAgent()
+  if (socket && socket.connected && currentRoom.value) {
     socket.emit('lock_agent', { roomId: currentRoom.value.id })
   }
 }
 
 function startMatchAsHost() {
-  if (!socket || !currentRoom.value) return
-  socket.emit('start_match', { roomId: currentRoom.value.id })
+  network.startMatch()
+  if (socket && socket.connected && currentRoom.value) {
+    socket.emit('start_match', { roomId: currentRoom.value.id })
+  }
 }
 
 function leaveRoom() {
-  if (socket) socket.emit('leave_room')
+  network.leaveRoom()
+  if (socket && socket.connected) socket.emit('leave_room')
   currentRoom.value = null
   myMultiplayerPlayer.value = null
   appState.value = 'mp_lobby_browser'
 }
 
 function sendChatMessage() {
-  if (!chatInputText.value.trim() || !socket || !currentRoom.value) return
-  socket.emit('send_chat', {
-    roomId: currentRoom.value.id,
-    text: chatInputText.value.trim(),
-    teamOnly: isTeamChatOnly.value
-  })
+  if (!chatInputText.value.trim()) return
+  network.sendChat(chatInputText.value.trim(), isTeamChatOnly.value)
+  if (socket && socket.connected && currentRoom.value) {
+    socket.emit('send_chat', {
+      roomId: currentRoom.value.id,
+      text: chatInputText.value.trim(),
+      teamOnly: isTeamChatOnly.value
+    })
+  }
   chatInputText.value = ''
 }
 
@@ -351,6 +406,25 @@ function handleRemoteGameEvent(event) {
   } else if (event.type === 'spike_defused') {
     spike.defused = true
     playSound('spike_defused')
+    endRound('defenders', 'SPIKE DESACTIVADA')
+  } else if (event.type === 'damage_player') {
+    const myId = myMultiplayerPlayer.value?.id || network.myPlayer?.id
+    if (myId && event.targetId === myId) {
+      if (player.shield > 0) {
+        const sDmg = Math.min(player.shield, event.damage * 0.66)
+        player.shield -= sDmg
+        player.hp = Math.max(0, player.hp - (event.damage - sDmg))
+      } else {
+        player.hp = Math.max(0, player.hp - event.damage)
+      }
+      playSound('hurt')
+      if (player.hp <= 0) {
+        player.isDead = true
+        player.hp = 0
+        addKillFeed(event.killerName || 'Rival', playerName.value, event.weapon || 'Arma', true, false)
+        isSpectating.value = true
+      }
+    }
   }
 }
 
@@ -407,6 +481,7 @@ onUnmounted(() => {
   if (animFrameId) cancelAnimationFrame(animFrameId)
   if (roundTimerInterval) clearInterval(roundTimerInterval)
   if (socket) socket.disconnect()
+  network.leaveRoom()
   window.removeEventListener('keydown', handleKeyDown)
   window.removeEventListener('keyup', handleKeyUp)
   window.removeEventListener('mousemove', handleMouseMove)
@@ -1401,17 +1476,21 @@ function shootWeapon() {
         closestHit.hp = Math.max(0, (closestHit.hp ?? 100) - damageDealt)
       }
       hitParticles.push({ x: closestHit.x ?? 0, y: closestHit.y ?? 0, timer: 12 })
-      if (socket && currentRoom.value) {
-        socket.emit('game_event', {
-          roomId: currentRoom.value.id,
-          event: {
-            type: 'damage_player',
-            targetId: closestHit.id,
-            damage: damageDealt,
-            killerName: playerName.value,
-            weapon: wep.name
-          }
-        })
+      if (currentRoom.value) {
+        const dmgEvt = {
+          type: 'damage_player',
+          targetId: closestHit.id,
+          damage: damageDealt,
+          killerName: playerName.value,
+          weapon: wep.name
+        }
+        network.sendGameEvent(dmgEvt)
+        if (socket && socket.connected) {
+          socket.emit('game_event', {
+            roomId: currentRoom.value.id,
+            event: dmgEvt
+          })
+        }
       }
       if (closestHit.hp <= 0) {
         closestHit.isDead = true
@@ -1444,11 +1523,15 @@ function shootWeapon() {
     hitParticles.push({ x: wallHits[0].point.x, y: wallHits[0].point.z, timer: 8 })
   }
 
-  if (gameMode.value === 'multiplayer' && socket && currentRoom.value) {
-    socket.emit('game_event', {
-      roomId: currentRoom.value.id,
-      event: { type: 'shoot', weaponSound: wep.sound, x: player.x, y: player.y, angle: player.angle }
-    })
+  if (gameMode.value === 'multiplayer' && currentRoom.value) {
+    const shootEvt = { type: 'shoot', weaponSound: wep.sound, x: player.x, y: player.y, angle: player.angle }
+    network.sendGameEvent(shootEvt)
+    if (socket && socket.connected) {
+      socket.emit('game_event', {
+        roomId: currentRoom.value.id,
+        event: shootEvt
+      })
+    }
   }
 }
 
@@ -1687,22 +1770,28 @@ function updateFPS() {
     handleSpikeActionsFPS()
 
     // Multiplayer sync
-    if (gameMode.value === 'multiplayer' && socket && currentRoom.value) {
-      socket.emit('player_sync', {
-        roomId: currentRoom.value.id,
-        data: {
-          x: player.x,
-          y: player.y,
-          angle: player.angle,
-          hp: player.hp,
-          shield: player.shield,
-          weapon: player.weapon,
-          agentId: selectedAgent.value,
-          team: player.team,
-          name: playerName.value,
-          isDead: player.isDead
-        }
-      })
+    if (gameMode.value === 'multiplayer' && currentRoom.value) {
+      const syncPayload = {
+        x: player.x,
+        y: player.y,
+        angle: player.angle,
+        pitch: player.pitch || 0,
+        hp: player.hp,
+        shield: player.shield,
+        weapon: player.weapon,
+        agentId: selectedAgent.value,
+        team: player.team,
+        name: playerName.value,
+        isDead: player.isDead,
+        floorY: player.currentFloorY || 0
+      }
+      network.sendPlayerSync(syncPayload)
+      if (socket && socket.connected) {
+        socket.emit('player_sync', {
+          roomId: currentRoom.value.id,
+          data: syncPayload
+        })
+      }
     }
   }
 
@@ -1750,6 +1839,14 @@ function handleSpikeActionsFPS() {
         player.isPlanting = false
         player.actionProgress = 0
         playSound('spike_plant')
+
+        if (gameMode.value === 'multiplayer' && currentRoom.value) {
+          const plantEvt = { type: 'spike_plant', x: player.x, y: player.y, site: cellType === 5 ? 'A' : 'B' }
+          network.sendGameEvent(plantEvt)
+          if (socket && socket.connected) {
+            socket.emit('game_event', { roomId: currentRoom.value.id, event: plantEvt })
+          }
+        }
       }
     } else if (player.team === 'defenders' && spike.planted && Math.hypot(player.x - spike.x, player.y - spike.y) < 90) {
       player.isDefusing = true
@@ -1759,6 +1856,15 @@ function handleSpikeActionsFPS() {
         player.isDefusing = false
         player.actionProgress = 0
         playSound('spike_defused')
+
+        if (gameMode.value === 'multiplayer' && currentRoom.value) {
+          const defEvt = { type: 'spike_defused' }
+          network.sendGameEvent(defEvt)
+          if (socket && socket.connected) {
+            socket.emit('game_event', { roomId: currentRoom.value.id, event: defEvt })
+          }
+        }
+
         endRound('defenders', 'SPIKE DESACTIVADA')
       }
     }
