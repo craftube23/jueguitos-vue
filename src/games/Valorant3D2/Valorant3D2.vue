@@ -1181,12 +1181,15 @@ function getPlayerSpawnSlot(targetPlayer) {
   const isAtk = team === 'attackers'
   const slots = isAtk ? MAP_3D.spawnAtkSlots : MAP_3D.spawnDefSlots
 
-  const roomList = (roomPlayerList.value && roomPlayerList.value.length > 0)
+  const pool = (roomPlayerList.value && roomPlayerList.value.length > 0)
     ? roomPlayerList.value
     : players.value
 
-  const sameTeam = roomList.filter(p => p.team === team)
-  let idx = sameTeam.findIndex(p => p.id === targetPlayer.id)
+  const sameTeamHumans = pool
+    .filter(p => p.team === team && !p.id?.startsWith('ally_') && !p.id?.startsWith('enemy_') && !p.id?.startsWith('dummy_') && !p.id?.startsWith('online_bot_'))
+    .sort((a, b) => (a.id || '').localeCompare(b.id || ''))
+
+  let idx = sameTeamHumans.findIndex(p => p.id === targetPlayer.id)
 
   if (idx === -1) {
     let hash = 0
@@ -1330,17 +1333,13 @@ function setup3DBots() {
   const mySlots = player.team === 'attackers' ? MAP_3D.spawnAtkSlots : MAP_3D.spawnDefSlots
   const enemySlots = player.team === 'attackers' ? MAP_3D.spawnDefSlots : MAP_3D.spawnAtkSlots
 
-  // Local player sits at slot 2
-  const mySpawn = mySlots[2]
-  player.pos.x = mySpawn.x
-  player.pos.y = mySpawn.y
-  player.pos.z = mySpawn.z
-
-  // Spawn Allies based on custom match settings
+  // Spawn Allies without overlapping human players (offset from humans)
   const numAllies = Math.max(0, Math.min(customSettings.allyBotCount, 4))
-  const allySlotIndices = [0, 1, 3, 4]
+  const humanAlliesCount = players.value.filter(p => p.team === player.team && !p.id.startsWith('ally_')).length
+
   for (let i = 0; i < numAllies; i++) {
-    const slot = mySlots[allySlotIndices[i]]
+    const slotIdx = (humanAlliesCount + i) % mySlots.length
+    const slot = mySlots[slotIdx]
     const existing = previousPlayers.find(p => p.id === `ally_${i}`)
     players.value.push({
       id: `ally_${i}`,
@@ -1348,6 +1347,7 @@ function setup3DBots() {
       team: player.team,
       agentId: botAgents[i % botAgents.length],
       pos: { x: slot.x, y: slot.y, z: slot.z },
+      yaw: player.team === 'attackers' ? Math.PI / 2 : -Math.PI / 2,
       radius: 0.6,
       health: 100,
       armor: existing?.armor || 50,
@@ -1359,11 +1359,14 @@ function setup3DBots() {
     })
   }
 
-  // Spawn Enemies based on custom match settings (e.g. 1 for 1v1 duel)
+  // Spawn Enemies without overlapping human enemies (offset from humans)
   const numEnemies = Math.max(0, Math.min(customSettings.enemyBotCount, 5))
   const enemyTeam = player.team === 'attackers' ? 'defenders' : 'attackers'
+  const humanEnemiesCount = players.value.filter(p => p.team === enemyTeam && !p.id.startsWith('enemy_') && !p.id.startsWith('online_bot_')).length
+
   for (let i = 0; i < numEnemies; i++) {
-    const slot = enemySlots[i]
+    const slotIdx = (humanEnemiesCount + i) % enemySlots.length
+    const slot = enemySlots[slotIdx]
     const existing = previousPlayers.find(p => p.id === `enemy_${i}`)
     players.value.push({
       id: `enemy_${i}`,
@@ -1371,6 +1374,7 @@ function setup3DBots() {
       team: enemyTeam,
       agentId: botAgents[(i + 2) % botAgents.length],
       pos: { x: slot.x, y: slot.y, z: slot.z },
+      yaw: enemyTeam === 'attackers' ? Math.PI / 2 : -Math.PI / 2,
       radius: 0.6,
       health: 100,
       armor: existing?.armor || 50,
