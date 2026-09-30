@@ -679,7 +679,7 @@ function updatePlayer3DMeshes() {
         // Clone Real 3D Military Soldier Model
         const charClone = SkeletonUtils.clone(characterModelTemplate)
         charClone.scale.set(0.01, 0.01, 0.01)
-        charClone.rotation.y = 0
+        charClone.rotation.y = Math.PI
 
         const bones = {}
         const baseRot = {}
@@ -765,7 +765,7 @@ function updatePlayer3DMeshes() {
         const coreGeo = new THREE.SphereGeometry(0.045, 8, 8)
         const coreMat = new THREE.MeshBasicMaterial({ color: agentColor })
         const core = new THREE.Mesh(coreGeo, coreMat)
-        core.position.set(0, 1.32, 0.12)
+        core.position.set(0, 1.32, -0.14)
         mesh.add(core)
       } else {
         // Fallback procedural tactical soldier
