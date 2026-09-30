@@ -4,6 +4,22 @@ import { DamageSystem } from './DamageSystem.js'
 import { soundManager } from './SoundSystem.js'
 
 const WEAPON_MODELS = {
+  m4a1: {
+    path: '/models/armas/m4_-_fps_weapon_animations_pack_v.1.glb',
+    scale: [0.01, 0.01, 0.01],
+    rotation: [0, 0, 0],
+    hideBodyMesh: false,
+    hipPos: [0.01, -1.45, -0.25],
+    adsPos: [-0.038, -1.39, -0.16],
+    muzzlePos: [0.0, 1.45, -0.80],
+    animMap: {
+      draw: 'Draw',
+      idle: 'Draw',
+      shoot: 'Fire',
+      reload: 'Reload',
+      inspect: 'Draw'
+    }
+  },
   ak74u: {
     path: '/models/armas/ak74u__free_animation.glb',
     scale: [1, 1, 1],
@@ -287,7 +303,7 @@ export class WeaponSystem3D {
 
   setWeapon(weaponId) {
     this.currentWeaponId = weaponId
-    let targetKey = 'ak74u'
+    let targetKey = 'm4a1'
     if (weaponId === 'knife' || weaponId === 'melee' || weaponId === 'cuchillo') {
       targetKey = 'knife'
     } else if (weaponId === 'sniper' || weaponId === 'awp' || weaponId === 'operator') {
@@ -296,6 +312,8 @@ export class WeaponSystem3D {
       targetKey = 'benelli_m4'
     } else if (weaponId === 'kriss_vector' || ['smg', 'spectre', 'stinger', 'classic', 'ghost', 'sheriff', 'frenzy'].includes(weaponId)) {
       targetKey = 'kriss_vector'
+    } else if (weaponId === 'm4a1' || weaponId === 'm4' || weaponId === 'carabina') {
+      targetKey = 'm4a1'
     } else if (weaponId === 'ak74u' || ['rifle', 'vandal', 'phantom', 'guardian', 'marshal', 'ares', 'odin'].includes(weaponId)) {
       targetKey = 'ak74u'
     }

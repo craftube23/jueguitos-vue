@@ -11,6 +11,25 @@ export const WEAPON_CATEGORIES = {
 }
 
 export const WEAPONS = {
+  m4a1: {
+    id: 'm4a1',
+    name: 'M4A1 Carabina Táctica',
+    category: WEAPON_CATEGORIES.RIFLES,
+    cost: 2900,
+    damage: { head: 156, body: 39, leg: 33 },
+    fireRate: 11.2,
+    magazineSize: 30,
+    reserveAmmo: 90,
+    reloadTime: 2.3,
+    range: 1250,
+    spread: 0.009,
+    recoil: 0.048,
+    bulletSpeed: 3300,
+    wallPenetration: 'MEDIUM',
+    sound: 'vandal',
+    icon: '⚡',
+    desc: 'Carabina de asalto militar M4A1 con cargador de 30 rondas, animaciones tácticas completas, alta precisión y bajo retroceso.'
+  },
   ak74u: {
     id: 'ak74u',
     name: 'AK-74u Asalto',
