@@ -256,6 +256,9 @@ export class NetworkSystem {
       this.currentRoom = payload.room || this.currentRoom
       this.currentRoom.status = 'in_game'
       this.emitInternal('match_started', this.currentRoom)
+    } else if (payload.type === 'MATCH_FINISHED') {
+      if (this.currentRoom) this.currentRoom.status = 'lobby'
+      this.emitInternal('match_finished', payload.data)
     } else if (payload.type === 'PLAYER_SYNC') {
       if (this.myPlayer && payload.data.id !== this.myPlayer.id) {
         this.emitInternal('player_moved', payload.data)
@@ -520,6 +523,19 @@ export class NetworkSystem {
         room: this.currentRoom
       })
       this.emitInternal('match_started', this.currentRoom)
+    }
+  }
+
+  endMatch(roomId, matchData) {
+    if (this.isHost && this.currentRoom) {
+      this.currentRoom.status = 'lobby'
+      this.publishMessage(`valo3d/room/${roomId}/events`, {
+        type: 'MATCH_FINISHED',
+        roomId,
+        data: matchData
+      })
+      this.broadcastRoomUpdate()
+      this.emitInternal('match_finished', matchData)
     }
   }
 

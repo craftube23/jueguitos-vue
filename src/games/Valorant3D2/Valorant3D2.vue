@@ -141,6 +141,23 @@ const match = reactive({
   announcement: ''
 })
 
+// Match Finished Screen & Lobby Transition State
+const matchFinishedData = reactive({
+  active: false,
+  winner: null, // 'attackers', 'defenders', null/draw
+  scoreAtk: 0,
+  scoreDef: 0,
+  isVictory: false,
+  isDraw: false,
+  title: '',
+  subtitle: '',
+  timer: 6,
+  kills: 0,
+  deaths: 0,
+  kdRatio: '0.0'
+})
+let matchFinishedInterval = null
+
 // 3D Player State
 const player = reactive({
   id: 'player_local',
@@ -649,11 +666,11 @@ function updateGame3D(dt) {
     if (!isOnline.value || isHost.value) {
       match.timer -= dt
       if (match.timer <= 0) {
-        match.round++
         if (match.scoreAtk >= match.maxRounds || match.scoreDef >= match.maxRounds) {
-          match.announcement = match.scoreAtk > match.scoreDef ? '🏆 ¡VICTORIA FINAL DEL EQUIPO ROJO!' : '🏆 ¡VICTORIA FINAL DEL EQUIPO AZUL!'
-          gameMode.value = 'MENU'
+          const finalWinner = match.scoreAtk > match.scoreDef ? 'attackers' : (match.scoreDef > match.scoreAtk ? 'defenders' : null)
+          triggerMatchFinished(finalWinner)
         } else {
+          match.round++
           resetRound(false)
           if (isOnline.value && isHost.value && networkSystem) {
             networkSystem.broadcastRoundSync(roomCode.value, {
@@ -1822,6 +1839,87 @@ function onKeyUp(e) {
   if (e.code === 'Tab') showScoreboard.value = false
 }
 
+function triggerMatchFinished(winnerTeam, isNetworkEvent = false) {
+  if (matchFinishedData.active) return
+  if (document.pointerLockElement) {
+    try { document.exitPointerLock() } catch (e) {}
+  }
+  isPointerLocked.value = false
+
+  const isVictory = !!winnerTeam && player.team === winnerTeam
+  const isDraw = !winnerTeam || match.scoreAtk === match.scoreDef
+
+  matchFinishedData.active = true
+  matchFinishedData.winner = winnerTeam
+  matchFinishedData.scoreAtk = match.scoreAtk
+  matchFinishedData.scoreDef = match.scoreDef
+  matchFinishedData.isVictory = isVictory
+  matchFinishedData.isDraw = isDraw
+  matchFinishedData.title = isDraw ? '🤝 ¡EMPATE FINAL!' : (isVictory ? '🏆 ¡VICTORIA!' : '💀 ¡DERROTA!')
+  matchFinishedData.subtitle = isDraw
+    ? `Duelo concluido con marcador igualado (${match.scoreAtk} - ${match.scoreDef})`
+    : (isVictory
+      ? `¡Excelente combate! Tu equipo dominó la partida (${player.team === 'attackers' ? match.scoreAtk : match.scoreDef} - ${player.team === 'attackers' ? match.scoreDef : match.scoreAtk})`
+      : `El equipo rival se llevó la victoria (${player.team === 'attackers' ? match.scoreDef : match.scoreAtk} - ${player.team === 'attackers' ? match.scoreAtk : match.scoreDef})`)
+  matchFinishedData.kills = player.kills || 0
+  matchFinishedData.deaths = player.deaths || 0
+  matchFinishedData.kdRatio = player.deaths > 0 ? (player.kills / player.deaths).toFixed(2) : (player.kills > 0 ? player.kills.toFixed(1) : '0.0')
+  matchFinishedData.timer = 6
+
+  soundManager.play(isVictory ? 'round_won' : (isDraw ? 'buy' : 'deny'))
+
+  // Broadcast to room if online host
+  if (isOnline.value && isHost.value && !isNetworkEvent && networkSystem) {
+    networkSystem.endMatch(roomCode.value, {
+      winner: winnerTeam,
+      scoreAtk: match.scoreAtk,
+      scoreDef: match.scoreDef
+    })
+  }
+
+  if (matchFinishedInterval) clearInterval(matchFinishedInterval)
+  matchFinishedInterval = setInterval(() => {
+    matchFinishedData.timer--
+    if (matchFinishedData.timer <= 0) {
+      returnToLobbyAfterMatch()
+    }
+  }, 1000)
+}
+
+function returnToLobbyAfterMatch() {
+  if (matchFinishedInterval) {
+    clearInterval(matchFinishedInterval)
+    matchFinishedInterval = null
+  }
+  matchFinishedData.active = false
+
+  if (document.pointerLockElement) {
+    try { document.exitPointerLock() } catch (e) {}
+  }
+  isPointerLocked.value = false
+
+  if (abilitySystem) {
+    abilitySystem.clearRoundStructures()
+  }
+
+  // Reset match scores and round state
+  match.scoreAtk = 0
+  match.scoreDef = 0
+  match.round = 1
+  match.phase = 'BUY_PHASE'
+  match.timer = 15
+  match.winner = null
+  match.announcement = ''
+
+  if (isOnline.value) {
+    gameMode.value = 'MULTIPLAYER_LOBBY'
+    activeTab.value = 'multiplayer'
+    showEconomyNotification('🎮 Regresando al lobby de la sala...')
+  } else {
+    gameMode.value = 'MENU'
+  }
+}
+
 function setupNetworkListeners() {
   networkSystem.on('network_status', (status) => {
     networkStatus.value = status
@@ -2005,6 +2103,14 @@ function setupNetworkListeners() {
       } else if (data.phase === 'ROUND_ENDED') {
         if (playerController) playerController.freezeMovement = true
       }
+    }
+  })
+
+  networkSystem.on('match_finished', (data) => {
+    if (data) {
+      if (data.scoreAtk !== undefined) match.scoreAtk = data.scoreAtk
+      if (data.scoreDef !== undefined) match.scoreDef = data.scoreDef
+      triggerMatchFinished(data.winner, true)
     }
   })
 
@@ -3082,6 +3188,64 @@ function buyItem(item) {
               <span v-else class="badge-buy">COMPRAR [${{ shield.cost }}]</span>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MATCH FINISHED / GAME OVER OVERLAY (SENDS ALL PLAYERS BACK TO LOBBY) -->
+    <div v-if="matchFinishedData.active" class="match-finished-overlay" @click.stop>
+      <div class="match-finished-card" :class="{ 'victory-card': matchFinishedData.isVictory, 'defeat-card': !matchFinishedData.isVictory && !matchFinishedData.isDraw, 'draw-card': matchFinishedData.isDraw }">
+        <div class="mf-badge">
+          <span>⚔️ PARTIDA FINALIZADA ⚔️</span>
+        </div>
+        
+        <h1 class="mf-title">
+          <span v-if="matchFinishedData.isVictory" class="title-vic">🏆 ¡VICTORIA!</span>
+          <span v-else-if="matchFinishedData.isDraw" class="title-draw">🤝 ¡EMPATE!</span>
+          <span v-else class="title-def">💀 ¡DERROTA!</span>
+        </h1>
+        
+        <p class="mf-subtitle">{{ matchFinishedData.subtitle }}</p>
+
+        <!-- Final Match Scoreboard Showcase -->
+        <div class="mf-scores-box">
+          <div class="mf-team-col red-team" :class="{ winner: matchFinishedData.winner === 'attackers' }">
+            <span class="mf-team-name">🔴 EQUIPO ROJO</span>
+            <span class="mf-team-score">{{ matchFinishedData.scoreAtk }}</span>
+            <span v-if="matchFinishedData.winner === 'attackers'" class="mf-win-tag">GANADOR</span>
+          </div>
+          <div class="mf-vs">VS</div>
+          <div class="mf-team-col blue-team" :class="{ winner: matchFinishedData.winner === 'defenders' }">
+            <span class="mf-team-name">🔵 EQUIPO AZUL</span>
+            <span class="mf-team-score">{{ matchFinishedData.scoreDef }}</span>
+            <span v-if="matchFinishedData.winner === 'defenders'" class="mf-win-tag">GANADOR</span>
+          </div>
+        </div>
+
+        <!-- Player Performance Breakdown -->
+        <div class="mf-stats-row">
+          <div class="mf-stat-item">
+            <span class="mf-stat-label">🎯 BAJAS</span>
+            <span class="mf-stat-value text-green">{{ matchFinishedData.kills }}</span>
+          </div>
+          <div class="mf-stat-item">
+            <span class="mf-stat-label">💀 MUERTES</span>
+            <span class="mf-stat-value text-red">{{ matchFinishedData.deaths }}</span>
+          </div>
+          <div class="mf-stat-item">
+            <span class="mf-stat-label">⚖️ RATIO K/D</span>
+            <span class="mf-stat-value text-cyan">{{ matchFinishedData.kdRatio }}</span>
+          </div>
+        </div>
+
+        <!-- Return to Lobby Countdown & Action Button -->
+        <div class="mf-footer">
+          <div class="mf-countdown-tip">
+            ⏳ Regresando al lobby en <strong>{{ matchFinishedData.timer }}s</strong>...
+          </div>
+          <button class="btn-return-lobby" @click="returnToLobbyAfterMatch">
+            🚀 VOLVER AL LOBBY AHORA
+          </button>
         </div>
       </div>
     </div>
@@ -4649,6 +4813,208 @@ function buyItem(item) {
   width: 1.5px;
   height: 4px;
   background: rgba(0, 243, 255, 0.6);
+}
+
+/* MATCH FINISHED / GAME OVER OVERLAY */
+.match-finished-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 8, 20, 0.88);
+  backdrop-filter: blur(14px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: mfFadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes mfFadeIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.match-finished-card {
+  background: rgba(15, 23, 42, 0.95);
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-radius: 16px;
+  padding: 32px 40px;
+  max-width: 620px;
+  width: 90%;
+  text-align: center;
+  box-shadow: 0 0 50px rgba(0, 0, 0, 0.9), 0 0 30px rgba(56, 189, 248, 0.2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.match-finished-card.victory-card {
+  border-color: rgba(16, 185, 129, 0.7);
+  box-shadow: 0 0 50px rgba(0, 0, 0, 0.9), 0 0 35px rgba(16, 185, 129, 0.4);
+}
+
+.match-finished-card.defeat-card {
+  border-color: rgba(239, 68, 68, 0.7);
+  box-shadow: 0 0 50px rgba(0, 0, 0, 0.9), 0 0 35px rgba(239, 68, 68, 0.4);
+}
+
+.match-finished-card.draw-card {
+  border-color: rgba(56, 189, 248, 0.7);
+  box-shadow: 0 0 50px rgba(0, 0, 0, 0.9), 0 0 35px rgba(56, 189, 248, 0.3);
+}
+
+.mf-badge {
+  font-size: 0.8rem;
+  font-weight: 900;
+  letter-spacing: 3px;
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 4px 16px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.mf-title {
+  margin: 0;
+  font-size: 2.8rem;
+  font-weight: 900;
+  letter-spacing: 2px;
+}
+
+.title-vic {
+  color: #10b981;
+  text-shadow: 0 0 25px rgba(16, 185, 129, 0.8);
+}
+
+.title-def {
+  color: #ef4444;
+  text-shadow: 0 0 25px rgba(239, 68, 68, 0.8);
+}
+
+.title-draw {
+  color: #38bdf8;
+  text-shadow: 0 0 25px rgba(56, 189, 248, 0.8);
+}
+
+.mf-subtitle {
+  margin: 0;
+  color: #cbd5e1;
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+.mf-scores-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  background: rgba(30, 41, 59, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 16px 28px;
+  border-radius: 12px;
+  width: 100%;
+}
+
+.mf-team-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+}
+
+.mf-team-col.red-team .mf-team-name { color: #f87171; font-weight: 800; font-size: 0.95rem; }
+.mf-team-col.red-team .mf-team-score { color: #ef4444; font-size: 2.2rem; font-weight: 900; }
+
+.mf-team-col.blue-team .mf-team-name { color: #60a5fa; font-weight: 800; font-size: 0.95rem; }
+.mf-team-col.blue-team .mf-team-score { color: #3b82f6; font-size: 2.2rem; font-weight: 900; }
+
+.mf-win-tag {
+  font-size: 0.68rem;
+  font-weight: 900;
+  background: rgba(16, 185, 129, 0.25);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.5);
+  padding: 2px 8px;
+  border-radius: 6px;
+  letter-spacing: 1px;
+}
+
+.mf-vs {
+  font-size: 1.1rem;
+  font-weight: 900;
+  color: #64748b;
+  letter-spacing: 1px;
+}
+
+.mf-stats-row {
+  display: flex;
+  gap: 16px;
+  width: 100%;
+  justify-content: space-around;
+  background: rgba(15, 23, 42, 0.7);
+  padding: 12px 20px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.mf-stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mf-stat-label {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #94a3b8;
+}
+
+.mf-stat-value {
+  font-size: 1.4rem;
+  font-weight: 900;
+}
+
+.text-red {
+  color: #ef4444;
+}
+
+.mf-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin-top: 6px;
+}
+
+.mf-countdown-tip {
+  font-size: 0.9rem;
+  color: #94a3b8;
+}
+
+.mf-countdown-tip strong {
+  color: #38bdf8;
+}
+
+.btn-return-lobby {
+  background: linear-gradient(135deg, #ff4655, #b91c1c);
+  color: #fff;
+  border: none;
+  padding: 14px 32px;
+  border-radius: 8px;
+  font-weight: 900;
+  font-size: 1.05rem;
+  letter-spacing: 1px;
+  cursor: pointer;
+  box-shadow: 0 0 20px rgba(255, 70, 85, 0.5);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  width: 100%;
+}
+
+.btn-return-lobby:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 30px rgba(255, 70, 85, 0.8);
 }
 
 </style>
