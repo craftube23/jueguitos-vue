@@ -204,54 +204,211 @@ function createConcreteTexture() {
   return texture
 }
 
-// 7. Shipping Container Texture
-function createContainerTexture() {
+// 8. Glacier Ice Tile Texture (Cryodock-7)
+function createGlacierIceTileTexture() {
   const canvas = document.createElement('canvas')
   canvas.width = 512
   canvas.height = 512
   const ctx = canvas.getContext('2d')
-  ctx.fillStyle = '#b45309'
+
+  // Deep Sub-zero Navy & Frosted Ice Base
+  const grad = ctx.createLinearGradient(0, 0, 512, 512)
+  grad.addColorStop(0, '#0284c7')
+  grad.addColorStop(0.5, '#0369a1')
+  grad.addColorStop(1, '#082f49')
+  ctx.fillStyle = grad
   ctx.fillRect(0, 0, 512, 512)
-  const ribW = 32
-  for (let x = 0; x < 512; x += ribW) {
-    ctx.fillStyle = '#9a3412'; ctx.fillRect(x, 0, ribW / 2, 512)
-    ctx.fillStyle = '#d97706'; ctx.fillRect(x + ribW / 2, 0, ribW / 2, 512)
+
+  // Hexagonal Crystal Slabs
+  ctx.fillStyle = '#0e7490'
+  for (let x = 0; x < 512; x += 128) {
+    for (let y = 0; y < 512; y += 128) {
+      ctx.fillRect(x + 4, y + 4, 120, 120)
+      ctx.strokeStyle = '#38bdf8'
+      ctx.lineWidth = 2
+      ctx.strokeRect(x + 6, y + 6, 116, 116)
+    }
   }
+
+  // Glowing Frost Veins & Runes
+  ctx.strokeStyle = '#e0f2fe'
+  ctx.lineWidth = 3
+  ctx.beginPath()
+  ctx.moveTo(32, 256); ctx.lineTo(256, 32); ctx.lineTo(480, 256); ctx.lineTo(256, 480); ctx.closePath()
+  ctx.stroke()
+
+  ctx.fillStyle = '#38bdf8'
+  ctx.beginPath()
+  ctx.arc(256, 256, 28, 0, Math.PI * 2)
+  ctx.fill()
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.wrapS = THREE.RepeatWrapping
+  texture.wrapT = THREE.RepeatWrapping
+  return texture
+}
+
+// 9. Arctic Insulated Titanium Wall Texture
+function createArcticTitaniumWallTexture() {
+  const canvas = document.createElement('canvas')
+  canvas.width = 512
+  canvas.height = 512
+  const ctx = canvas.getContext('2d')
+
+  // Titanium Steel Base
   ctx.fillStyle = '#1e293b'
-  ctx.fillRect(0, 0, 512, 28); ctx.fillRect(0, 484, 512, 28)
+  ctx.fillRect(0, 0, 512, 512)
+
+  // Modular Titanium Panels
+  const ph = 128
+  const pw = 256
+  for (let y = 0; y < 512; y += ph) {
+    for (let x = 0; x < 512; x += pw) {
+      ctx.fillStyle = (Math.random() > 0.5) ? '#334155' : '#1e293b'
+      ctx.fillRect(x + 4, y + 4, pw - 8, ph - 8)
+      ctx.strokeStyle = '#0f172a'
+      ctx.lineWidth = 4
+      ctx.strokeRect(x + 4, y + 4, pw - 8, ph - 8)
+
+      // Rivets
+      ctx.fillStyle = '#94a3b8'
+      ctx.fillRect(x + 10, y + 10, 6, 6)
+      ctx.fillRect(x + pw - 16, y + 10, 6, 6)
+      ctx.fillRect(x + 10, y + ph - 16, 6, 6)
+      ctx.fillRect(x + pw - 16, y + ph - 16, 6, 6)
+    }
+  }
+
+  // Cryo Warning Hazard Cyan / White Stripes
+  ctx.fillStyle = '#38bdf8'
+  ctx.fillRect(0, 240, 512, 32)
+  ctx.fillStyle = '#f8fafc'
+  for (let s = 0; s < 512; s += 48) {
+    ctx.beginPath()
+    ctx.moveTo(s, 240); ctx.lineTo(s + 24, 240); ctx.lineTo(s + 48, 272); ctx.lineTo(s + 24, 272); ctx.closePath()
+    ctx.fill()
+  }
+
+  // Cryo Decal Text
+  ctx.fillStyle = '#0f172a'
+  ctx.font = 'bold 16px monospace'
+  ctx.textAlign = 'center'
+  ctx.fillText('CRYO-SECTOR 07 // SUB-ZERO', 256, 262)
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.wrapS = THREE.RepeatWrapping
+  texture.wrapT = THREE.RepeatWrapping
+  return texture
+}
+
+// 10. Cryo Coolant Reactor Core Texture
+function createCryoReactorTexture() {
+  const canvas = document.createElement('canvas')
+  canvas.width = 256
+  canvas.height = 512
+  const ctx = canvas.getContext('2d')
+
+  ctx.fillStyle = '#082f49'
+  ctx.fillRect(0, 0, 256, 512)
+
+  // Swirling Sub-Zero Plasma Core
+  ctx.fillStyle = '#38bdf8'
+  ctx.fillRect(40, 0, 176, 512)
+
+  ctx.strokeStyle = '#e0f2fe'
+  ctx.lineWidth = 5
+  ctx.beginPath()
+  ctx.moveTo(128, 0); ctx.lineTo(128, 512)
+  ctx.stroke()
+
+  ctx.fillStyle = '#bae6fd'
+  for (let y = 20; y < 512; y += 48) {
+    ctx.beginPath()
+    ctx.arc(128, y, 14, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
   const texture = new THREE.CanvasTexture(canvas)
   return texture
 }
 
 // --- MAIN ARENA BUILDER ---
 
+let currentMapGroup = null
+let currentBarrierGroup = null
+
 export function buildTacticalArena(scene, mapId = 'kasbah_temple') {
   const isKasbah = (mapId === 'kasbah_temple' || mapId === 'templo_kasbah')
+  const isGlacier = (mapId === 'glacier_cryo' || mapId === 'estacion_glaciar')
+
+  if (currentMapGroup) {
+    scene.remove(currentMapGroup)
+  }
+  if (currentBarrierGroup) {
+    scene.remove(currentBarrierGroup)
+  }
 
   const meshColliders = []
   const wallsAABB = []
   const mapObjectsGroup = new THREE.Group()
+  currentMapGroup = mapObjectsGroup
   scene.add(mapObjectsGroup)
 
   // Textures
-  const floorTex = isKasbah ? createSandstoneTileTexture() : createConcreteTexture()
-  floorTex.repeat.set(8, 8)
-  const wallTex = isKasbah ? createKasbahWallTexture() : createConcreteTexture()
-  wallTex.repeat.set(4, 2)
+  let floorTex, wallTex
+  if (isKasbah) {
+    floorTex = createSandstoneTileTexture()
+    floorTex.repeat.set(8, 8)
+    wallTex = createKasbahWallTexture()
+    wallTex.repeat.set(4, 2)
+  } else if (isGlacier) {
+    floorTex = createGlacierIceTileTexture()
+    floorTex.repeat.set(8, 8)
+    wallTex = createArcticTitaniumWallTexture()
+    wallTex.repeat.set(4, 2)
+  } else {
+    floorTex = createConcreteTexture()
+    floorTex.repeat.set(8, 8)
+    wallTex = createConcreteTexture()
+    wallTex.repeat.set(4, 2)
+  }
+
   const containerTex = createContainerTexture()
-  const goldObeliskTex = createGoldenObeliskTexture()
+  const goldObeliskTex = isGlacier ? createCryoReactorTexture() : createGoldenObeliskTexture()
   const canopyTex = createFabricCanopyTexture()
   canopyTex.repeat.set(3, 3)
 
   // Materials
-  const floorMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.65, metalness: 0.15 })
-  const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.55, metalness: 0.25 })
-  const trimMat = new THREE.MeshStandardMaterial({ color: isKasbah ? 0x451a03 : 0x0f172a, roughness: 0.4, metalness: 0.7 })
-  const goldAccentMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.2, metalness: 0.9 })
-  const cyanNeonMat = new THREE.MeshBasicMaterial({ color: 0x00f3ff })
+  const floorMat = new THREE.MeshStandardMaterial({
+    map: floorTex,
+    roughness: isGlacier ? 0.25 : 0.65,
+    metalness: isGlacier ? 0.45 : 0.15
+  })
+  const wallMat = new THREE.MeshStandardMaterial({
+    map: wallTex,
+    roughness: 0.5,
+    metalness: isGlacier ? 0.6 : 0.25
+  })
+  const trimMat = new THREE.MeshStandardMaterial({
+    color: isKasbah ? 0x451a03 : (isGlacier ? 0x0f172a : 0x0f172a),
+    roughness: 0.4,
+    metalness: 0.7
+  })
+  const goldAccentMat = new THREE.MeshStandardMaterial({
+    color: isGlacier ? 0x38bdf8 : 0xf59e0b,
+    roughness: 0.2,
+    metalness: 0.9
+  })
+  const cyanNeonMat = new THREE.MeshBasicMaterial({ color: isGlacier ? 0x7dd3fc : 0x00f3ff })
   const containerMat = new THREE.MeshStandardMaterial({ map: containerTex, roughness: 0.5, metalness: 0.4 })
   const canopyMat = new THREE.MeshStandardMaterial({ map: canopyTex, roughness: 0.7, side: THREE.DoubleSide })
-  const glassRailingMat = new THREE.MeshPhysicalMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.45, roughness: 0.1, metalness: 0.2 })
+  const glassRailingMat = new THREE.MeshPhysicalMaterial({
+    color: isGlacier ? 0xbae6fd : 0x38bdf8,
+    transparent: true,
+    opacity: 0.55,
+    roughness: 0.1,
+    metalness: 0.3
+  })
 
   // Helper: Create Wall
   function addWall(x, y, z, w, h, d, mat = wallMat) {
@@ -414,6 +571,115 @@ export function buildTacticalArena(scene, mapId = 'kasbah_temple') {
     addWall(22, 0, -12, 2.0, 5.5, 8.0)
     addWall(22, 0, 12, 2.0, 5.5, 8.0)
 
+  } else if (isGlacier) {
+    // ==========================================
+    // MAP 3: "ESTACIÓN GLACIAR ÁRTICA: CRYODOCK-7"
+    // ==========================================
+
+    // --- NORTH: SITE A - SUB-ZERO CRYO REACTOR DOME ---
+    const cryoRing = new THREE.Mesh(
+      new THREE.CylinderGeometry(5.2, 5.6, 0.45, 16),
+      trimMat
+    )
+    cryoRing.position.set(0, 0.225, -16)
+    mapObjectsGroup.add(cryoRing)
+    meshColliders.push(cryoRing)
+
+    // Glowing Sub-Zero Reactor Core
+    const outerCoreGeo = new THREE.IcosahedronGeometry(2.0, 1)
+    const outerCoreMat = new THREE.MeshBasicMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0.85, wireframe: true })
+    const outerCore = new THREE.Mesh(outerCoreGeo, outerCoreMat)
+    outerCore.position.set(0, 2.8, -16)
+    mapObjectsGroup.add(outerCore)
+
+    const innerCoreGeo = new THREE.OctahedronGeometry(1.2, 0)
+    const innerCoreMat = new THREE.MeshBasicMaterial({ color: 0x0284c7, transparent: true, opacity: 0.95 })
+    const innerCore = new THREE.Mesh(innerCoreGeo, innerCoreMat)
+    innerCore.position.set(0, 2.8, -16)
+    mapObjectsGroup.add(innerCore)
+
+    // 4 Heavy Cryogenic Coolant Towers / Heatsinks
+    const towerGeo = new THREE.CylinderGeometry(0.85, 1.05, 8.0, 16)
+    const towerCoords = [
+      { x: -6.5, z: -21.5 },
+      { x: 6.5, z: -21.5 },
+      { x: -6.5, z: -10.5 },
+      { x: 6.5, z: -10.5 }
+    ]
+    towerCoords.forEach(c => {
+      const tower = new THREE.Mesh(towerGeo, wallMat)
+      tower.position.set(c.x, 4.0, c.z)
+      tower.castShadow = true
+      tower.receiveShadow = true
+      mapObjectsGroup.add(tower)
+      meshColliders.push(tower)
+
+      // Cyan Glowing Coolant Ring
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(1.0, 0.08, 8, 24), cyanNeonMat)
+      ring.rotation.x = Math.PI / 2
+      ring.position.set(c.x, 5.0, c.z)
+      mapObjectsGroup.add(ring)
+    })
+
+    // Site A Cover Blocks (Frozen Radianite Crates)
+    addWall(-4.5, 0, -14, 2.4, 2.4, 2.4, goldAccentMat)
+    addWall(4.5, 0, -18, 2.4, 2.4, 2.4, goldAccentMat)
+    addWall(0, 0, -23, 8.0, 5.0, 2.0)
+
+    // --- SOUTH: SITE B - ARCTIC CARGO HANGAR & CRYO VAULT ---
+    // Massive Glowing Cryo Coolant Chamber
+    const cryoVaultGeo = new THREE.ConeGeometry(2.4, 8.5, 6)
+    const cryoVaultMat = new THREE.MeshStandardMaterial({ map: goldObeliskTex, roughness: 0.2, metalness: 0.85 })
+    const cryoVault = new THREE.Mesh(cryoVaultGeo, cryoVaultMat)
+    cryoVault.position.set(0, 4.25, 16)
+    mapObjectsGroup.add(cryoVault)
+    meshColliders.push(cryoVault)
+
+    // Vault Fortified Archways & Columns
+    addWall(-8, 0, 16, 2.2, 7.0, 8.0)
+    addWall(8, 0, 16, 2.2, 7.0, 8.0)
+    addWall(0, 0, 23, 10.0, 5.5, 2.0)
+    addWall(-4, 0, 12, 2.6, 2.6, 2.6, containerMat)
+    addWall(4, 0, 20, 2.6, 2.6, 2.6, containerMat)
+
+    // --- MID: GLACIER CHASM & TITANIUM SUSPENSION BRIDGE ---
+    addPlatform(0, 3.8, 0, 6.0, 18.0, trimMat)
+
+    // Frost Glass Railings
+    const railGeo = new THREE.BoxGeometry(0.18, 1.1, 18.0)
+    const railLeft = new THREE.Mesh(railGeo, glassRailingMat)
+    railLeft.position.set(-2.9, 4.35, 0)
+    mapObjectsGroup.add(railLeft)
+    meshColliders.push(railLeft)
+
+    const railRight = new THREE.Mesh(railGeo, glassRailingMat)
+    railRight.position.set(2.9, 4.35, 0)
+    mapObjectsGroup.add(railRight)
+    meshColliders.push(railRight)
+
+    // Staircases climbing to Mid Bridge
+    addStaircase(-8.0, 0, -3.0, 0, 0, 3.8, 2.8, 12) // West to Mid
+    addStaircase(8.0, 0, 3.0, 0, 0, 3.8, 2.8, 12)   // East to Mid
+
+    // Tactical Chasm Flank Walls
+    addWall(-12, 0, -8, 2.0, 5.5, 8.0)
+    addWall(-12, 0, 8, 2.0, 5.5, 8.0)
+    addWall(12, 0, -8, 2.0, 5.5, 8.0)
+    addWall(12, 0, 8, 2.0, 5.5, 8.0)
+
+    // Mid Arctic Crates
+    addWall(-6, 0, -6, 3.0, 2.2, 3.0, containerMat)
+    addWall(6, 0, 6, 3.0, 2.2, 3.0, containerMat)
+
+    // --- SPAWN ZONES ---
+    // Attacker Spawn (West: X = -26.0)
+    addWall(-22, 0, -12, 2.0, 5.5, 8.0)
+    addWall(-22, 0, 12, 2.0, 5.5, 8.0)
+
+    // Defender Spawn (East: X = +26.0)
+    addWall(22, 0, -12, 2.0, 5.5, 8.0)
+    addWall(22, 0, 12, 2.0, 5.5, 8.0)
+
   } else {
     // ==========================================
     // MAP 2: "SECTOR RADIAN-9"
@@ -519,11 +785,12 @@ export function buildTacticalArena(scene, mapId = 'kasbah_temple') {
 
   // --- SPAWN FORCEFIELD BARRIER SYSTEM (Buy Phase Barrier Walls) ---
   const barrierGroup = new THREE.Group()
+  currentBarrierGroup = barrierGroup
   const barrierColliders = []
 
   const redForceTex = createForcefieldTexture('#ff4655')
   redForceTex.repeat.set(4, 1)
-  const blueForceTex = createForcefieldTexture('#00e5ff')
+  const blueForceTex = createForcefieldTexture(isGlacier ? '#38bdf8' : '#00e5ff')
   blueForceTex.repeat.set(4, 1)
 
   const redBarrierMat = new THREE.MeshBasicMaterial({
@@ -535,7 +802,7 @@ export function buildTacticalArena(scene, mapId = 'kasbah_temple') {
   })
   const blueBarrierMat = new THREE.MeshBasicMaterial({
     map: blueForceTex,
-    color: 0x00e5ff,
+    color: isGlacier ? 0x38bdf8 : 0x00e5ff,
     transparent: true,
     opacity: 0.92,
     side: THREE.DoubleSide
@@ -573,9 +840,13 @@ export function buildTacticalArena(scene, mapId = 'kasbah_temple') {
   // Initial state: active
   setBarriersActive(true)
 
+  let mapDisplayName = 'TEMPLO CIBERNÉTICO KASBAH'
+  if (isGlacier) mapDisplayName = 'ESTACIÓN GLACIAR ÁRTICA: CRYODOCK-7'
+  else if (!isKasbah) mapDisplayName = 'SECTOR RADIAN-9'
+
   return {
     mapId,
-    name: isKasbah ? 'TEMPLO CIBERNÉTICO KASBAH' : 'SECTOR RADIAN-9',
+    name: mapDisplayName,
     meshColliders,
     wallsAABB,
     bounds: { minX: -32, maxX: 32, minZ: -32, maxZ: 32 },

@@ -29,6 +29,13 @@ const MAPS_3D = [
     theme: 'cyber_tech',
     desc: 'Complejo nocturno de alta tecnología con reactor de fusión, pasarelas elevadas y patio industrial.',
     icon: '⚡'
+  },
+  {
+    id: 'glacier_cryo',
+    name: 'ESTACIÓN GLACIAR: CRYODOCK-7',
+    theme: 'glacier_cryo',
+    desc: 'Estación de investigación criogénica ártica con losas de hielo azul, puente de titanio suspendido, reactor subcero y niebla helada.',
+    icon: '❄️'
   }
 ]
 const selectedMapId = ref('kasbah_temple')
@@ -276,6 +283,7 @@ let renderer = null
 let animFrameId = null
 let lastTime = 0
 let ambientDust = null
+let currentSkyDome = null
 
 // Modular Systems
 let playerController = null
@@ -432,6 +440,7 @@ function rebuildMap3D(mapId) {
   selectedMapId.value = mapId
   const arenaData = buildTacticalArena(scene, mapId)
   Object.assign(MAP_3D, arenaData)
+  buildAtmosphere()
 
   if (playerController) {
     playerController.setMeshColliders(arenaData.meshColliders)
@@ -453,7 +462,16 @@ function selectLobbyMap(mapId) {
 }
 
 function buildAtmosphere() {
+  if (!scene) return
+  if (currentSkyDome) {
+    scene.remove(currentSkyDome)
+  }
+  if (ambientDust) {
+    scene.remove(ambientDust)
+  }
+
   const isKasbah = (selectedMapId.value === 'kasbah_temple')
+  const isGlacier = (selectedMapId.value === 'glacier_cryo')
 
   // Atmospheric Sky Dome with Tactical Gradient
   const skyCanvas = document.createElement('canvas')
@@ -468,6 +486,12 @@ function buildAtmosphere() {
     grad.addColorStop(0.4, '#581c87')  // Royal purple twilight
     grad.addColorStop(0.75, '#c2410c') // Sunset amber
     grad.addColorStop(1.0, '#fbbf24')  // Warm golden horizon
+  } else if (isGlacier) {
+    // Sub-zero Arctic Aurora Sky
+    grad.addColorStop(0, '#020617')    // Sub-zero deep arctic zenith
+    grad.addColorStop(0.35, '#082f49') // Aurora navy
+    grad.addColorStop(0.7, '#0369a1')  // Glacial cyan glow
+    grad.addColorStop(1.0, '#7dd3fc')  // Frosted horizon accent
   } else {
     // Cyber Twilight Sky
     grad.addColorStop(0, '#040814')    // Deep zenith
@@ -482,11 +506,11 @@ function buildAtmosphere() {
   const skyTex = new THREE.CanvasTexture(skyCanvas)
   const skyGeo = new THREE.SphereGeometry(250, 32, 16)
   const skyMat = new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide })
-  const skyDome = new THREE.Mesh(skyGeo, skyMat)
-  scene.add(skyDome)
+  currentSkyDome = new THREE.Mesh(skyGeo, skyMat)
+  scene.add(currentSkyDome)
 
-  // Floating Radianite Dust Particles (Atmospheric Motes)
-  const dustCount = 120
+  // Floating Radianite Dust / Arctic Snow Particles
+  const dustCount = isGlacier ? 160 : 120
   const dustGeo = new THREE.BufferGeometry()
   const dustPositions = new Float32Array(dustCount * 3)
   for (let i = 0; i < dustCount; i++) {
@@ -496,10 +520,10 @@ function buildAtmosphere() {
   }
   dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3))
   const dustMat = new THREE.PointsMaterial({
-    color: isKasbah ? 0xfbbf24 : 0x38bdf8,
-    size: 0.14,
+    color: isKasbah ? 0xfbbf24 : (isGlacier ? 0xbae6fd : 0x38bdf8),
+    size: isGlacier ? 0.18 : 0.14,
     transparent: true,
-    opacity: 0.65,
+    opacity: isGlacier ? 0.85 : 0.65,
     blending: THREE.AdditiveBlending
   })
   ambientDust = new THREE.Points(dustGeo, dustMat)
@@ -2138,6 +2162,24 @@ function buyItem(item) {
           </div>
 
           <div class="custom-options-grid">
+            <!-- Tactical 3D Map Selector -->
+            <div class="custom-opt-item" style="grid-column: 1 / -1;">
+              <label class="opt-label">🗺️ SELECCIONAR MAPA TÁCTICO 3D:</label>
+              <div class="opt-btn-group" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px;">
+                <button 
+                  v-for="m in MAPS_3D" 
+                  :key="'cust_map_' + m.id" 
+                  class="btn-opt" 
+                  :class="{ active: selectedMapId === m.id }" 
+                  @click="rebuildMap3D(m.id)"
+                  style="padding: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 800;"
+                >
+                  <span>{{ m.icon }}</span>
+                  <span>{{ m.name }}</span>
+                </button>
+              </div>
+            </div>
+
             <!-- Toggle Bots -->
             <div class="custom-opt-item">
               <label class="opt-label">🤖 ¿INCLUIR BOTS EN LA PARTIDA?</label>
@@ -2455,7 +2497,7 @@ function buyItem(item) {
           <!-- Selector de Mapa Táctico 3D -->
           <div class="lobby-config-item" style="grid-column: 1 / -1;">
             <span class="cfg-title">🗺️ MAPA TÁCTICO 3D SELECCIONADO:</span>
-            <div class="cfg-buttons" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <div class="cfg-buttons" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px;">
               <button 
                 v-for="m in MAPS_3D" 
                 :key="'mp_map_' + m.id"
