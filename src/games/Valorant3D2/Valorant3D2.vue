@@ -297,6 +297,7 @@ const joinCodeInput = ref('')
 const roomPlayerList = ref([])
 const isHost = ref(false)
 const availableRooms = ref([])
+const networkStatus = ref('CONNECTING')
 const lobbyChatInput = ref('')
 const lobbyChatMessages = ref([])
 const inGameChatOpen = ref(false)
@@ -1571,6 +1572,10 @@ function onKeyUp(e) {
 }
 
 function setupNetworkListeners() {
+  networkSystem.on('network_status', (status) => {
+    networkStatus.value = status
+  })
+
   networkSystem.on('rooms_list', (rooms) => {
     availableRooms.value = rooms || []
   })
@@ -2243,10 +2248,16 @@ function buyItem(item) {
           <span class="lobby-tag">LOBBY MULTIJUGADOR 3D</span>
           <h2>{{ (MAPS_3D.find(m => m.id === selectedMapId)?.name || 'MAPA TÁCTICO 3D').toUpperCase() }} // PRE-PARTIDA</h2>
         </div>
-        <div class="lobby-code-box" @click="copyRoomCode">
-          <span class="code-label">CÓDIGO DE SALA:</span>
-          <span class="code-val">{{ roomCode }}</span>
-          <span class="copy-hint">📋 Copiar</span>
+        <div class="lobby-header-right" style="display: flex; align-items: center; gap: 12px;">
+          <div class="net-badge" :style="{ color: networkStatus === 'CONNECTED' ? '#4ade80' : '#facc15' }" style="font-size: 0.75rem; padding: 6px 12px; border-radius: 6px; font-weight: 800; display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1);">
+            <span>{{ networkStatus === 'CONNECTED' ? '🟢' : '🟡' }}</span>
+            <span>{{ networkStatus === 'CONNECTED' ? 'EN LÍNEA (P2P)' : 'CONECTANDO...' }}</span>
+          </div>
+          <div class="lobby-code-box" @click="copyRoomCode">
+            <span class="code-label">CÓDIGO DE SALA:</span>
+            <span class="code-val">{{ roomCode }}</span>
+            <span class="copy-hint">📋 Copiar</span>
+          </div>
         </div>
       </div>
 

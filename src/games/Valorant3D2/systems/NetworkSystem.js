@@ -14,6 +14,9 @@ export class NetworkSystem {
     this.knownPublicRooms = new Map()
     this.heartbeatInterval = null
     this.joinRetryInterval = null
+    this.connectionStatus = 'DISCONNECTED' // 'CONNECTING', 'CONNECTED', 'ERROR'
+
+    // High-reliability STUN + Free OpenRelay TURN configuration (Bypasses home firewalls / NAT worldwide)
     this.peerIceConfig = {
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
@@ -22,7 +25,22 @@ export class NetworkSystem {
         { urls: 'stun:stun3.l.google.com:19302' },
         { urls: 'stun:stun4.l.google.com:19302' },
         { urls: 'stun:stun.services.mozilla.com' },
-        { urls: 'stun:stun.cloudflare.com:3478' }
+        { urls: 'stun:stun.cloudflare.com:3478' },
+        {
+          urls: 'turn:openrelay.metered.ca:80',
+          username: 'openrelayproject',
+          credential: 'openrelayproject'
+        },
+        {
+          urls: 'turn:openrelay.metered.ca:443',
+          username: 'openrelayproject',
+          credential: 'openrelayproject'
+        },
+        {
+          urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+          username: 'openrelayproject',
+          credential: 'openrelayproject'
+        }
       ]
     }
 
@@ -194,6 +212,7 @@ export class NetworkSystem {
 
     this.isHost = true
     this.connections = []
+    this.connectionStatus = 'CONNECTING'
 
     const hostPlayer = {
       id: `host_${Date.now()}`,
@@ -249,16 +268,24 @@ export class NetworkSystem {
 
     try {
       this.peer = new Peer(peerRoomId, {
-        debug: 0,
+        debug: 1,
+        host: '0.peerjs.com',
+        port: 443,
+        path: '/',
+        secure: true,
         config: this.peerIceConfig
       })
 
-      this.peer.on('open', () => {
+      this.peer.on('open', (id) => {
+        console.log('PeerJS Host Ready with ID:', id)
         this.connected = true
+        this.connectionStatus = 'CONNECTED'
+        this.emitInternal('network_status', 'CONNECTED')
         this.emitInternal('room_joined', { room: this.cloneRoom(), player: hostPlayer })
       })
 
       this.peer.on('connection', (conn) => {
+        console.log('PeerJS Host received incoming connection from peer:', conn.peer)
         const setupConn = () => {
           if (!this.connections.includes(conn)) {
             this.connections.push(conn)
@@ -286,10 +313,16 @@ export class NetworkSystem {
             this.emitInternal('room_updated', roomClone)
           }
         })
+
+        conn.on('error', (err) => {
+          console.warn('Host connection peer error:', err)
+        })
       })
 
       this.peer.on('error', (err) => {
-        console.warn('PeerJS Host notice:', err)
+        console.warn('PeerJS Host Error:', err)
+        this.connectionStatus = 'ERROR'
+        this.emitInternal('network_status', 'ERROR')
         this.emitInternal('room_joined', { room: this.cloneRoom(), player: hostPlayer })
       })
     } catch (e) {
@@ -387,6 +420,7 @@ export class NetworkSystem {
     const peerTargetId = `v3d_${cleanCode.toLowerCase()}`
 
     this.isHost = false
+    this.connectionStatus = 'CONNECTING'
 
     const joinPlayer = {
       id: `peer_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
@@ -457,15 +491,26 @@ export class NetworkSystem {
     // PeerJS Network Connection Request
     try {
       this.peer = new Peer({
-        debug: 0,
+        debug: 1,
+        host: '0.peerjs.com',
+        port: 443,
+        path: '/',
+        secure: true,
         config: this.peerIceConfig
       })
 
-      this.peer.on('open', () => {
-        this.hostConn = this.peer.connect(peerTargetId, { reliable: true })
+      this.peer.on('open', (id) => {
+        console.log('PeerJS Client connected to signaling server with ID:', id)
+        this.hostConn = this.peer.connect(peerTargetId, {
+          reliable: true,
+          serialization: 'json'
+        })
 
         const onHostConnected = () => {
+          console.log('PeerJS Client DataConnection OPENED with Host:', peerTargetId)
           this.connected = true
+          this.connectionStatus = 'CONNECTED'
+          this.emitInternal('network_status', 'CONNECTED')
           this.sendJoinRequest()
         }
 
@@ -477,12 +522,16 @@ export class NetworkSystem {
         })
 
         this.hostConn.on('error', (err) => {
-          console.warn('Peer connection notice (BC active):', err)
+          console.warn('Peer connection notice:', err)
+        })
+
+        this.hostConn.on('close', () => {
+          console.warn('Peer connection closed by host')
         })
       })
 
       this.peer.on('error', (err) => {
-        console.warn('Peer client notice (BC active):', err)
+        console.warn('Peer client signaling notice:', err)
       })
     } catch (e) {
       console.warn('Peer connect error:', e)
