@@ -12,6 +12,7 @@ const TiendaGame = defineAsyncComponent(() => import('./games/TiendaTycoon/Tiend
 const SpaceGame = defineAsyncComponent(() => import('./games/SpaceDefender/SpaceGame.vue'))
 const FightGame = defineAsyncComponent(() => import('./games/ShadowClash/FightGame.vue'))
 const RacingGame = defineAsyncComponent(() => import('./games/TurboRacing/RacingGame.vue'))
+const CyberKatana = defineAsyncComponent(() => import('./games/CyberKatana/CyberKatana.vue'))
 
 const activeGame = ref('home')
 
@@ -44,6 +45,7 @@ onMounted(() => {
 
       <transition name="fade-slide" mode="out-in">
         <HomeLobby v-if="activeGame === 'home'" key="home" @selectGame="setGame" />
+        <CyberKatana v-else-if="activeGame === 'cyber_katana' || activeGame === 'katana'" key="cyber_katana" />
         <Valorant3D2 v-else-if="activeGame === 'valoran3d2.0' || activeGame === 'valorant3d2'" key="valorant3d2" />
         <ValorantGame v-else-if="activeGame === 'valorant'" key="valorant" />
         <TacticalGame v-else-if="activeGame === 'tactical'" key="tactical" />

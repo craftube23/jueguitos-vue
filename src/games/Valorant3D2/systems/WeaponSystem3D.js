@@ -586,18 +586,42 @@ export class WeaponSystem3D {
 
     for (const target of targets) {
       if (!target.alive || target.team === shooter.team || target.id === shooter.id) continue
-      const targetCenter = new THREE.Vector3(target.pos.x, target.pos.y - 0.2, target.pos.z)
-      const distToRay = raycaster.ray.distanceToPoint(targetCenter)
-      const hitRadius = isMelee ? (target.radius * 2.2) : (target.radius * 1.5)
 
-      if (distToRay < hitRadius) {
-        const distFromShooter = origin.distanceTo(targetCenter)
+      const eyeH = target.crouching ? 1.1 : 1.7
+      const feetY = Math.max(0, (target.pos.y !== undefined ? target.pos.y : 1.7) - eyeH)
+      const headY = (target.pos.y !== undefined ? target.pos.y : 1.7)
+
+      // Test vertical player capsule segment from feet to head
+      const segP0 = new THREE.Vector3(target.pos.x, feetY + 0.15, target.pos.z)
+      const segP1 = new THREE.Vector3(target.pos.x, headY + 0.05, target.pos.z)
+      const segDir = segP1.clone().sub(segP0)
+      const segLen = segDir.length()
+      segDir.normalize()
+
+      let distToBody = 999
+      let bestHitY = (feetY + headY) / 2
+
+      // Step along vertical body column to find closest distance to shooting ray
+      const stepCount = 8
+      for (let s = 0; s <= stepCount; s++) {
+        const pt = segP0.clone().addScaledVector(segDir, (s / stepCount) * segLen)
+        const d = raycaster.ray.distanceToPoint(pt)
+        if (d < distToBody) {
+          distToBody = d
+          bestHitY = pt.y
+        }
+      }
+
+      const hitThreshold = isMelee ? (target.radius * 2.5) : (target.radius * 1.5 + 0.12)
+
+      if (distToBody < hitThreshold) {
+        const hitPosition = new THREE.Vector3(target.pos.x, bestHitY, target.pos.z)
+        const distFromShooter = origin.distanceTo(hitPosition)
+
         if (distFromShooter <= maxReach && distFromShooter < wallHitDist) {
           if (!closestHit || distFromShooter < closestHit.dist) {
-            const headPos = new THREE.Vector3(target.pos.x, target.pos.y + 0.45, target.pos.z)
-            const isHead = raycaster.ray.distanceToPoint(headPos) < 0.35
-
-            closestHit = { dist: distFromShooter, pos: targetCenter }
+            const isHead = bestHitY >= (headY - 0.28)
+            closestHit = { dist: distFromShooter, pos: hitPosition }
             hitTarget = target
             isHeadshot = isHead
           }
