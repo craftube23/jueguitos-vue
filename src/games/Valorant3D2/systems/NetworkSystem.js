@@ -14,6 +14,7 @@ export class NetworkSystem {
     this.knownPublicRooms = new Map()
     this.heartbeatInterval = null
     this.joinRetryInterval = null
+    this.connectRetryTimer = null
     this.connectionStatus = 'DISCONNECTED' // 'CONNECTING', 'CONNECTED', 'ERROR'
 
     // High-reliability STUN + Free OpenRelay TURN configuration (Bypasses home firewalls / NAT worldwide)
@@ -206,6 +207,7 @@ export class NetworkSystem {
     }
     if (this.heartbeatInterval) clearInterval(this.heartbeatInterval)
     if (this.joinRetryInterval) clearInterval(this.joinRetryInterval)
+    if (this.connectRetryTimer) clearInterval(this.connectRetryTimer)
 
     const roomId = this.generateCode()
     const peerRoomId = `v3d_${roomId.toLowerCase()}`
@@ -268,16 +270,11 @@ export class NetworkSystem {
 
     try {
       this.peer = new Peer(peerRoomId, {
-        debug: 1,
-        host: '0.peerjs.com',
-        port: 443,
-        path: '/',
-        secure: true,
         config: this.peerIceConfig
       })
 
       this.peer.on('open', (id) => {
-        console.log('PeerJS Host Ready with ID:', id)
+        console.log('✅ PeerJS Host Ready with ID:', id)
         this.connected = true
         this.connectionStatus = 'CONNECTED'
         this.emitInternal('network_status', 'CONNECTED')
@@ -285,7 +282,7 @@ export class NetworkSystem {
       })
 
       this.peer.on('connection', (conn) => {
-        console.log('PeerJS Host received incoming connection from peer:', conn.peer)
+        console.log('✅ PeerJS Host received incoming connection from peer:', conn.peer)
         const setupConn = () => {
           if (!this.connections.includes(conn)) {
             this.connections.push(conn)
@@ -315,14 +312,12 @@ export class NetworkSystem {
         })
 
         conn.on('error', (err) => {
-          console.warn('Host connection peer error:', err)
+          console.warn('Host connection peer notice:', err)
         })
       })
 
       this.peer.on('error', (err) => {
         console.warn('PeerJS Host Error:', err)
-        this.connectionStatus = 'ERROR'
-        this.emitInternal('network_status', 'ERROR')
         this.emitInternal('room_joined', { room: this.cloneRoom(), player: hostPlayer })
       })
     } catch (e) {
@@ -415,6 +410,7 @@ export class NetworkSystem {
     }
     if (this.heartbeatInterval) clearInterval(this.heartbeatInterval)
     if (this.joinRetryInterval) clearInterval(this.joinRetryInterval)
+    if (this.connectRetryTimer) clearInterval(this.connectRetryTimer)
 
     const cleanCode = (roomId || '').trim().toUpperCase()
     const peerTargetId = `v3d_${cleanCode.toLowerCase()}`
@@ -488,50 +484,67 @@ export class NetworkSystem {
       }
     }, 700)
 
+    const attemptConnectToHost = () => {
+      if (!this.peer || this.peer.destroyed || (this.hostConn && this.hostConn.open)) return
+
+      if (this.hostConn) {
+        try { this.hostConn.close() } catch (e) {}
+      }
+
+      console.log('Connecting to Host peer:', peerTargetId)
+      try {
+        this.hostConn = this.peer.connect(peerTargetId, {
+          reliable: true
+        })
+
+        if (this.hostConn) {
+          this.hostConn.on('open', () => {
+            console.log('✅ PeerJS Client DataConnection OPENED with Host:', peerTargetId)
+            this.connected = true
+            this.connectionStatus = 'CONNECTED'
+            this.emitInternal('network_status', 'CONNECTED')
+            this.sendJoinRequest()
+          })
+
+          this.hostConn.on('data', (data) => {
+            this.handleClientReceivedData(data)
+          })
+
+          this.hostConn.on('error', (err) => {
+            console.warn('hostConn error (auto-reconnecting):', err)
+          })
+
+          this.hostConn.on('close', () => {
+            this.connectionStatus = 'CONNECTING'
+            this.emitInternal('network_status', 'CONNECTING')
+          })
+        }
+      } catch (err) {
+        console.warn('connect attempt error:', err)
+      }
+    }
+
     // PeerJS Network Connection Request
     try {
       this.peer = new Peer({
-        debug: 1,
-        host: '0.peerjs.com',
-        port: 443,
-        path: '/',
-        secure: true,
         config: this.peerIceConfig
       })
 
       this.peer.on('open', (id) => {
-        console.log('PeerJS Client connected to signaling server with ID:', id)
-        this.hostConn = this.peer.connect(peerTargetId, {
-          reliable: true,
-          serialization: 'json'
-        })
+        console.log('✅ PeerJS Client ready with ID:', id)
+        attemptConnectToHost()
 
-        const onHostConnected = () => {
-          console.log('PeerJS Client DataConnection OPENED with Host:', peerTargetId)
-          this.connected = true
-          this.connectionStatus = 'CONNECTED'
-          this.emitInternal('network_status', 'CONNECTED')
-          this.sendJoinRequest()
-        }
-
-        if (this.hostConn.open) onHostConnected()
-        else this.hostConn.on('open', onHostConnected)
-
-        this.hostConn.on('data', (data) => {
-          this.handleClientReceivedData(data)
-        })
-
-        this.hostConn.on('error', (err) => {
-          console.warn('Peer connection notice:', err)
-        })
-
-        this.hostConn.on('close', () => {
-          console.warn('Peer connection closed by host')
-        })
+        // Active connection keeper / auto-retry loop every 1.5s until connected
+        this.connectRetryTimer = setInterval(() => {
+          if (!this.connected || !this.hostConn || !this.hostConn.open) {
+            attemptConnectToHost()
+          }
+        }, 1500)
       })
 
       this.peer.on('error', (err) => {
-        console.warn('Peer client signaling notice:', err)
+        console.warn('Peer client notice (will retry):', err)
+        setTimeout(attemptConnectToHost, 800)
       })
     } catch (e) {
       console.warn('Peer connect error:', e)
@@ -560,6 +573,8 @@ export class NetworkSystem {
     }
 
     this.currentRoom = cloned
+    this.connectionStatus = 'CONNECTED'
+    this.emitInternal('network_status', 'CONNECTED')
     this.emitInternal('room_updated', cloned)
   }
 
@@ -738,6 +753,7 @@ export class NetworkSystem {
   leaveRoom() {
     if (this.heartbeatInterval) clearInterval(this.heartbeatInterval)
     if (this.joinRetryInterval) clearInterval(this.joinRetryInterval)
+    if (this.connectRetryTimer) clearInterval(this.connectRetryTimer)
     if (this.peer) {
       try { this.peer.destroy() } catch (e) {}
     }
