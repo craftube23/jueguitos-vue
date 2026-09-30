@@ -138,6 +138,8 @@ export class NetworkSystem {
         }
       } else if (msg.type === 'BC_PLAYER_HIT' && this.currentRoom) {
         this.emitInternal('player_took_damage', msg.data)
+      } else if (msg.type === 'BC_ROUND_SYNC' && this.currentRoom) {
+        this.emitInternal('round_sync', msg.data)
       } else if (msg.type === 'BC_CHAT' && this.currentRoom) {
         this.emitInternal('chat_received', msg.chat)
       }
@@ -367,6 +369,9 @@ export class NetworkSystem {
     } else if (msg.type === 'PLAYER_HIT') {
       this.broadcastToAll(msg)
       this.emitInternal('player_took_damage', msg.data)
+    } else if (msg.type === 'ROUND_SYNC') {
+      this.broadcastToAll(msg, conn)
+      this.emitInternal('round_sync', msg.data)
     } else if (msg.type === 'CHAT') {
       this.broadcastToAll(msg)
       this.emitInternal('chat_received', msg.chat)
@@ -385,6 +390,7 @@ export class NetworkSystem {
       else if (data.type === 'PLAYER_SYNC') this.bc.postMessage({ type: 'BC_PLAYER_SYNC', roomId: this.currentRoom.id, data: data.data })
       else if (data.type === 'GAME_EVENT') this.bc.postMessage({ type: 'BC_GAME_EVENT', roomId: this.currentRoom.id, event: data.event })
       else if (data.type === 'PLAYER_HIT') this.bc.postMessage({ type: 'BC_PLAYER_HIT', roomId: this.currentRoom.id, data: data.data })
+      else if (data.type === 'ROUND_SYNC') this.bc.postMessage({ type: 'BC_ROUND_SYNC', roomId: this.currentRoom.id, data: data.data })
       else if (data.type === 'CHAT') this.bc.postMessage({ type: 'BC_CHAT', roomId: this.currentRoom.id, chat: data.chat })
     }
   }
@@ -576,6 +582,8 @@ export class NetworkSystem {
       }
     } else if (msg.type === 'PLAYER_HIT') {
       this.emitInternal('player_took_damage', msg.data)
+    } else if (msg.type === 'ROUND_SYNC') {
+      this.emitInternal('round_sync', msg.data)
     } else if (msg.type === 'CHAT') {
       this.emitInternal('chat_received', msg.chat)
     }
@@ -702,6 +710,18 @@ export class NetworkSystem {
     }
     if (this.bc && !this.isHost) {
       this.bc.postMessage({ type: 'BC_PLAYER_HIT', roomId, data: payload.data })
+    }
+  }
+
+  broadcastRoundSync(roomId, roundData) {
+    const payload = { type: 'ROUND_SYNC', data: roundData }
+    if (this.isHost) {
+      this.broadcastToAll(payload)
+    } else if (this.hostConn && this.hostConn.open) {
+      try { this.hostConn.send(payload) } catch (e) {}
+    }
+    if (this.bc && !this.isHost) {
+      this.bc.postMessage({ type: 'BC_ROUND_SYNC', roomId, data: roundData })
     }
   }
 

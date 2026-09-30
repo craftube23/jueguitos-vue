@@ -552,44 +552,70 @@ function updateGame3D(dt) {
   if (match.phase === 'BUY_PHASE') {
     if (playerController) playerController.freezeMovement = true
     if (MAP_3D.setBarriersActive) MAP_3D.setBarriersActive(true)
-    match.timer -= dt
-    if (match.timer <= 0) {
-      match.phase = 'ROUND_ACTIVE'
-      match.timer = 90
-      match.announcement = '¡DUELO INICIADO! ¡BARRERAS DESACTIVADAS!'
-      soundManager.play('ult_activate')
-      if (playerController) playerController.freezeMovement = false
-      if (MAP_3D.setBarriersActive) MAP_3D.setBarriersActive(false)
-      if (showBuyMenu.value) {
-        showBuyMenu.value = false
-        setTimeout(requestPointerLock, 60)
+    if (!isOnline.value || isHost.value) {
+      match.timer -= dt
+      if (match.timer <= 0) {
+        match.phase = 'ROUND_ACTIVE'
+        match.timer = 90
+        match.announcement = '¡DUELO INICIADO! ¡BARRERAS DESACTIVADAS!'
+        soundManager.play('ult_activate')
+        if (playerController) playerController.freezeMovement = false
+        if (MAP_3D.setBarriersActive) MAP_3D.setBarriersActive(false)
+        if (showBuyMenu.value) {
+          showBuyMenu.value = false
+          setTimeout(requestPointerLock, 60)
+        }
+        if (isOnline.value && isHost.value && networkSystem) {
+          networkSystem.broadcastRoundSync(roomCode.value, {
+            phase: 'ROUND_ACTIVE',
+            timer: 90,
+            announcement: '¡DUELO INICIADO! ¡BARRERAS DESACTIVADAS!',
+            scoreAtk: match.scoreAtk,
+            scoreDef: match.scoreDef,
+            round: match.round
+          })
+        }
       }
     }
   } else if (match.phase === 'ROUND_ACTIVE') {
     if (playerController) playerController.freezeMovement = false
     if (MAP_3D.setBarriersActive) MAP_3D.setBarriersActive(false)
-    match.timer -= dt
-    if (match.timer <= 0) {
-      const redAlive = players.value.filter(p => p.team === 'attackers' && p.alive).length
-      const blueAlive = players.value.filter(p => p.team === 'defenders' && p.alive).length
-      if (redAlive > blueAlive) {
-        endRound('attackers', '¡Tiempo agotado! Equipo Rojo gana por mayor número de supervivientes.')
-      } else if (blueAlive > redAlive) {
-        endRound('defenders', '¡Tiempo agotado! Equipo Azul gana por mayor número de supervivientes.')
-      } else {
-        endRound('defenders', '¡Tiempo agotado! Duelo empatado.')
+    if (!isOnline.value || isHost.value) {
+      match.timer -= dt
+      if (match.timer <= 0) {
+        const redAlive = players.value.filter(p => p.team === 'attackers' && p.alive).length
+        const blueAlive = players.value.filter(p => p.team === 'defenders' && p.alive).length
+        if (redAlive > blueAlive) {
+          endRound('attackers', '¡Tiempo agotado! Equipo Rojo gana por mayor número de supervivientes.')
+        } else if (blueAlive > redAlive) {
+          endRound('defenders', '¡Tiempo agotado! Equipo Azul gana por mayor número de supervivientes.')
+        } else {
+          endRound('defenders', '¡Tiempo agotado! Duelo empatado.')
+        }
       }
     }
   } else if (match.phase === 'ROUND_ENDED') {
     if (playerController) playerController.freezeMovement = true
-    match.timer -= dt
-    if (match.timer <= 0) {
-      match.round++
-      if (match.scoreAtk >= match.maxRounds || match.scoreDef >= match.maxRounds) {
-        match.announcement = match.scoreAtk > match.scoreDef ? '🏆 ¡VICTORIA FINAL DEL EQUIPO ROJO!' : '🏆 ¡VICTORIA FINAL DEL EQUIPO AZUL!'
-        gameMode.value = 'MENU'
-      } else {
-        resetRound(false)
+    if (!isOnline.value || isHost.value) {
+      match.timer -= dt
+      if (match.timer <= 0) {
+        match.round++
+        if (match.scoreAtk >= match.maxRounds || match.scoreDef >= match.maxRounds) {
+          match.announcement = match.scoreAtk > match.scoreDef ? '🏆 ¡VICTORIA FINAL DEL EQUIPO ROJO!' : '🏆 ¡VICTORIA FINAL DEL EQUIPO AZUL!'
+          gameMode.value = 'MENU'
+        } else {
+          resetRound(false)
+          if (isOnline.value && isHost.value && networkSystem) {
+            networkSystem.broadcastRoundSync(roomCode.value, {
+              phase: 'BUY_PHASE',
+              timer: 15,
+              announcement: 'FASE DE COMPRA - SELECCIONA TU ARSENAL [B]',
+              scoreAtk: match.scoreAtk,
+              scoreDef: match.scoreDef,
+              round: match.round
+            })
+          }
+        }
       }
     }
   }
@@ -695,19 +721,21 @@ function updateGame3D(dt) {
   abilitySystem.update(dt, player, players.value)
 
   // Update Bots AI (Hunter Team Deathmatch mode)
-  players.value.forEach(bot => {
-    if (bot.id !== player.id && !bot.isRemotePlayer) {
-      botAI.updateBot(bot, dt, player, match.phase, MAP_3D, (shooter, target) => {
-        weaponSystem.spawnTracer(new THREE.Vector3(shooter.pos.x, shooter.pos.y, shooter.pos.z), new THREE.Vector3(target.pos.x, target.pos.y, target.pos.z))
-        if (!godMode.value) {
-          const res = DamageSystem.applyDamage(target, 25, false, false, 'bullet')
-          if (res.killed) {
-            handlePlayerKilled3D(target, shooter.id, 'Vandal', false)
+  if (!isOnline.value || isHost.value) {
+    players.value.forEach(bot => {
+      if (bot.id !== player.id && !bot.isRemotePlayer && !bot.isDummy) {
+        botAI.updateBot(bot, dt, player, match.phase, MAP_3D, (shooter, target) => {
+          weaponSystem.spawnTracer(new THREE.Vector3(shooter.pos.x, shooter.pos.y, shooter.pos.z), new THREE.Vector3(target.pos.x, target.pos.y, target.pos.z))
+          if (!godMode.value) {
+            const res = DamageSystem.applyDamage(target, 25, false, false, 'bullet')
+            if (res.killed) {
+              handlePlayerKilled3D(target, shooter.id, 'Vandal', false)
+            }
           }
-        }
-      }, players.value)
-    }
-  })
+        }, players.value)
+      }
+    })
+  }
 
   // Update 3D Meshes
   updatePlayer3DMeshes()
@@ -734,6 +762,15 @@ function updateGame3D(dt) {
 }
 
 function updatePlayer3DMeshes() {
+  // Clean up obsolete/disconnected player meshes from 3D scene
+  const activeIds = new Set(players.value.map(p => p.id))
+  for (const [id, m] of playerMeshes.entries()) {
+    if (!activeIds.has(id)) {
+      scene.remove(m)
+      playerMeshes.delete(id)
+    }
+  }
+
   players.value.forEach(p => {
     const isLocal = (p.id === player.id)
     if (isLocal && !isThirdPerson.value) {
@@ -1348,6 +1385,18 @@ function endRound(winningTeam, message) {
   })
 
   soundManager.play('round_won')
+
+  if (isOnline.value && isHost.value && networkSystem) {
+    networkSystem.broadcastRoundSync(roomCode.value, {
+      phase: 'ROUND_ENDED',
+      timer: 5.0,
+      winner: winningTeam,
+      announcement: message,
+      scoreAtk: match.scoreAtk,
+      scoreDef: match.scoreDef,
+      round: match.round
+    })
+  }
 }
 
 function handlePlayerKilled3D(victim, killerId, weaponName, isHeadshot) {
@@ -1739,6 +1788,32 @@ function setupNetworkListeners() {
         maxHealth: 100
       }
       abilitySystem.castRemote(dummyCaster, event.key, event.pos, event.dir, players.value)
+    }
+  })
+
+  networkSystem.on('round_sync', (data) => {
+    if (!data) return
+    if (data.scoreAtk !== undefined) match.scoreAtk = data.scoreAtk
+    if (data.scoreDef !== undefined) match.scoreDef = data.scoreDef
+    if (data.round !== undefined) match.round = data.round
+    if (data.winner !== undefined) match.winner = data.winner
+    if (data.announcement) match.announcement = data.announcement
+    if (data.timer !== undefined) match.timer = data.timer
+
+    if (data.phase && data.phase !== match.phase) {
+      match.phase = data.phase
+      if (data.phase === 'BUY_PHASE') {
+        resetRound(false)
+      } else if (data.phase === 'ROUND_ACTIVE') {
+        if (playerController) playerController.freezeMovement = false
+        if (MAP_3D.setBarriersActive) MAP_3D.setBarriersActive(false)
+        if (showBuyMenu.value) {
+          showBuyMenu.value = false
+          setTimeout(requestPointerLock, 60)
+        }
+      } else if (data.phase === 'ROUND_ENDED') {
+        if (playerController) playerController.freezeMovement = true
+      }
     }
   })
 
