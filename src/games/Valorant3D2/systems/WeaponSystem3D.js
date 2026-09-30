@@ -10,7 +10,8 @@ const WEAPON_MODELS = {
     rotation: [0, Math.PI, 0],
     hideBodyMesh: false,
     hipPos: [0.04, -1.50, -0.18],
-    adsPos: [-0.0460, -1.522, -0.16],
+    adsPos: [-0.05275, -1.5242, -0.135],
+    adsRot: [-0.02191, -0.00387, 0.0],
     muzzlePos: [0.0, 1.522, -0.85],
     subclips: {
       draw: { fromClip: 'Draw', start: 0.0, end: 1.033 },
@@ -466,6 +467,7 @@ export class WeaponSystem3D {
     const activeConfig = activeData?.config || WEAPON_MODELS.ak74u
     const hipBase = activeConfig.hipPos
     const adsBase = activeConfig.adsPos
+    const adsBaseRot = activeConfig.adsRot || [0, 0, 0]
 
     const hipX = hipBase[0] + this.swayX * 0.4 + idleBobX
     const hipY = hipBase[1] + this.swayY * 0.4 + idleBobY + this.recoil * 0.02
@@ -484,9 +486,9 @@ export class WeaponSystem3D {
     const hipRotY = (Math.random() - 0.5) * this.recoil * 0.02 + this.swayX * 1.0
     const hipRotZ = -this.swayX * 0.8
 
-    const adsRotX = this.recoil * 0.02 - this.swayY * 0.08
-    const adsRotY = this.swayX * 0.08
-    const adsRotZ = 0
+    const adsRotX = adsBaseRot[0] + this.recoil * 0.02 - this.swayY * 0.08
+    const adsRotY = adsBaseRot[1] + this.swayX * 0.08
+    const adsRotZ = adsBaseRot[2]
 
     this.gunGroup.rotation.x = THREE.MathUtils.lerp(hipRotX, adsRotX, this.adsProgress)
     this.gunGroup.rotation.y = THREE.MathUtils.lerp(hipRotY, adsRotY, this.adsProgress)
