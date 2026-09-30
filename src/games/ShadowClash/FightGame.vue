@@ -436,6 +436,72 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- CONTROLES ARCADE TÁCTILES MÓVILES -->
+    <div v-if="gameState === 'FIGHTING'" class="mobile-touch-bar">
+      <div class="virtual-dpad">
+        <div></div>
+        <button 
+          class="dpad-btn" 
+          @touchstart.prevent="keys['KeyW'] = true" 
+          @touchend.prevent="keys['KeyW'] = false"
+          @mousedown="keys['KeyW'] = true"
+          @mouseup="keys['KeyW'] = false"
+        >⬆️</button>
+        <div></div>
+
+        <button 
+          class="dpad-btn" 
+          @touchstart.prevent="keys['KeyA'] = true" 
+          @touchend.prevent="keys['KeyA'] = false"
+          @mousedown="keys['KeyA'] = true"
+          @mouseup="keys['KeyA'] = false"
+        >⬅️</button>
+        <button 
+          class="dpad-btn" 
+          @touchstart.prevent="keys['KeyS'] = true" 
+          @touchend.prevent="keys['KeyS'] = false"
+          @mousedown="keys['KeyS'] = true"
+          @mouseup="keys['KeyS'] = false"
+        >🛡️</button>
+        <button 
+          class="dpad-btn" 
+          @touchstart.prevent="keys['KeyD'] = true" 
+          @touchend.prevent="keys['KeyD'] = false"
+          @mousedown="keys['KeyD'] = true"
+          @mouseup="keys['KeyD'] = false"
+        >➡️</button>
+
+        <div></div>
+        <div></div>
+        <div></div>
+      </div>
+
+      <div class="virtual-actions">
+        <button 
+          class="touch-action-btn" 
+          style="background: #2563eb;" 
+          @click="executeAttack(p1, 'punch')"
+        >
+          🥊 GOLPE [J]
+        </button>
+        <button 
+          class="touch-action-btn" 
+          style="background: #dc2626;" 
+          @click="executeAttack(p1, 'kick')"
+        >
+          🦶 PATADA [K]
+        </button>
+        <button 
+          class="touch-action-btn" 
+          :style="{ background: p1Energy >= 100 ? '#f59e0b' : '#475569', opacity: p1Energy >= 100 ? 1 : 0.6 }" 
+          :disabled="p1Energy < 100" 
+          @click="if (p1Energy >= 100) { p1Energy = 0; executeAttack(p1, 'special') }"
+        >
+          ⚡ SÚPER [L]
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 

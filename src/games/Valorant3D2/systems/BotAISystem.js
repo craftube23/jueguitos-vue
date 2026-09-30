@@ -159,14 +159,17 @@ export class BotAISystem {
   handleBotBuy(bot) {
     if (bot.hasBought) return
     bot.hasBought = true
-    if (bot.credits >= 3900) {
-      bot.weapon = 'vandal'
+    if (bot.credits >= 2900) {
+      bot.weapon = 'ak74u'
       bot.armor = 50
-    } else if (bot.credits >= 2000) {
-      bot.weapon = 'spectre'
+    } else if (bot.credits >= 1850) {
+      bot.weapon = 'benelli_m4'
+      bot.armor = 25
+    } else if (bot.credits >= 1600) {
+      bot.weapon = 'kriss_vector'
       bot.armor = 25
     } else {
-      bot.weapon = 'ghost'
+      bot.weapon = 'ak74u'
     }
   }
 

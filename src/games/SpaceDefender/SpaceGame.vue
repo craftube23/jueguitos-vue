@@ -371,7 +371,24 @@ const handleMouseMove = (e) => {
   const scaleX = canvasRef.value.width / rect.width
   player.x = Math.max(30, Math.min(770, (e.clientX - rect.left) * scaleX))
 }
-const handleMouseDown = () => { if (gameState.value === 'PLAYING') shoot() }
+const handleMouseDown = () => { if (gameState.value === 'PLAYING') { initAudio(); shoot() } }
+
+const handleTouchMove = (e) => {
+  if (gameState.value !== 'PLAYING' || !canvasRef.value || e.touches.length === 0) return
+  const touch = e.touches[0]
+  const rect = canvasRef.value.getBoundingClientRect()
+  const scaleX = canvasRef.value.width / rect.width
+  const scaleY = canvasRef.value.height / rect.height
+  player.x = Math.max(30, Math.min(770, (touch.clientX - rect.left) * scaleX))
+  player.y = Math.max(80, Math.min(560, (touch.clientY - rect.top) * scaleY))
+}
+
+const handleTouchStart = (e) => {
+  if (gameState.value !== 'PLAYING') return
+  initAudio()
+  handleTouchMove(e)
+  shoot()
+}
 
 onMounted(() => {
   if (canvasRef.value) {
@@ -381,6 +398,8 @@ onMounted(() => {
     window.addEventListener('keyup', handleKeyUp)
     canvasRef.value.addEventListener('mousemove', handleMouseMove)
     canvasRef.value.addEventListener('mousedown', handleMouseDown)
+    canvasRef.value.addEventListener('touchstart', handleTouchStart, { passive: true })
+    canvasRef.value.addEventListener('touchmove', handleTouchMove, { passive: true })
     gameLoop()
   }
 })
@@ -452,6 +471,37 @@ onUnmounted(() => {
           </div>
           <button class="btn-start" @click="gameState = 'PLAYING'">🚀 CONTINUAR</button>
         </div>
+      </div>
+    </div>
+
+    <!-- CONTROLES TÁCTILES MÓVILES -->
+    <div v-if="gameState === 'PLAYING'" class="mobile-touch-bar">
+      <div class="virtual-dpad" style="grid-template-columns: repeat(2, 54px); grid-template-rows: 54px;">
+        <button 
+          class="dpad-btn" 
+          @touchstart.prevent="keys['KeyA'] = true; keys['ArrowLeft'] = true" 
+          @touchend.prevent="keys['KeyA'] = false; keys['ArrowLeft'] = false"
+          @mousedown="keys['KeyA'] = true"
+          @mouseup="keys['KeyA'] = false"
+        >⬅️</button>
+        <button 
+          class="dpad-btn" 
+          @touchstart.prevent="keys['KeyD'] = true; keys['ArrowRight'] = true" 
+          @touchend.prevent="keys['KeyD'] = false; keys['ArrowRight'] = false"
+          @mousedown="keys['KeyD'] = true"
+          @mouseup="keys['KeyD'] = false"
+        >➡️</button>
+      </div>
+
+      <div class="virtual-actions">
+        <button 
+          class="touch-action-btn" 
+          style="background: #0284c7; padding: 12px 24px; font-size: 1rem;" 
+          @touchstart.prevent="shoot"
+          @click="shoot"
+        >
+          🔴 DISPARAR LÁSER
+        </button>
       </div>
     </div>
   </div>

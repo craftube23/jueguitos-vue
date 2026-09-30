@@ -3,6 +3,112 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { DamageSystem } from './DamageSystem.js'
 import { soundManager } from './SoundSystem.js'
 
+const WEAPON_MODELS = {
+  ak74u: {
+    path: '/models/armas/ak74u__free_animation.glb',
+    scale: [1, 1, 1],
+    hideBodyMesh: true,
+    hipPos: [0.07, -1.63, -0.26],
+    adsPos: [-0.067, -1.585, -0.22],
+    muzzlePos: [0.067, 1.51, -0.65],
+    animMap: {
+      draw: 'DRAW',
+      idle: 'IDLE',
+      shoot: 'SHOOT',
+      reload: 'RELOAD1',
+      inspect: 'DRAW'
+    }
+  },
+  benelli_m4: {
+    path: '/models/armas/fps_benelli_m4_animations.glb',
+    scale: [0.025, 0.025, 0.025],
+    rotation: [0, Math.PI, 0],
+    meshScale: {
+      Object_18: 0.01,
+      Object_19: 0.01,
+      Object_20: 0.01
+    },
+    hideBodyMesh: true,
+    hipPos: [0.08, -0.855, -0.22],
+    adsPos: [-0.041, -0.778, -0.15],
+    muzzlePos: [0.0, 0.778, -0.90],
+    animMap: {
+      draw: 'Rig|M4_Idle',
+      idle: 'Rig|M4_Idle',
+      shoot: 'Rig|M4_Fire',
+      reload: 'Rig|M4_ReloadFull_type1',
+      inspect: 'Rig|M4_ReloadOne_type1'
+    }
+  },
+  kriss_vector: {
+    path: '/models/armas/kriss_vector_animated_free.glb',
+    scale: [0.009, 0.009, 0.009],
+    rotation: [0, Math.PI, 0],
+    hideBodyMesh: true,
+    hipPos: [0.03, -1.36, -0.40],
+    adsPos: [-0.1098, -1.287, -0.32],
+    muzzlePos: [0.0, 1.28, -0.65],
+    subclips: {
+      draw: { fromClip: 'Draw', start: 4.166, end: 4.666 },
+      idle: { fromClip: 'Draw', start: 4.55, end: 4.666 },
+      shoot: { fromClip: 'Shoot', start: 3.366, end: 3.567 },
+      reload: { fromClip: 'Reload', start: 0.0, end: 3.333 },
+      inspect: { fromClip: 'Draw', start: 4.166, end: 4.666 }
+    },
+    animMap: {
+      draw: 'draw',
+      idle: 'idle',
+      shoot: 'shoot',
+      reload: 'reload',
+      inspect: 'inspect'
+    }
+  },
+  sniper: {
+    path: '/models/armas/sniper_fps_animation.glb',
+    scale: [0.5, 0.5, 0.5],
+    hideBodyMesh: true,
+    hipPos: [-0.065, -0.10, -0.25],
+    adsPos: [-0.065, -0.05, -0.15],
+    muzzlePos: [0.0, 0.05, -1.2],
+    isSniper: true,
+    subclips: {
+      draw: [0, 1.2],
+      idle: [1.0, 3.5],
+      shoot: [4.2, 8.5],
+      reload: [19.5, 26.5],
+      inspect: [11.5, 15.5]
+    },
+    animMap: {
+      draw: 'draw',
+      idle: 'idle',
+      shoot: 'shoot',
+      reload: 'reload',
+      inspect: 'inspect'
+    }
+  },
+  knife: {
+    path: '/models/armas/fps_butterfly_knife.glb',
+    scale: [1.0, 1.0, 1.0],
+    hideBodyMesh: true,
+    hipPos: [0.05, 0.08, -0.22],
+    adsPos: [0.05, 0.08, -0.22],
+    muzzlePos: [0.0, 0.0, -0.5],
+    isMelee: true,
+    subclips: {
+      draw: [0, 1.4],
+      idle: [2.0, 7.0],
+      shoot: [8.0, 10.5],
+      inspect: [11.0, 21.0]
+    },
+    animMap: {
+      draw: 'draw',
+      idle: 'idle',
+      shoot: 'shoot',
+      inspect: 'inspect'
+    }
+  }
+}
+
 export class WeaponSystem3D {
   constructor(scene, camera) {
     this.scene = scene
@@ -20,16 +126,14 @@ export class WeaponSystem3D {
     this.adsProgress = 0
     this.meshColliders = []
 
-    // Animation & GLTF State
-    this.mixer = null
-    this.actions = {}
-    this.currentLoopAction = null
-    this.akModel = null
-    this.isGlbLoaded = false
+    // Multi-Weapon Models & Animation State
+    this.weaponModels = {}
+    this.activeModelKey = 'ak74u'
+    this.currentWeaponId = 'ak74u'
     this.wasReloading = false
 
     this.initMuzzleEffects()
-    this.loadAk74uModel()
+    this.loadAllWeaponModels()
 
     this.camera.add(this.gunGroup)
     this.scene.add(this.camera)
@@ -53,100 +157,227 @@ export class WeaponSystem3D {
     this.gunGroup.add(this.muzzleLight)
   }
 
-  loadAk74uModel() {
+  loadAllWeaponModels() {
     const loader = new GLTFLoader()
-    loader.load(
-      '/models/ak74u__free_animation.glb',
-      (gltf) => {
-        this.akModel = gltf.scene
 
-        // Configure shadows & tactical materials
-        this.akModel.traverse((child) => {
-          if (child.isMesh) {
-            // Hide the character head/body mesh (Object_57 / Ch08_Body) so camera is never inside the neck/head!
-            // Only show the arms/sleeves (Ch08_Hoodie) and the AK-74u weapon meshes
-            if (child.name.toLowerCase().includes('body') || child.name === 'Object_57') {
-              child.visible = false
-              return
+    Object.entries(WEAPON_MODELS).forEach(([key, config]) => {
+      loader.load(
+        config.path,
+        (gltf) => {
+          const modelScene = gltf.scene
+
+          // Configure shadows & materials, hide bare cut-off arm stumps
+          modelScene.traverse((child) => {
+            if (child.isMesh) {
+              const meshName = child.name.toLowerCase()
+              const matName = child.material?.name?.toLowerCase() || ''
+
+              if (
+                (config.hideBodyMesh && (
+                  meshName.includes('body') ||
+                  meshName.includes('sleeve') ||
+                  child.name === 'Object_57' ||
+                  child.name === 'Object_12'
+                )) ||
+                meshName.includes('hand_mesh_hand') ||
+                matName === 'hand_d' ||
+                matName === 'sleeve_st6_generalist'
+              ) {
+                child.visible = false
+                return
+              }
+
+              child.castShadow = true
+              child.receiveShadow = true
+              child.frustumCulled = false
+
+              if (child.material) {
+                child.material.roughness = Math.min(child.material.roughness || 0.4, 0.6)
+                child.material.metalness = Math.max(child.material.metalness || 0.5, 0.4)
+                child.material.depthTest = true
+                child.material.needsUpdate = true
+              }
             }
-
-            child.castShadow = true
-            child.receiveShadow = true
-            child.frustumCulled = false
-
-            if (child.material) {
-              child.material.roughness = Math.min(child.material.roughness || 0.4, 0.6)
-              child.material.metalness = Math.max(child.material.metalness || 0.5, 0.4)
-              child.material.depthTest = true
-              child.material.needsUpdate = true
-            }
-          }
-        })
-
-        this.akModel.position.set(0, 0, 0)
-        this.akModel.scale.set(1, 1, 1)
-        this.gunGroup.add(this.akModel)
-
-        // Set up AnimationMixer with all animation clips
-        if (gltf.animations && gltf.animations.length > 0) {
-          this.mixer = new THREE.AnimationMixer(this.akModel)
-          gltf.animations.forEach((clip) => {
-            const name = clip.name.toUpperCase()
-            const action = this.mixer.clipAction(clip)
-            this.actions[name] = action
           })
 
-          // Start with DRAW -> IDLE or IDLE directly
-          if (this.actions['DRAW']) {
-            this.playAnimation('DRAW', false, 1.2, () => {
-              this.playAnimation('IDLE', true, 1.0)
+          if (config.meshScale) {
+            Object.entries(config.meshScale).forEach(([meshName, factor]) => {
+              const targetMesh = modelScene.getObjectByName(meshName)
+              if (targetMesh && targetMesh.geometry) {
+                targetMesh.geometry.scale(factor, factor, factor)
+                targetMesh.geometry.computeBoundingBox()
+              }
             })
-          } else if (this.actions['IDLE']) {
-            this.playAnimation('IDLE', true, 1.0)
           }
-        }
 
-        this.isGlbLoaded = true
-      },
-      undefined,
-      (error) => {
-        console.warn('Could not load AK74u model:', error)
-      }
-    )
+          modelScene.position.set(0, 0, 0)
+          if (config.rotation) {
+            modelScene.rotation.set(config.rotation[0], config.rotation[1], config.rotation[2])
+          } else {
+            modelScene.rotation.set(0, 0, 0)
+          }
+          modelScene.scale.set(config.scale[0], config.scale[1], config.scale[2])
+          modelScene.visible = (key === this.activeModelKey)
+          this.gunGroup.add(modelScene)
+
+          // Setup AnimationMixer & actions
+          let mixer = null
+          const actions = {}
+          if (gltf.animations && gltf.animations.length > 0) {
+            mixer = new THREE.AnimationMixer(modelScene)
+            const fullClip = gltf.animations[0]
+
+            // If subclips are configured, slice them
+            if (config.subclips) {
+              const fps = 30
+              Object.entries(config.subclips).forEach(([clipName, def]) => {
+                let sourceClip = fullClip
+                let startSec = 0
+                let endSec = 1
+                if (Array.isArray(def)) {
+                  startSec = def[0]
+                  endSec = def[1]
+                } else if (typeof def === 'object') {
+                  const found = gltf.animations.find(a => a.name.toLowerCase() === (def.fromClip || '').toLowerCase())
+                  if (found) sourceClip = found
+                  startSec = def.start !== undefined ? def.start : 0
+                  endSec = def.end !== undefined ? def.end : sourceClip.duration
+                }
+                const sub = THREE.AnimationUtils.subclip(sourceClip, clipName, Math.round(startSec * fps), Math.round(endSec * fps), fps)
+                actions[clipName] = mixer.clipAction(sub)
+                actions[clipName.toUpperCase()] = mixer.clipAction(sub)
+              })
+            }
+
+            gltf.animations.forEach((clip) => {
+              actions[clip.name] = mixer.clipAction(clip)
+              actions[clip.name.toUpperCase()] = mixer.clipAction(clip)
+            })
+          }
+
+          this.weaponModels[key] = {
+            scene: modelScene,
+            mixer,
+            actions,
+            config,
+            currentLoopAction: null,
+            loaded: true
+          }
+
+          // If this is currently the active model, configure muzzle and start idle animation
+          if (key === this.activeModelKey) {
+            if (this.muzzleFlashMesh && config.muzzlePos) {
+              this.muzzleFlashMesh.position.set(config.muzzlePos[0], config.muzzlePos[1], config.muzzlePos[2])
+            }
+            if (this.muzzleLight && config.muzzlePos) {
+              this.muzzleLight.position.set(config.muzzlePos[0], config.muzzlePos[1], config.muzzlePos[2] - 0.05)
+            }
+            this.playWeaponAnimation(key, config.animMap.draw || config.animMap.idle, false, 1.2, () => {
+              if (config.animMap.idle) this.playWeaponAnimation(key, config.animMap.idle, true, 1.0)
+            })
+          }
+        },
+        undefined,
+        (error) => {
+          console.warn(`Could not load weapon model [${key}]:`, error)
+        }
+      )
+    })
   }
 
-  playAnimation(name, loop = false, timeScale = 1.0, onComplete = null) {
-    if (!this.mixer || !this.actions[name]) return
-    const action = this.actions[name]
+  setWeapon(weaponId) {
+    this.currentWeaponId = weaponId
+    let targetKey = 'ak74u'
+    if (weaponId === 'knife' || weaponId === 'melee' || weaponId === 'cuchillo') {
+      targetKey = 'knife'
+    } else if (weaponId === 'sniper' || weaponId === 'awp' || weaponId === 'operator') {
+      targetKey = 'sniper'
+    } else if (weaponId === 'benelli_m4' || ['shotgun', 'judge', 'bucky', 'shorty'].includes(weaponId)) {
+      targetKey = 'benelli_m4'
+    } else if (weaponId === 'kriss_vector' || ['smg', 'spectre', 'stinger', 'classic', 'ghost', 'sheriff', 'frenzy'].includes(weaponId)) {
+      targetKey = 'kriss_vector'
+    } else if (weaponId === 'ak74u' || ['rifle', 'vandal', 'phantom', 'guardian', 'marshal', 'ares', 'odin'].includes(weaponId)) {
+      targetKey = 'ak74u'
+    }
 
+    this.activeModelKey = targetKey
+
+    // Switch visibility of loaded models
+    Object.entries(this.weaponModels).forEach(([k, data]) => {
+      if (data && data.scene) {
+        data.scene.visible = (k === targetKey)
+      }
+    })
+
+    const activeData = this.weaponModels[targetKey]
+    if (activeData) {
+      const cfg = activeData.config
+      if (this.muzzleFlashMesh && cfg.muzzlePos) {
+        this.muzzleFlashMesh.position.set(cfg.muzzlePos[0], cfg.muzzlePos[1], cfg.muzzlePos[2])
+      }
+      if (this.muzzleLight && cfg.muzzlePos) {
+        this.muzzleLight.position.set(cfg.muzzlePos[0], cfg.muzzlePos[1], cfg.muzzlePos[2] - 0.05)
+      }
+
+      this.playWeaponAnimation(targetKey, cfg.animMap.draw || cfg.animMap.idle, false, 1.2, () => {
+        if (cfg.animMap.idle) this.playWeaponAnimation(targetKey, cfg.animMap.idle, true, 1.0)
+      })
+    }
+  }
+
+  inspectWeapon() {
+    const activeData = this.weaponModels[this.activeModelKey]
+    if (!activeData) return
+    const cfg = activeData.config
+    const inspectAnim = cfg.animMap.inspect || cfg.animMap.draw
+    if (inspectAnim) {
+      this.playWeaponAnimation(this.activeModelKey, inspectAnim, false, 1.15, () => {
+        if (cfg.animMap.idle) {
+          this.playWeaponAnimation(this.activeModelKey, cfg.animMap.idle, true, 1.0)
+        }
+      })
+    }
+  }
+
+  playWeaponAnimation(modelKey, animName, loop = false, timeScale = 1.0, onComplete = null) {
+    const data = this.weaponModels[modelKey]
+    if (!data || !data.mixer) return
+    if (!animName || !data.actions[animName]) {
+      if (onComplete) onComplete()
+      return
+    }
+
+    const action = data.actions[animName]
     if (loop) {
-      if (this.currentLoopAction === action && action.isRunning()) return
-      if (this.currentLoopAction && this.currentLoopAction !== action) {
-        this.currentLoopAction.fadeOut(0.2)
+      if (data.currentLoopAction === action && action.isRunning()) return
+      if (data.currentLoopAction && data.currentLoopAction !== action) {
+        data.currentLoopAction.fadeOut(0.2)
       }
       action.reset().fadeIn(0.2).setLoop(THREE.LoopRepeat).setEffectiveTimeScale(timeScale).play()
-      this.currentLoopAction = action
+      data.currentLoopAction = action
     } else {
-      // One-shot action (e.g. SHOOT, RELOAD1, RELOAD2, DRAW, INSPEC)
       action.reset().setLoop(THREE.LoopOnce, 1).setEffectiveTimeScale(timeScale)
-      action.clampWhenFinished = false
-
-      if (this.currentLoopAction) {
-        action.crossFadeFrom(this.currentLoopAction, 0.06, true)
+      action.clampWhenFinished = true
+      if (data.currentLoopAction) {
+        action.crossFadeFrom(data.currentLoopAction, 0.06, true)
       }
       action.play()
 
       const onFinish = (e) => {
         if (e.action === action) {
-          this.mixer.removeEventListener('finished', onFinish)
+          data.mixer.removeEventListener('finished', onFinish)
           if (onComplete) onComplete()
-          if (this.currentLoopAction) {
-            this.currentLoopAction.reset().fadeIn(0.15).play()
+          if (data.currentLoopAction) {
+            data.currentLoopAction.reset().fadeIn(0.15).play()
           }
         }
       }
-      this.mixer.addEventListener('finished', onFinish)
+      data.mixer.addEventListener('finished', onFinish)
     }
+  }
+
+  playAnimation(name, loop = false, timeScale = 1.0, onComplete = null) {
+    this.playWeaponAnimation(this.activeModelKey, name, loop, timeScale, onComplete)
   }
 
   onCameraMove(movementX, movementY) {
@@ -158,19 +389,31 @@ export class WeaponSystem3D {
   update(dt, isReloading, reloadProgress, isAiming = false, baseFov = 75, isSniper = false) {
     this.idleTimer += dt
 
-    // Update GLTF Skeletal Animation Mixer
-    if (this.mixer) {
-      this.mixer.update(dt)
-    }
+    // Update all loaded GLTF Skeletal Animation Mixers
+    Object.values(this.weaponModels).forEach((m) => {
+      if (m.mixer) m.mixer.update(dt)
+    })
 
-    // Handle Reload Animation Transitions
-    if (isReloading && !this.wasReloading) {
-      const reloadAnim = this.actions['RELOAD1'] ? 'RELOAD1' : (this.actions['RELOAD2'] ? 'RELOAD2' : null)
-      if (reloadAnim) {
-        this.playAnimation(reloadAnim, false, 1.35)
+    // Handle Reload Animation Transitions for active weapon
+    const activeData = this.weaponModels[this.activeModelKey]
+    if (activeData) {
+      const cfg = activeData.config
+      if (isReloading && !this.wasReloading) {
+        const reloadAnim = cfg.animMap.reload
+        if (reloadAnim) {
+          this.playWeaponAnimation(this.activeModelKey, reloadAnim, false, 1.35, () => {
+            if (cfg.holdPose) {
+              this.playWeaponAnimation(this.activeModelKey, cfg.animMap.draw, false, 2.0)
+            }
+          })
+        }
+      } else if (!isReloading && this.wasReloading) {
+        if (cfg.holdPose) {
+          this.playWeaponAnimation(this.activeModelKey, cfg.animMap.draw, false, 2.0)
+        } else if (cfg.animMap.idle) {
+          this.playWeaponAnimation(this.activeModelKey, cfg.animMap.idle, true, 1.0)
+        }
       }
-    } else if (!isReloading && this.wasReloading) {
-      this.playAnimation('IDLE', true, 1.0)
     }
     this.wasReloading = isReloading
 
@@ -196,16 +439,18 @@ export class WeaponSystem3D {
     const idleBobX = Math.sin(this.idleTimer * 1.5) * 0.002 * bobFactor
     const idleBobY = Math.cos(this.idleTimer * 3.0) * 0.002 * bobFactor
 
-    // Coordinates calibrated for the animated AK-74u character model:
-    // Hipfire Coordinates (Comfortably placed on bottom-right viewport)
-    const hipX = 0.07 + this.swayX * 0.4 + idleBobX
-    const hipY = -1.63 + this.swayY * 0.4 + idleBobY + this.recoil * 0.02
-    const hipZ = -0.26 + this.recoil * 0.05
+    // Coordinates calibrated per active weapon model:
+    const activeConfig = activeData?.config || WEAPON_MODELS.ak74u
+    const hipBase = activeConfig.hipPos
+    const adsBase = activeConfig.adsPos
 
-    // ADS Coordinates (Lowered gun body for crystal clear target visibility and perfect sight line alignment)
-    const adsX = -0.067 + this.swayX * 0.04 + idleBobX
-    const adsY = -1.585 + this.swayY * 0.04 + idleBobY + this.recoil * 0.005
-    const adsZ = -0.22 + this.recoil * 0.01
+    const hipX = hipBase[0] + this.swayX * 0.4 + idleBobX
+    const hipY = hipBase[1] + this.swayY * 0.4 + idleBobY + this.recoil * 0.02
+    const hipZ = hipBase[2] + this.recoil * 0.05
+
+    const adsX = adsBase[0] + this.swayX * 0.04 + idleBobX
+    const adsY = adsBase[1] + this.swayY * 0.04 + idleBobY + this.recoil * 0.005
+    const adsZ = adsBase[2] + this.recoil * 0.01
 
     this.gunGroup.position.x = THREE.MathUtils.lerp(hipX, adsX, this.adsProgress)
     this.gunGroup.position.y = THREE.MathUtils.lerp(hipY, adsY, this.adsProgress)
@@ -267,28 +512,42 @@ export class WeaponSystem3D {
   }
 
   fire(shooter, wep, targets = [], onHitCallback, isAiming = false) {
-    if (shooter.ammo <= 0) return null
+    const isMelee = wep.isMelee || wep.category === 'Cuerpo a Cuerpo' || this.activeModelKey === 'knife'
 
-    shooter.ammo--
-    soundManager.play(wep.sound)
-
-    // Trigger AK-74u Shoot Animation (bolt kick, recoil, hand reaction)
-    if (this.actions['SHOOT']) {
-      this.playAnimation('SHOOT', false, 2.2)
+    if (!isMelee) {
+      if (shooter.ammo <= 0) return null
+      shooter.ammo--
+      soundManager.play(wep.sound || 'vandal')
+    } else {
+      soundManager.play('slash')
     }
 
-    // Recoil kick & Visual Muzzle Flash (reduced by 75% in ADS for superior precision)
-    const recoilKick = (wep.recoil || 0.35) * (isAiming ? 0.25 : 1.0)
-    this.recoil = Math.min(1.0, this.recoil + recoilKick)
-    this.flashTimer = 0.06
-
-    if (this.muzzleFlashMesh) {
-      this.muzzleFlashMesh.visible = true
-      this.muzzleFlashMesh.scale.set(1.4 + Math.random() * 0.4, 1.4 + Math.random() * 0.4, 1.4 + Math.random() * 0.4)
-      this.muzzleFlashMesh.rotation.z = Math.random() * Math.PI
+    // Trigger Active Weapon Shoot / Slash Animation
+    const activeConfig = this.weaponModels[this.activeModelKey]?.config
+    if (activeConfig && activeConfig.animMap.shoot) {
+      this.playWeaponAnimation(this.activeModelKey, activeConfig.animMap.shoot, false, isMelee ? 1.8 : 2.2, () => {
+        if (activeConfig.holdPose) {
+          this.playWeaponAnimation(this.activeModelKey, activeConfig.animMap.draw, false, 2.0)
+        } else if (activeConfig.animMap.idle) {
+          this.playWeaponAnimation(this.activeModelKey, activeConfig.animMap.idle, true, 1.0)
+        }
+      })
     }
-    if (this.muzzleLight) {
-      this.muzzleLight.intensity = 6.0
+
+    if (!isMelee) {
+      // Recoil kick & Visual Muzzle Flash (reduced by 75% in ADS for superior precision)
+      const recoilKick = (wep.recoil || 0.35) * (isAiming ? 0.25 : 1.0)
+      this.recoil = Math.min(1.0, this.recoil + recoilKick)
+      this.flashTimer = 0.06
+
+      if (this.muzzleFlashMesh) {
+        this.muzzleFlashMesh.visible = true
+        this.muzzleFlashMesh.scale.set(1.4 + Math.random() * 0.4, 1.4 + Math.random() * 0.4, 1.4 + Math.random() * 0.4)
+        this.muzzleFlashMesh.rotation.z = Math.random() * Math.PI
+      }
+      if (this.muzzleLight) {
+        this.muzzleLight.intensity = 6.0
+      }
     }
 
     // 3D Raycasting
@@ -297,8 +556,8 @@ export class WeaponSystem3D {
     const dir = new THREE.Vector3(0, 0, -1).applyEuler(this.camera.rotation)
 
     // Spread (Zero spread in ADS = Pinpoint Laser Precision!)
-    const baseSpread = shooter.isSilent ? 0 : wep.spread
-    const spreadVal = isAiming ? 0.0 : baseSpread
+    const baseSpread = shooter.isSilent ? 0 : (wep.spread || 0)
+    const spreadVal = (isAiming || isMelee) ? 0.0 : baseSpread
     if (spreadVal > 0) {
       dir.x += (Math.random() - 0.5) * spreadVal
       dir.y += (Math.random() - 0.5) * spreadVal
@@ -307,8 +566,7 @@ export class WeaponSystem3D {
     raycaster.set(origin, dir)
 
     // 1. Raycast against World Geometry (Walls, Obstacles, Platforms)
-    // Bullets must NEVER penetrate through walls
-    let wallHitDist = wep.range || 80
+    let wallHitDist = isMelee ? (wep.range || 3.2) : (wep.range || 80)
     let wallHitPoint = null
 
     if (this.meshColliders && this.meshColliders.length > 0) {
@@ -319,20 +577,22 @@ export class WeaponSystem3D {
       }
     }
 
-    // 2. Check Player/Bot targets (only if closer than the obstructing wall)
+    // 2. Check Player/Bot targets (only if closer than the obstructing wall and within range)
     let closestHit = null
     let hitTarget = null
     let isHeadshot = false
+
+    const maxReach = isMelee ? (wep.range || 3.2) : wallHitDist
 
     for (const target of targets) {
       if (!target.alive || target.team === shooter.team || target.id === shooter.id) continue
       const targetCenter = new THREE.Vector3(target.pos.x, target.pos.y - 0.2, target.pos.z)
       const distToRay = raycaster.ray.distanceToPoint(targetCenter)
+      const hitRadius = isMelee ? (target.radius * 2.2) : (target.radius * 1.5)
 
-      if (distToRay < target.radius * 1.5) {
+      if (distToRay < hitRadius) {
         const distFromShooter = origin.distanceTo(targetCenter)
-        // If the wall is closer than the enemy, the bullet is stopped by the wall!
-        if (distFromShooter < wallHitDist) {
+        if (distFromShooter <= maxReach && distFromShooter < wallHitDist) {
           if (!closestHit || distFromShooter < closestHit.dist) {
             const headPos = new THREE.Vector3(target.pos.x, target.pos.y + 0.45, target.pos.z)
             const isHead = raycaster.ray.distanceToPoint(headPos) < 0.35
@@ -345,34 +605,42 @@ export class WeaponSystem3D {
       }
     }
 
-    // Tracer starts from the gun muzzle position
-    const muzzleOffset = new THREE.Vector3(
-      THREE.MathUtils.lerp(0.12, 0.0, this.adsProgress),
-      THREE.MathUtils.lerp(-0.08, -0.01, this.adsProgress),
-      -0.65
-    )
-    const muzzleWorld = muzzleOffset.applyEuler(this.camera.rotation).add(origin)
+    if (!isMelee) {
+      // Tracer starts from the gun muzzle position
+      const muzzleOffset = new THREE.Vector3(
+        THREE.MathUtils.lerp(0.12, 0.0, this.adsProgress),
+        THREE.MathUtils.lerp(-0.08, -0.01, this.adsProgress),
+        -0.65
+      )
+      const muzzleWorld = muzzleOffset.applyEuler(this.camera.rotation).add(origin)
 
-    // Tracer End: target if hit, wall impact point if hit wall, or max range in open air
-    let tracerEnd
-    if (closestHit) {
-      tracerEnd = closestHit.pos
-      this.spawnSparks(tracerEnd, 0xef4444)
-    } else if (wallHitPoint) {
-      tracerEnd = wallHitPoint
-      this.spawnSparks(tracerEnd, 0xfde047)
+      // Tracer End: target if hit, wall impact point if hit wall, or max range in open air
+      let tracerEnd
+      if (closestHit) {
+        tracerEnd = closestHit.pos
+        this.spawnSparks(tracerEnd, 0xef4444)
+      } else if (wallHitPoint) {
+        tracerEnd = wallHitPoint
+        this.spawnSparks(tracerEnd, 0xfde047)
+      } else {
+        tracerEnd = origin.clone().add(dir.clone().multiplyScalar(wep.range || 80))
+      }
+
+      this.spawnTracer(muzzleWorld, tracerEnd)
     } else {
-      tracerEnd = origin.clone().add(dir.clone().multiplyScalar(wep.range || 80))
+      if (closestHit) {
+        this.spawnSparks(closestHit.pos, 0xef4444)
+      } else if (wallHitPoint && wallHitDist <= maxReach) {
+        this.spawnSparks(wallHitPoint, 0x94a3b8)
+      }
     }
-
-    this.spawnTracer(muzzleWorld, tracerEnd)
 
     if (hitTarget) {
       const rawDmg = isHeadshot ? wep.damage.head : wep.damage.body
       if (isHeadshot) soundManager.play('headshot')
       else soundManager.play('hit')
 
-      const res = DamageSystem.applyDamage(hitTarget, rawDmg, isHeadshot, false, 'bullet')
+      const res = DamageSystem.applyDamage(hitTarget, rawDmg, isHeadshot, false, isMelee ? 'knife' : 'bullet')
       if (onHitCallback) onHitCallback(hitTarget, isHeadshot, rawDmg, res.killed)
       return { hit: true, target: hitTarget, headshot: isHeadshot, killed: res.killed }
     }

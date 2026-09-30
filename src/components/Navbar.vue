@@ -7,7 +7,7 @@ defineEmits(['changeGame'])
 
 const gamesList = [
   { id: 'home', title: 'Inicio', icon: '🏠' },
-  { id: 'valoran3d2.0', title: 'Valoran3D 2.0', icon: '🔥' },
+  { id: 'valoran3d2.0', title: '1v1.LOL 3D', icon: '⚔️' },
   { id: 'valorant', title: 'Valorant 2D', icon: '💣' },
   { id: 'tactical', title: 'Tactical Breach', icon: '🎯' },
   { id: 'survivor', title: 'Abyss Survivor', icon: '🔮' },
@@ -127,5 +127,26 @@ const gamesList = [
   color: #0f172a;
   font-weight: 700;
   box-shadow: 0 2px 8px rgba(56, 189, 248, 0.3);
+}
+
+@media (max-width: 768px) {
+  .navbar {
+    padding: 8px 12px;
+  }
+  .nav-links {
+    width: 100%;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .nav-links::-webkit-scrollbar {
+    display: none;
+  }
+  .nav-tab-btn {
+    white-space: nowrap;
+    padding: 6px 10px;
+    font-size: 0.78rem;
+  }
 }
 </style>

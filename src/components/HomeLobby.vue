@@ -14,25 +14,25 @@ const playerProfile = ref({
 
 const featuredGame = ref({
   id: 'valoran3d2.0',
-  title: 'Valoran3D 2.0: Tactical Arena',
-  subtitle: 'Shooter Táctico 5v5 con Mapa 3D mapa.glb, Habilidades y Multijugador',
-  tag: '🔥 NUEVO ESTRENO VALORAN3D 2.0',
-  desc: 'Juego táctico definitivo inspirado en Valorant. Carga el mapa 3D mapa.glb, utiliza habilidades únicas (Jett, Phoenix, Sova, Reyna, Sage, Chamber), compra armas con retroceso y penetración, y compite en salas online.',
-  icon: '🔥',
-  accentColor: '#ff4655'
+  title: '1v1.LOL 3D: Battle Arena',
+  subtitle: 'Shooter 3D con Duelos 1v1 Rápidos, Físicas de Salto/Escaleras y Multijugador Online',
+  tag: '⚔️ MODO DUELO 1v1 & 3D ARENA',
+  desc: 'Juego de disparos y duelos tácticos 1v1 en 3D. Entra a combatir en tiempo real, muévete con fluidez por rampas y plataformas, usa armas de precisión y vence a tus rivales.',
+  icon: '⚔️',
+  accentColor: '#38bdf8'
 })
 
 const games = [
   {
     id: 'valoran3d2.0',
-    title: 'Valoran3D 2.0: Tactical Arena',
-    category: 'Shooter Táctico 3D/2D 5v5',
-    desc: 'Motor 3D Three.js con mapa.glb, agentes completos, habilidades C/Q/E/X, economía, Spike plant/defuse y salas multijugador online.',
-    icon: '🔥',
-    badge: 'Nuevo · 3D Engine',
+    title: '1v1.LOL 3D: Battle Arena',
+    category: 'Shooter 3D / Duelos 1v1',
+    desc: 'Motor 3D Three.js en primera persona con duelos 1v1 instantáneos, bots configurables, escaleras multinivel, armas con retroceso y salas online P2P.',
+    icon: '⚔️',
+    badge: 'Duelos 1v1 · 3D',
     rating: '5.0 ⭐',
-    difficulty: 'Táctico / Competitivo',
-    tags: ['Valorant 3D', 'Spike Plant', 'Multijugador', 'Habilidades']
+    difficulty: 'Reflejos / Combate 1v1',
+    tags: ['1v1 Arena', 'Duelo Rápido', 'Multijugador', 'Shooter 3D']
   },
   {
     id: 'valorant',
@@ -125,11 +125,11 @@ const games = [
 
         <div class="hero-actions">
           <button class="btn-play-hero" @click="$emit('selectGame', featuredGame.id)">
-            ▶️ Jugar Spike Rush 5v5
+            ⚔️ Jugar Duelo 1v1
           </button>
           <div class="hero-stat-pill">
-            <span>💣 Plantar / Desactivar Spike [4]</span>
-            <span>⚡ Habilidades [E, Q, C]</span>
+            <span>⚡ Duelo Rápido 1v1</span>
+            <span>🎯 Armas & Escaleras 3D</span>
           </div>
         </div>
       </div>

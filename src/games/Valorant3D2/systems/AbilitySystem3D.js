@@ -20,27 +20,30 @@ export class AbilitySystem3D {
   cast(player, key, targets = [], onAnnouncement) {
     const forward = new THREE.Vector3(0, 0, -1).applyEuler(this.camera.rotation)
     const pos = new THREE.Vector3(player.pos.x, player.pos.y, player.pos.z)
+    const agent = player.agentId || 'gladiator'
 
-    if (player.agentId === 'jett') {
+    if (agent === 'gladiator' || agent === 'jett' || agent === '1v1' || !['phoenix', 'sova', 'reyna', 'sage', 'chamber'].includes(agent)) {
       if (key === 'E') {
         // Tailwind Dash
         soundManager.play('dash')
         const dashDir = new THREE.Vector3(forward.x, 0, forward.z).normalize()
         player.pos.x += dashDir.x * 12.0
         player.pos.z += dashDir.z * 12.0
-        if (onAnnouncement) onAnnouncement('⚡ JETT: ¡TAILWIND DASH!')
+        if (onAnnouncement) onAnnouncement('⚡ ¡DASH TÁCTICO!')
       } else if (key === 'Q') {
         // Updraft
         soundManager.play('dash')
         player.vel.y = 11.5
         player.onGround = false
+        if (onAnnouncement) onAnnouncement('💨 ¡SUPER SALTO VERTICAL!')
       } else if (key === 'C') {
         // Cloudburst Smoke
         this.spawnSmoke(pos.clone().addScaledVector(forward, 8), 4.2, 0x64748b, 5.0)
+        if (onAnnouncement) onAnnouncement('☁️ ¡GRANADA DE HUMO!')
       } else if (key === 'X') {
-        // Blade Storm
+        // Blade Storm / Tactical Surge
         soundManager.play('ult_activate')
-        if (onAnnouncement) onAnnouncement('🌪️ JETT: ¡TORMENTA DE CUCHILLAS LISTA!')
+        if (onAnnouncement) onAnnouncement('🌪️ ¡SOBRETENSIÓN DEFINITIVA!')
       }
     } else if (player.agentId === 'phoenix') {
       if (key === 'E') {

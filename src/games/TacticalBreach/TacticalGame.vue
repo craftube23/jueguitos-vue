@@ -490,15 +490,36 @@ const handleKeyDown = (e) => {
   if (e.code === 'KeyF') throwFlashbang()
   if (e.code === 'KeyG') throwSmoke()
 }
-const handleKeyUp = (e) => { keys[e.code] = false }
 const handleMouseMove = (e) => {
   if (!canvasRef.value) return
   const rect = canvasRef.value.getBoundingClientRect()
   mouse.x = (e.clientX - rect.left) * (canvasRef.value.width / rect.width)
   mouse.y = (e.clientY - rect.top) * (canvasRef.value.height / rect.height)
 }
-const handleMouseDown = () => { mouse.isDown = true }
+const handleMouseDown = () => { mouse.isDown = true; initAudio() }
 const handleMouseUp = () => { mouse.isDown = false }
+
+const handleTouchMove = (e) => {
+  if (!canvasRef.value || e.touches.length === 0) return
+  const touch = e.touches[0]
+  const rect = canvasRef.value.getBoundingClientRect()
+  mouse.x = (touch.clientX - rect.left) * (canvasRef.value.width / rect.width)
+  mouse.y = (touch.clientY - rect.top) * (canvasRef.value.height / rect.height)
+}
+const handleTouchStart = (e) => {
+  if (!canvasRef.value || e.touches.length === 0) return
+  handleTouchMove(e)
+  mouse.isDown = true
+  initAudio()
+}
+const handleTouchEnd = () => {
+  mouse.isDown = false
+}
+
+const setKey = (code, val) => {
+  keys[code] = val
+  initAudio()
+}
 
 onMounted(() => {
   if (canvasRef.value) {
@@ -508,6 +529,9 @@ onMounted(() => {
     canvasRef.value.addEventListener('mousemove', handleMouseMove)
     canvasRef.value.addEventListener('mousedown', handleMouseDown)
     window.addEventListener('mouseup', handleMouseUp)
+    canvasRef.value.addEventListener('touchstart', handleTouchStart, { passive: true })
+    canvasRef.value.addEventListener('touchmove', handleTouchMove, { passive: true })
+    canvasRef.value.addEventListener('touchend', handleTouchEnd)
     gameLoop()
   }
 })
@@ -616,6 +640,68 @@ onUnmounted(() => {
           <p>Fuiste alcanzado por fuego hostil.</p>
           <button class="btn-breach" @click="startMission">🔄 Reintentar Incursión</button>
         </div>
+      </div>
+    </div>
+
+    <!-- CONTROLES TÁCTILES MÓVILES -->
+    <div v-if="gameState === 'PLAYING'" class="mobile-touch-bar">
+      <div class="virtual-dpad">
+        <div></div>
+        <button 
+          class="dpad-btn" 
+          @touchstart.prevent="setKey('KeyW', true)" 
+          @touchend.prevent="setKey('KeyW', false)"
+          @mousedown="setKey('KeyW', true)"
+          @mouseup="setKey('KeyW', false)"
+        >⬆️</button>
+        <div></div>
+
+        <button 
+          class="dpad-btn" 
+          @touchstart.prevent="setKey('KeyA', true)" 
+          @touchend.prevent="setKey('KeyA', false)"
+          @mousedown="setKey('KeyA', true)"
+          @mouseup="setKey('KeyA', false)"
+        >⬅️</button>
+        <button 
+          class="dpad-btn" 
+          @touchstart.prevent="setKey('KeyS', true)" 
+          @touchend.prevent="setKey('KeyS', false)"
+          @mousedown="setKey('KeyS', true)"
+          @mouseup="setKey('KeyS', false)"
+        >⬇️</button>
+        <button 
+          class="dpad-btn" 
+          @touchstart.prevent="setKey('KeyD', true)" 
+          @touchend.prevent="setKey('KeyD', false)"
+          @mousedown="setKey('KeyD', true)"
+          @mouseup="setKey('KeyD', false)"
+        >➡️</button>
+
+        <div></div>
+        <div></div>
+        <div></div>
+      </div>
+
+      <div class="virtual-actions">
+        <button 
+          class="touch-action-btn btn-fire-touch" 
+          @touchstart.prevent="mouse.isDown = true" 
+          @touchend.prevent="mouse.isDown = false"
+          @mousedown="mouse.isDown = true"
+          @mouseup="mouse.isDown = false"
+        >
+          🔴 FUEGO
+        </button>
+        <button class="touch-action-btn btn-reload-touch" @click="reload">
+          🔄 RECARGA
+        </button>
+        <button class="touch-action-btn" :disabled="flashbangs <= 0" @click="throwFlashbang">
+          ⚡ FLASH
+        </button>
+        <button class="touch-action-btn" :disabled="smokes <= 0" @click="throwSmoke">
+          💨 HUMO
+        </button>
       </div>
     </div>
   </div>

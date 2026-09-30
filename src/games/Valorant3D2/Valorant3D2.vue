@@ -1,15 +1,15 @@
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import * as THREE from 'three'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { AGENTS } from './data/agents.js'
 import { WEAPONS, SHIELDS, WEAPON_CATEGORIES } from './data/weapons.js'
 import { soundManager } from './systems/SoundSystem.js'
 import { DamageSystem, PLAYER_STATES } from './systems/DamageSystem.js'
-import { SPIKE_STATES } from './systems/ObjectiveSystem.js'
 import { PlayerController3D } from './systems/PlayerController3D.js'
 import { WeaponSystem3D } from './systems/WeaponSystem3D.js'
 import { AbilitySystem3D } from './systems/AbilitySystem3D.js'
-import { SpikeObjective3D } from './systems/SpikeObjective3D.js'
 import { BotAI3D } from './systems/BotAI3D.js'
 import { NetworkSystem } from './systems/NetworkSystem.js'
 import { buildTacticalArena } from './systems/MapBuilder3D.js'
@@ -23,6 +23,40 @@ const showSettings = ref(false)
 const activeTab = ref('play')
 const isPointerLocked = ref(false)
 const isThirdPerson = ref(false)
+const economyToast = ref('')
+let economyToastTimer = null
+
+function showEconomyNotification(msg) {
+  economyToast.value = msg
+  if (economyToastTimer) clearTimeout(economyToastTimer)
+  economyToastTimer = setTimeout(() => {
+    economyToast.value = ''
+  }, 2500)
+}
+
+function toggleBuyMenu() {
+  showBuyMenu.value = !showBuyMenu.value
+  if (showBuyMenu.value) {
+    if (document.pointerLockElement) {
+      document.exitPointerLock()
+    }
+  } else {
+    setTimeout(requestPointerLock, 60)
+  }
+}
+
+function closeBuyMenu() {
+  showBuyMenu.value = false
+  setTimeout(requestPointerLock, 60)
+}
+
+watch(showBuyMenu, (isOpen) => {
+  if (isOpen) {
+    if (document.pointerLockElement) {
+      document.exitPointerLock()
+    }
+  }
+})
 
 // Practice Range Cheats
 const infiniteAmmo = ref(false)
@@ -79,8 +113,13 @@ const player = reactive({
   maxHealth: 100,
   armor: 50,
   maxArmor: 50,
-  credits: 800,
-  weapon: 'vandal',
+  credits: 5000,
+  primaryWeapon: 'ak74u',
+  primaryAmmo: 25,
+  primaryReserveAmmo: 75,
+  meleeWeapon: 'knife',
+  currentSlot: 'primary',
+  weapon: 'ak74u',
   ammo: 25,
   reserveAmmo: 75,
   isReloading: false,
@@ -98,13 +137,65 @@ const player = reactive({
   assists: 0
 })
 
+function equipPrimaryWeapon() {
+  player.currentSlot = 'primary'
+  player.weapon = player.primaryWeapon || 'ak74u'
+  const wep = WEAPONS[player.weapon] || WEAPONS.ak74u
+  player.ammo = player.primaryAmmo !== undefined ? player.primaryAmmo : wep.magazineSize
+  player.reserveAmmo = player.primaryReserveAmmo !== undefined ? player.primaryReserveAmmo : wep.reserveAmmo
+  player.isReloading = false
+  player.reloadTimer = 0
+  if (weaponSystem) {
+    weaponSystem.setWeapon(player.weapon)
+  }
+  soundManager.play('buy')
+}
+
+function equipMeleeWeapon() {
+  if (player.currentSlot === 'primary') {
+    player.primaryAmmo = player.ammo
+    player.primaryReserveAmmo = player.reserveAmmo
+  }
+  player.currentSlot = 'melee'
+  player.weapon = 'knife'
+  player.ammo = 1
+  player.reserveAmmo = 0
+  player.isReloading = false
+  player.reloadTimer = 0
+  if (weaponSystem) {
+    weaponSystem.setWeapon('knife')
+  }
+  soundManager.play('slash')
+}
+
+function toggleWeaponSlot() {
+  if (player.currentSlot === 'primary') {
+    equipMeleeWeapon()
+  } else {
+    equipPrimaryWeapon()
+  }
+}
+
+function inspectCurrentWeapon() {
+  if (weaponSystem) {
+    weaponSystem.inspectWeapon()
+    showEconomyNotification('🔍 INSPECCIONANDO ARMA')
+  }
+}
+
+function onWheel(e) {
+  if (!isPointerLocked.value || !player.alive) return
+  if (e.deltaY < 0) {
+    equipPrimaryWeapon()
+  } else if (e.deltaY > 0) {
+    equipMeleeWeapon()
+  }
+}
+
 // Hitmarker & Crosshair
 const hitmarkerActive = ref(false)
 const hitmarkerHeadshot = ref(false)
 const crosshairSpread = ref(0)
-const inPlantZone = ref(false)
-const inDefuseZone = ref(false)
-const plantSiteName = ref('')
 const isAiming = computed(() => mouse.rightDown && isPointerLocked.value && !player.isReloading && player.alive)
 
 // Spectator Mode
@@ -166,9 +257,9 @@ let ambientDust = null
 let playerController = null
 let weaponSystem = null
 let abilitySystem = null
-let spikeObjective = null
 let botAI = null
 let networkSystem = null
+let characterModelTemplate = null
 
 const playerMeshes = new Map()
 
@@ -258,9 +349,32 @@ function initThreeJS() {
   weaponSystem = new WeaponSystem3D(scene, camera)
   weaponSystem.setMeshColliders(arenaData.meshColliders)
   abilitySystem = new AbilitySystem3D(scene, camera)
-  spikeObjective = new SpikeObjective3D(scene)
   botAI = new BotAI3D(scene)
   botAI.setMeshColliders(arenaData.meshColliders)
+  botAI.setColliders(arenaData.wallsAABB)
+
+  // Load 3D Military Character Model (eddy_militar_1.glb)
+  const charLoader = new GLTFLoader()
+  charLoader.load(
+    '/models/personajes/eddy_militar_1.glb',
+    (gltf) => {
+      characterModelTemplate = gltf.scene
+      characterModelTemplate.traverse((c) => {
+        if (c.isMesh) {
+          c.castShadow = true
+          c.receiveShadow = true
+          c.frustumCulled = false
+        }
+      })
+      // Clear placeholder meshes so new military models are spawned
+      playerMeshes.forEach((mesh) => {
+        scene.remove(mesh)
+      })
+      playerMeshes.clear()
+    },
+    undefined,
+    (err) => console.warn('Could not load character model eddy_militar_1.glb:', err)
+  )
 
   // 6. Renderer (AAA Cinematic Tone Mapping & Color Pipeline)
   renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
@@ -366,21 +480,33 @@ function updateGame3D(dt) {
     match.timer -= dt
     if (match.timer <= 0) {
       match.phase = 'ROUND_ACTIVE'
-      match.timer = 100
-      match.announcement = '¡BARRERAS ABAJO! ¡A LA CARGA!'
+      match.timer = 90
+      match.announcement = '¡DUELO INICIADO! ¡ELIMINA AL EQUIPO RIVAL!'
       soundManager.play('ult_activate')
+      if (showBuyMenu.value) {
+        showBuyMenu.value = false
+        setTimeout(requestPointerLock, 60)
+      }
     }
   } else if (match.phase === 'ROUND_ACTIVE') {
     match.timer -= dt
-    if (match.timer <= 0 && spikeObjective.state !== SPIKE_STATES.PLANTED && spikeObjective.state !== SPIKE_STATES.DEFUSING) {
-      endRound('defenders', '¡Tiempo agotado! Defensores aseguran la ronda.')
+    if (match.timer <= 0) {
+      const redAlive = players.value.filter(p => p.team === 'attackers' && p.alive).length
+      const blueAlive = players.value.filter(p => p.team === 'defenders' && p.alive).length
+      if (redAlive > blueAlive) {
+        endRound('attackers', '¡Tiempo agotado! Equipo Rojo gana por mayor número de supervivientes.')
+      } else if (blueAlive > redAlive) {
+        endRound('defenders', '¡Tiempo agotado! Equipo Azul gana por mayor número de supervivientes.')
+      } else {
+        endRound('defenders', '¡Tiempo agotado! Duelo empatado.')
+      }
     }
   } else if (match.phase === 'ROUND_ENDED') {
     match.timer -= dt
     if (match.timer <= 0) {
       match.round++
       if (match.scoreAtk >= match.maxRounds || match.scoreDef >= match.maxRounds) {
-        match.announcement = match.scoreAtk > match.scoreDef ? '🏆 ¡VICTORIA DE ATACANTES!' : '🏆 ¡VICTORIA DE DEFENSORES!'
+        match.announcement = match.scoreAtk > match.scoreDef ? '🏆 ¡VICTORIA FINAL DEL EQUIPO ROJO!' : '🏆 ¡VICTORIA FINAL DEL EQUIPO AZUL!'
         gameMode.value = 'MENU'
       } else {
         resetRound(false)
@@ -417,15 +543,8 @@ function updateGame3D(dt) {
       }
     }
 
-    // Update Abilities & Spike even while spectating
+    // Update Abilities
     abilitySystem.update(dt, player)
-    spikeObjective.update(
-      dt,
-      () => {},
-      (site) => { match.announcement = `¡SPIKE PLANTADA EN SITE ${site}!`; soundManager.play('spike_plant') },
-      () => { soundManager.play('spike_defused'); endRound('defenders', '¡Spike desactivada con éxito!') },
-      (pos) => { soundManager.play('explosion'); endRound('attackers', '¡La Spike ha detonado el objetivo!') }
-    )
 
     // Update Bots AI & 3D Meshes while spectating
     players.value.forEach(bot => {
@@ -437,7 +556,7 @@ function updateGame3D(dt) {
           if (res.killed) {
             handlePlayerKilled3D(target, shooter.id, 'Vandal', false)
           }
-        })
+        }, players.value)
       }
     })
     updatePlayer3DMeshes()
@@ -459,7 +578,7 @@ function updateGame3D(dt) {
   }
 
   // Update Weapon & Shooting
-  const wep = WEAPONS[player.weapon] || WEAPONS.vandal
+  const wep = WEAPONS[player.weapon] || WEAPONS.ak74u
   if (player.shootCooldown > 0) player.shootCooldown -= dt
   crosshairSpread.value = Math.max(0, crosshairSpread.value - 6.0 * dt)
 
@@ -487,39 +606,12 @@ function updateGame3D(dt) {
     triggerFire()
   }
 
-  // Update Abilities & Spike
+  // Update Abilities
   abilitySystem.update(dt, player)
-  spikeObjective.update(
-    dt,
-    () => {},
-    (site) => { match.announcement = `¡SPIKE PLANTADA EN SITE ${site}!`; soundManager.play('spike_plant') },
-    () => { soundManager.play('spike_defused'); endRound('defenders', '¡Spike desactivada con éxito!') },
-    (pos) => { soundManager.play('explosion'); endRound('attackers', '¡La Spike ha detonado el objetivo!') }
-  )
 
-  // Evaluate Zone Proximity for HUD Prompt
-  const inA = (Math.abs(player.pos.x - MAP_3D.siteA.x) <= MAP_3D.siteA.width / 2 + 1.2 &&
-               Math.abs(player.pos.z - MAP_3D.siteA.z) <= MAP_3D.siteA.depth / 2 + 1.2) ||
-              Math.hypot(player.pos.x - MAP_3D.siteA.x, player.pos.z - MAP_3D.siteA.z) < MAP_3D.siteA.radius
-
-  const inB = (Math.abs(player.pos.x - MAP_3D.siteB.x) <= MAP_3D.siteB.width / 2 + 1.2 &&
-               Math.abs(player.pos.z - MAP_3D.siteB.z) <= MAP_3D.siteB.depth / 2 + 1.2) ||
-              Math.hypot(player.pos.x - MAP_3D.siteB.x, player.pos.z - MAP_3D.siteB.z) < MAP_3D.siteB.radius
-
-  inPlantZone.value = player.team === 'attackers' && (inA || inB) && spikeObjective.state === SPIKE_STATES.CARRIED && spikeObjective.carrierId === player.id
-  if (inA) plantSiteName.value = 'SITE A (REACTOR)'
-  else if (inB) plantSiteName.value = 'SITE B (VAULT)'
-
-  inDefuseZone.value = player.team === 'defenders' && spikeObjective.state === SPIKE_STATES.PLANTED && Math.hypot(player.pos.x - spikeObjective.position.x, player.pos.z - spikeObjective.position.z) < 3.5
-
-  // Plant / Defuse Keys (F or 4)
-  if (keys['KeyF'] || keys['Digit4']) {
-    handlePlantOrDefuse3D()
-  }
-
-  // Update Bots AI
+  // Update Bots AI (Hunter Team Deathmatch mode)
   players.value.forEach(bot => {
-    if (bot.id !== player.id) {
+    if (bot.id !== player.id && !bot.isRemotePlayer) {
       botAI.updateBot(bot, dt, player, match.phase, MAP_3D, (shooter, target) => {
         weaponSystem.spawnTracer(new THREE.Vector3(shooter.pos.x, shooter.pos.y, shooter.pos.z), new THREE.Vector3(target.pos.x, target.pos.y, target.pos.z))
         if (!godMode.value) {
@@ -528,7 +620,7 @@ function updateGame3D(dt) {
             handlePlayerKilled3D(target, shooter.id, 'Vandal', false)
           }
         }
-      })
+      }, players.value)
     }
   })
 
@@ -550,44 +642,14 @@ function updateGame3D(dt) {
   }
 }
 
-function handlePlantOrDefuse3D() {
-  if (player.team === 'attackers' && spikeObjective.state === SPIKE_STATES.CARRIED && spikeObjective.carrierId === player.id) {
-    const inA = (Math.abs(player.pos.x - MAP_3D.siteA.x) <= MAP_3D.siteA.width / 2 + 1.2 &&
-                 Math.abs(player.pos.z - MAP_3D.siteA.z) <= MAP_3D.siteA.depth / 2 + 1.2) ||
-                Math.hypot(player.pos.x - MAP_3D.siteA.x, player.pos.z - MAP_3D.siteA.z) < MAP_3D.siteA.radius
-
-    const inB = (Math.abs(player.pos.x - MAP_3D.siteB.x) <= MAP_3D.siteB.width / 2 + 1.2 &&
-                 Math.abs(player.pos.z - MAP_3D.siteB.z) <= MAP_3D.siteB.depth / 2 + 1.2) ||
-                Math.hypot(player.pos.x - MAP_3D.siteB.x, player.pos.z - MAP_3D.siteB.z) < MAP_3D.siteB.radius
-
-    if (inA || inB) {
-      if (spikeObjective.state !== SPIKE_STATES.PLANTING) {
-        spikeObjective.startPlant(player.id, inA ? 'A (REACTOR)' : 'B (VAULT)', player.pos)
-      }
-      spikeObjective.plantProgress += 0.03
-      if (spikeObjective.plantProgress >= 4.0) {
-        spikeObjective.completePlant()
-        match.announcement = `¡SPIKE PLANTADA EN SITE ${spikeObjective.site}!`
-      }
-    }
-  } else if (player.team === 'defenders' && spikeObjective.state === SPIKE_STATES.PLANTED) {
-    const dist = Math.hypot(player.pos.x - spikeObjective.position.x, player.pos.z - spikeObjective.position.z)
-    if (dist < 3.5) {
-      if (spikeObjective.state !== SPIKE_STATES.DEFUSING) {
-        spikeObjective.startDefuse(player.id)
-      }
-      spikeObjective.defuseProgress += 0.03
-      if (spikeObjective.defuseProgress >= 7.0) {
-        spikeObjective.completeDefuse()
-        endRound('defenders', '¡Spike desactivada con éxito!')
-      }
-    }
-  }
-}
-
 function updatePlayer3DMeshes() {
   players.value.forEach(p => {
-    if (p.id === player.id) return
+    const isLocal = (p.id === player.id)
+    if (isLocal && !isThirdPerson.value) {
+      const localMesh = playerMeshes.get(p.id)
+      if (localMesh) localMesh.visible = false
+      return
+    }
 
     let mesh = playerMeshes.get(p.id)
     if (!mesh) {
@@ -610,118 +672,79 @@ function updatePlayer3DMeshes() {
       }
       const agentColor = agentColors[p.agentId?.toLowerCase()] || baseTeamColor
 
-      const armorMat = new THREE.MeshStandardMaterial({
-        color: isAtk ? 0x18181b : 0x0f172a,
-        roughness: 0.45,
-        metalness: 0.4
-      })
+      if (characterModelTemplate) {
+        // Clone Real 3D Military Soldier Model
+        const charClone = SkeletonUtils.clone(characterModelTemplate)
+        charClone.scale.set(0.01, 0.01, 0.01)
+        charClone.rotation.y = 0
 
-      const teamGlowMat = new THREE.MeshBasicMaterial({ color: baseTeamColor })
-      const agentGlowMat = new THREE.MeshBasicMaterial({ color: agentColor })
+        charClone.traverse((c) => {
+          if (c.isMesh) {
+            c.castShadow = true
+            c.receiveShadow = true
+            c.frustumCulled = false
+            if (c.material) {
+              c.material = c.material.clone()
+              if (c.name === 'Object_19' || c.material.name === 'sNAKEsuit') {
+                if (c.material.color) {
+                  c.material.color.lerp(new THREE.Color(baseTeamColor), 0.2)
+                }
+              }
+            }
+          }
+        })
+        mesh.add(charClone)
 
-      // 1. Dual Tactical Combat Legs
-      const legGeo = new THREE.CylinderGeometry(0.085, 0.065, 0.75, 8)
-      const leftLeg = new THREE.Mesh(legGeo, armorMat)
-      leftLeg.position.set(-0.16, 0.38, 0)
-      leftLeg.castShadow = true
-      mesh.add(leftLeg)
+        // Tactical Team Identification Disc / Halo Ring at feet
+        const beaconGeo = new THREE.RingGeometry(0.25, 0.35, 24)
+        beaconGeo.rotateX(-Math.PI / 2)
+        const beaconMat = new THREE.MeshBasicMaterial({ color: baseTeamColor, side: THREE.DoubleSide, transparent: true, opacity: 0.85 })
+        const beacon = new THREE.Mesh(beaconGeo, beaconMat)
+        beacon.position.set(0, 0.04, 0)
+        mesh.add(beacon)
 
-      const rightLeg = new THREE.Mesh(legGeo, armorMat)
-      rightLeg.position.set(0.16, 0.38, 0)
-      rightLeg.castShadow = true
-      mesh.add(rightLeg)
+        // Chest Agent Beacon Core
+        const coreGeo = new THREE.SphereGeometry(0.045, 8, 8)
+        const coreMat = new THREE.MeshBasicMaterial({ color: agentColor })
+        const core = new THREE.Mesh(coreGeo, coreMat)
+        core.position.set(0, 1.32, 0.12)
+        mesh.add(core)
+      } else {
+        // Fallback procedural tactical soldier
+        const armorMat = new THREE.MeshStandardMaterial({
+          color: isAtk ? 0x18181b : 0x0f172a,
+          roughness: 0.45,
+          metalness: 0.4
+        })
+        const teamGlowMat = new THREE.MeshBasicMaterial({ color: baseTeamColor })
+        const agentGlowMat = new THREE.MeshBasicMaterial({ color: agentColor })
 
-      // Knee Guard Accents
-      const kneeGeo = new THREE.BoxGeometry(0.09, 0.08, 0.06)
-      const lKnee = new THREE.Mesh(kneeGeo, teamGlowMat)
-      lKnee.position.set(-0.16, 0.45, -0.07) // Front of knee
-      mesh.add(lKnee)
+        const legGeo = new THREE.CylinderGeometry(0.085, 0.065, 0.75, 8)
+        const leftLeg = new THREE.Mesh(legGeo, armorMat)
+        leftLeg.position.set(-0.16, 0.38, 0)
+        leftLeg.castShadow = true
+        mesh.add(leftLeg)
 
-      const rKnee = new THREE.Mesh(kneeGeo, teamGlowMat)
-      rKnee.position.set(0.16, 0.45, -0.07)
-      mesh.add(rKnee)
+        const rightLeg = new THREE.Mesh(legGeo, armorMat)
+        rightLeg.position.set(0.16, 0.38, 0)
+        rightLeg.castShadow = true
+        mesh.add(rightLeg)
 
-      // 2. Torso (Armored Tactical Vest)
-      const torsoGeo = new THREE.CylinderGeometry(0.28, 0.22, 0.72, 8)
-      const torso = new THREE.Mesh(torsoGeo, armorMat)
-      torso.position.set(0, 1.1, 0)
-      torso.castShadow = true
-      mesh.add(torso)
+        const torsoGeo = new THREE.CylinderGeometry(0.28, 0.22, 0.72, 8)
+        const torso = new THREE.Mesh(torsoGeo, armorMat)
+        torso.position.set(0, 1.1, 0)
+        torso.castShadow = true
+        mesh.add(torso)
 
-      // 3. Chest Radianite Core (Glowing Emblem on FRONT: -Z)
-      const coreGeo = new THREE.CylinderGeometry(0.09, 0.09, 0.04, 8)
-      coreGeo.rotateX(Math.PI / 2)
-      const core = new THREE.Mesh(coreGeo, teamGlowMat)
-      core.position.set(0, 1.22, -0.2) // FRONT: -Z
-      mesh.add(core)
+        const helmetGeo = new THREE.SphereGeometry(0.18, 16, 16)
+        helmetGeo.scale(1, 1.12, 1.1)
+        const helmet = new THREE.Mesh(helmetGeo, armorMat)
+        helmet.position.set(0, 1.62, 0)
+        helmet.castShadow = true
+        mesh.add(helmet)
+      }
 
-      // Agent Inner Core
-      const innerCoreGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.05, 8)
-      innerCoreGeo.rotateX(Math.PI / 2)
-      const innerCore = new THREE.Mesh(innerCoreGeo, agentGlowMat)
-      innerCore.position.set(0, 1.22, -0.21)
-      mesh.add(innerCore)
-
-      // 4. Armored Pauldrons (Shoulders with Agent Colored Beacon Lights)
-      const pauldronGeo = new THREE.BoxGeometry(0.14, 0.12, 0.18)
-      const leftShoulder = new THREE.Mesh(pauldronGeo, armorMat)
-      leftShoulder.position.set(-0.35, 1.35, 0)
-      mesh.add(leftShoulder)
-
-      const rightShoulder = new THREE.Mesh(pauldronGeo, armorMat)
-      rightShoulder.position.set(0.35, 1.35, 0)
-      mesh.add(rightShoulder)
-
-      const shoulderLightGeo = new THREE.BoxGeometry(0.06, 0.03, 0.12)
-      const lLight = new THREE.Mesh(shoulderLightGeo, agentGlowMat)
-      lLight.position.set(-0.36, 1.42, 0)
-      mesh.add(lLight)
-
-      const rLight = new THREE.Mesh(shoulderLightGeo, agentGlowMat)
-      rLight.position.set(0.36, 1.42, 0)
-      mesh.add(rLight)
-
-      // 5. Tactical Helmet
-      const helmetGeo = new THREE.SphereGeometry(0.18, 16, 16)
-      helmetGeo.scale(1, 1.12, 1.1)
-      const helmet = new THREE.Mesh(helmetGeo, armorMat)
-      helmet.position.set(0, 1.62, 0)
-      helmet.castShadow = true
-      mesh.add(helmet)
-
-      // 6. Glowing Tactical Eyes & Visor on the FRONT (-Z)
-      // Visor frame
-      const visorFrameGeo = new THREE.BoxGeometry(0.24, 0.08, 0.06)
-      const visorFrame = new THREE.Mesh(visorFrameGeo, armorMat)
-      visorFrame.position.set(0, 1.65, -0.15) // FRONT: -Z
-      mesh.add(visorFrame)
-
-      // Left Eye Slit
-      const eyeGeo = new THREE.BoxGeometry(0.07, 0.03, 0.04)
-      const leftEye = new THREE.Mesh(eyeGeo, agentGlowMat)
-      leftEye.position.set(-0.065, 1.65, -0.17) // FRONT: -Z
-      mesh.add(leftEye)
-
-      // Right Eye Slit
-      const rightEye = new THREE.Mesh(eyeGeo, agentGlowMat)
-      rightEye.position.set(0.065, 1.65, -0.17) // FRONT: -Z
-      mesh.add(rightEye)
-
-      // Respirator / Face Plate on lower face (FRONT: -Z)
-      const maskGeo = new THREE.BoxGeometry(0.12, 0.09, 0.08)
-      const mask = new THREE.Mesh(maskGeo, armorMat)
-      mask.position.set(0, 1.54, -0.16) // FRONT: -Z
-      mesh.add(mask)
-
-      // 7. Tactical Rifle Slung on the BACK (+Z)
-      const backRifleGeo = new THREE.BoxGeometry(0.08, 0.65, 0.1)
-      const backRifleMat = new THREE.MeshStandardMaterial({ color: 0x090d16, roughness: 0.3, metalness: 0.85 })
-      const backRifle = new THREE.Mesh(backRifleGeo, backRifleMat)
-      backRifle.position.set(0.1, 1.1, 0.22) // BACK: +Z
-      backRifle.rotation.z = -0.4
-      mesh.add(backRifle)
-
-      // 8. Floating Nameplate & Health HUD Sprite above Head
+      // Floating Nameplate & Health HUD Sprite above Head
       const canvas = document.createElement('canvas')
       canvas.width = 256
       canvas.height = 70
@@ -738,7 +761,7 @@ function updatePlayer3DMeshes() {
       ctx.font = 'bold 24px monospace'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
-      const label = `${p.name || 'Operador'} [${(p.agentId || 'Jett').toUpperCase()}]`
+      const label = `${p.name || 'Operador'}`
       ctx.fillText(label, 128, 28)
 
       // Mini Health Bar inside Nameplate
@@ -758,11 +781,10 @@ function updatePlayer3DMeshes() {
       playerMeshes.set(p.id, mesh)
     }
 
-    mesh.visible = p.alive
+    mesh.visible = p.alive && (!isLocal || isThirdPerson.value)
     mesh.position.set(p.pos.x, 0, p.pos.z)
     if (p.yaw !== undefined) {
-      // Invert yaw offset by Math.PI so front (-Z) faces the exact direction of travel/aim
-      mesh.rotation.y = p.yaw + Math.PI
+      mesh.rotation.y = p.yaw
     }
   })
 }
@@ -846,14 +868,7 @@ function renderRadar() {
   })
 
   // 4. Draw Spike if Dropped or Planted
-  if (spikeObjective && spikeObjective.state !== SPIKE_STATES.CARRIED) {
-    ctx.fillStyle = '#eab308'
-    ctx.beginPath()
-    ctx.arc(cx + spikeObjective.position.x * scale, cy + spikeObjective.position.z * scale, 5, 0, Math.PI * 2)
-    ctx.fill()
-  }
-
-  // 5. Draw Live Players
+  // 4. Draw Live Players (Red vs Blue)
   players.value.forEach(p => {
     if (!p.alive) return
     const isMe = p.id === player.id
@@ -881,15 +896,20 @@ function resetRound(fullReset = false) {
     match.scoreAtk = 0
     match.scoreDef = 0
     match.round = 1
-    player.credits = 800
+    player.credits = customSettings.startingCredits || 5000
     player.kills = 0
     player.deaths = 0
+    players.value.forEach(p => {
+      p.credits = customSettings.startingCredits || 5000
+      p.kills = 0
+      p.deaths = 0
+    })
   }
 
   match.phase = 'BUY_PHASE'
   match.timer = 15
   match.winner = null
-  match.announcement = 'FASE DE COMPRA - SELECCIONA TU ARSENAL'
+  match.announcement = 'FASE DE COMPRA - SELECCIONA TU ARSENAL [B]'
 
   player.alive = true
   player.health = 100
@@ -901,6 +921,9 @@ function resetRound(fullReset = false) {
 
   if (weaponSystem && weaponSystem.gunGroup) {
     weaponSystem.gunGroup.visible = true
+    if (player.weapon) {
+      weaponSystem.setWeapon(player.weapon)
+    }
   }
 
   const mySlots = player.team === 'attackers' ? MAP_3D.spawnAtkSlots : MAP_3D.spawnDefSlots
@@ -913,15 +936,12 @@ function resetRound(fullReset = false) {
     playerController.pitch = 0
   }
 
-  if (spikeObjective) {
-    spikeObjective.reset(player.team === 'attackers', player.id, mySpawn)
-  }
-
   setup3DBots()
   soundManager.play('buy')
 }
 
 function setup3DBots() {
+  const previousPlayers = [...players.value]
   players.value = [player]
   const botAgents = ['sova', 'phoenix', 'reyna', 'sage', 'chamber', 'omen']
 
@@ -939,7 +959,10 @@ function setup3DBots() {
         armor: 50,
         alive: true,
         isDummy: true,
-        strafing: i % 2 === 1
+        strafing: i % 2 === 1,
+        credits: 5000,
+        kills: 0,
+        deaths: 0
       })
     }
     return
@@ -969,6 +992,7 @@ function setup3DBots() {
   const allySlotIndices = [0, 1, 3, 4]
   for (let i = 0; i < numAllies; i++) {
     const slot = mySlots[allySlotIndices[i]]
+    const existing = previousPlayers.find(p => p.id === `ally_${i}`)
     players.value.push({
       id: `ally_${i}`,
       name: `Aliado ${i + 1}`,
@@ -977,8 +1001,12 @@ function setup3DBots() {
       pos: { x: slot.x, y: slot.y, z: slot.z },
       radius: 0.6,
       health: 100,
-      armor: 50,
-      alive: true
+      armor: existing?.armor || 50,
+      alive: true,
+      weapon: existing?.weapon || 'ak74u',
+      credits: existing?.credits !== undefined ? existing.credits : (customSettings.startingCredits || 5000),
+      kills: existing?.kills || 0,
+      deaths: existing?.deaths || 0
     })
   }
 
@@ -987,6 +1015,7 @@ function setup3DBots() {
   const enemyTeam = player.team === 'attackers' ? 'defenders' : 'attackers'
   for (let i = 0; i < numEnemies; i++) {
     const slot = enemySlots[i]
+    const existing = previousPlayers.find(p => p.id === `enemy_${i}`)
     players.value.push({
       id: `enemy_${i}`,
       name: numEnemies === 1 ? 'Rival 1v1' : `Rival ${i + 1}`,
@@ -995,8 +1024,12 @@ function setup3DBots() {
       pos: { x: slot.x, y: slot.y, z: slot.z },
       radius: 0.6,
       health: 100,
-      armor: 50,
-      alive: true
+      armor: existing?.armor || 50,
+      alive: true,
+      weapon: existing?.weapon || 'ak74u',
+      credits: existing?.credits !== undefined ? existing.credits : (customSettings.startingCredits || 5000),
+      kills: existing?.kills || 0,
+      deaths: existing?.deaths || 0
     })
   }
 }
@@ -1008,6 +1041,21 @@ function endRound(winningTeam, message) {
   match.announcement = message
   if (winningTeam === 'attackers') match.scoreAtk++
   else match.scoreDef++
+
+  // Economy Bonus for Round Result
+  const won = player.team === winningTeam
+  const roundBonus = won ? 3000 : 1900
+  player.credits = Math.min(9000, (player.credits || 0) + roundBonus)
+  showEconomyNotification(won ? '+ $3000 🏆 RONDA GANADA' : '+ $1900 🛡️ BONIFICACIÓN DE DERROTA')
+
+  // Award bots
+  players.value.forEach(p => {
+    if (p.id !== player.id) {
+      const b = (p.team === winningTeam) ? 3000 : 1900
+      p.credits = Math.min(9000, (p.credits || 0) + b)
+    }
+  })
+
   soundManager.play('round_won')
 }
 
@@ -1016,7 +1064,15 @@ function handlePlayerKilled3D(victim, killerId, weaponName, isHeadshot) {
   victim.health = 0
   victim.deaths++
   const killer = players.value.find(p => p.id === killerId)
-  if (killer) killer.kills++
+  if (killer) {
+    killer.kills++
+    const killBonus = isHeadshot ? 400 : 300
+    killer.credits = Math.min(9000, (killer.credits || 0) + killBonus)
+    if (killer.id === player.id) {
+      player.credits = killer.credits
+      showEconomyNotification(`+ $${killBonus} ${isHeadshot ? '💥 HEADSHOT' : '🎯 ELIMINACIÓN'}`)
+    }
+  }
 
   if (victim.id === player.id) {
     isSpectating.value = true
@@ -1044,13 +1100,12 @@ function handlePlayerKilled3D(victim, killerId, weaponName, isHeadshot) {
   const defAlive = players.value.filter(p => p.team === 'defenders' && p.alive).length
 
   if (atkAlive === 0 && match.phase === 'ROUND_ACTIVE') {
-    if (spikeObjective.state !== SPIKE_STATES.PLANTED) {
-      endRound('defenders', '¡Equipo Atacante eliminado!')
-    }
+    endRound('defenders', '¡Equipo Rojo eliminado! ¡Victoria de ronda para el Equipo Azul!')
   } else if (defAlive === 0 && match.phase === 'ROUND_ACTIVE') {
-    endRound('attackers', '¡Equipo Defensor eliminado!')
+    endRound('attackers', '¡Equipo Azul eliminado! ¡Victoria de ronda para el Equipo Rojo!')
   }
 }
+
 
 function cycleSpectateTarget(dir = 1) {
   let candidates = players.value.filter(p => p.team === player.team && p.alive && p.id !== player.id)
@@ -1062,7 +1117,8 @@ function cycleSpectateTarget(dir = 1) {
 }
 
 function reloadWeapon3D(p) {
-  const wep = WEAPONS[p.weapon] || WEAPONS.vandal
+  const wep = WEAPONS[p.weapon] || WEAPONS.ak74u
+  if (wep.isMelee || p.weapon === 'knife') return
   if (p.isReloading || p.ammo >= wep.magazineSize || p.reserveAmmo <= 0) return
   p.isReloading = true
   p.reloadTimer = wep.reloadTime || 2.2
@@ -1076,6 +1132,7 @@ function setupEventListeners() {
   window.addEventListener('mousemove', onMouseMove)
   window.addEventListener('mousedown', onMouseDown)
   window.addEventListener('mouseup', onMouseUp)
+  window.addEventListener('wheel', onWheel, { passive: false })
   document.addEventListener('pointerlockchange', onPointerLockChange)
 }
 
@@ -1085,6 +1142,7 @@ function removeEventListeners() {
   window.removeEventListener('mousemove', onMouseMove)
   window.removeEventListener('mousedown', onMouseDown)
   window.removeEventListener('mouseup', onMouseUp)
+  window.removeEventListener('wheel', onWheel)
   document.removeEventListener('pointerlockchange', onPointerLockChange)
 }
 
@@ -1108,14 +1166,14 @@ function onMouseMove(e) {
 }
 
 function triggerFire() {
-  const wep = WEAPONS[player.weapon] || WEAPONS.vandal
-  if (player.ammo <= 0) {
+  const wep = WEAPONS[player.weapon] || WEAPONS.ak74u
+  if (!wep.isMelee && player.ammo <= 0) {
     reloadWeapon3D(player)
     return
   }
-  player.shootCooldown = 1.0 / wep.fireRate
-  crosshairSpread.value = 1.0
-  if (infiniteAmmo.value) player.ammo = wep.magazineSize
+  player.shootCooldown = 1.0 / (wep.fireRate || 1.8)
+  crosshairSpread.value = wep.isMelee ? 0.2 : 1.0
+  if (infiniteAmmo.value && !wep.isMelee) player.ammo = wep.magazineSize
 
   weaponSystem.fire(player, wep, players.value, (target, isHeadshot, dmg, killed) => {
     hitmarkerActive.value = true
@@ -1151,13 +1209,42 @@ function onKeyDown(e) {
   keys[e.code] = true
   if (e.code === 'Tab') { e.preventDefault(); showScoreboard.value = true }
 
+  if (e.code === 'Escape') {
+    if (showBuyMenu.value) {
+      e.preventDefault()
+      closeBuyMenu()
+      return
+    }
+  }
+
+  if (e.code === 'KeyB') {
+    if (match.phase === 'BUY_PHASE' || gameMode.value === 'PRACTICE' || match.phase === 'ROUND_ACTIVE') {
+      e.preventDefault()
+      toggleBuyMenu()
+      return
+    }
+  }
+
   if (!player.alive) {
     if (e.code === 'ArrowRight' || e.code === 'KeyD' || e.code === 'Space') cycleSpectateTarget(1)
     if (e.code === 'ArrowLeft' || e.code === 'KeyA') cycleSpectateTarget(-1)
     return
   }
 
-  if (e.code === 'KeyB' && match.phase === 'BUY_PHASE') showBuyMenu.value = !showBuyMenu.value
+  // Weapon Inventory Switching (1: Gun, 2/3: Knife Melee)
+  if (e.code === 'Digit1') {
+    equipPrimaryWeapon()
+    return
+  }
+  if (e.code === 'Digit2' || e.code === 'Digit3') {
+    equipMeleeWeapon()
+    return
+  }
+  if (e.code === 'KeyY' || e.code === 'KeyI') {
+    inspectCurrentWeapon()
+    return
+  }
+
   if (e.code === 'KeyR') reloadWeapon3D(player)
   if (e.code === 'KeyV') isThirdPerson.value = !isThirdPerson.value
   if (e.code === 'KeyC') abilitySystem.cast(player, 'C', players.value, (msg) => match.announcement = msg)
@@ -1383,7 +1470,9 @@ function startStandardGame() {
   customSettings.enemyBotCount = 5
   customSettings.allyBotCount = 4
   match.maxRounds = 13
-  gameMode.value = 'AGENT_SELECT'
+  gameMode.value = 'IN_GAME'
+  resetRound(true)
+  setTimeout(requestPointerLock, 100)
 }
 
 function startPracticeMode() {
@@ -1403,10 +1492,16 @@ function buyItem(item) {
   if (player.credits < item.cost) return
   player.credits -= item.cost
   soundManager.play('buy')
-  if (item.magazineSize) {
-    player.weapon = item.id
-    player.ammo = item.magazineSize
-    player.reserveAmmo = item.reserveAmmo
+  if (item.category === 'melee' || item.isMelee) {
+    player.meleeWeapon = item.id
+    if (player.currentSlot === 'melee') {
+      equipMeleeWeapon()
+    }
+  } else if (item.magazineSize) {
+    player.primaryWeapon = item.id
+    player.primaryAmmo = item.magazineSize
+    player.primaryReserveAmmo = item.reserveAmmo
+    equipPrimaryWeapon()
   } else if (item.amount) {
     player.armor = item.amount
   }
@@ -1424,9 +1519,9 @@ function buyItem(item) {
     <!-- MAIN MENU OVERLAY -->
     <div v-if="gameMode === 'MENU'" class="menu-overlay">
       <div class="menu-header">
-        <div class="logo-badge">ARENA 1v1 // FPS TÁCTICO</div>
-        <h1 class="game-title">1v1.LOL 3D TACTICAL ARENA</h1>
-        <p class="game-subtitle">Duelos 1v1 Rápidos, Partidas Personalizadas con Bots Configurables y Multijugador</p>
+        <div class="logo-badge">⚔️ ARENA 1v1 // SHOOTER 3D</div>
+        <h1 class="game-title">1v1.LOL 3D BATTLE ARENA</h1>
+        <p class="game-subtitle">Duelos 1v1 Rápidos, Combates en Altura con Escaleras y Multijugador Online en Tiempo Real</p>
       </div>
 
       <div class="menu-nav-tabs">
@@ -1435,7 +1530,7 @@ function buyItem(item) {
         <button class="menu-tab" :class="{ active: activeTab === 'training' }" @click="activeTab = 'training'">🎯 PRÁCTICA</button>
         <button class="menu-tab" :class="{ active: activeTab === 'multiplayer' }" @click="activeTab = 'multiplayer'">🌐 MULTIJUGADOR 1v1</button>
         <button class="menu-tab" :class="{ active: activeTab === 'weapons' }" @click="activeTab = 'weapons'">🔫 ARMAS</button>
-        <button class="menu-tab" :class="{ active: activeTab === 'agents' }" @click="activeTab = 'agents'">👥 AGENTES</button>
+        <button class="menu-tab" :class="{ active: activeTab === 'abilities' }" @click="activeTab = 'abilities'">⚡ HABILIDADES</button>
       </div>
 
       <!-- PLAY / 1V1 TAB -->
@@ -1446,7 +1541,7 @@ function buyItem(item) {
             <div class="mode-badge-top">🔥 MODO 1v1 INMEDIATO</div>
             <div class="mode-icon">⚡</div>
             <h3>DUELO 1v1 RÁPIDO (1v1.LOL STYLE)</h3>
-            <p>Enfréntate directamente en combate individual 1 contra 1. Sin aliados que molesten, solo tú y tu rival. ¡El primero a 5 rondas gana!</p>
+            <p>Enfréntate directamente en combate individual 1 contra 1. Sin esperas ni bloqueos, solo tú y tu rival. ¡El primero a 5 rondas gana!</p>
             <button class="btn-primary-glow">⚔️ ENTRAR AL DUELO 1v1</button>
           </div>
 
@@ -1573,22 +1668,50 @@ function buyItem(item) {
         </div>
       </div>
 
-      <!-- AGENTS TAB -->
-      <div v-if="activeTab === 'agents'" class="tab-content agents-grid">
-        <div v-for="agent in Object.values(AGENTS)" :key="agent.id" class="agent-card">
-          <div class="agent-card-header" :style="{ borderColor: agent.color }">
-            <span class="agent-avatar">{{ agent.avatar }}</span>
+      <!-- TACTICAL ABILITIES TAB (UNIVERSAL KIT) -->
+      <div v-if="activeTab === 'abilities'" class="tab-content agents-grid">
+        <div class="agent-card">
+          <div class="agent-card-header" style="border-color: #38bdf8;">
+            <span class="agent-avatar">⚡</span>
             <div>
-              <h4>{{ agent.name }}</h4>
-              <span class="agent-role">{{ agent.role }}</span>
+              <h4>Dash de Impulso</h4>
+              <span class="agent-role">Tecla [E] · Movilidad</span>
             </div>
           </div>
-          <p class="agent-desc">{{ agent.desc }}</p>
-          <div class="agent-abilities-list">
-            <span v-for="(ab, k) in agent.abilities" :key="k" class="ability-pill">
-              <strong>{{ k }}:</strong> {{ ab.name }}
-            </span>
+          <p class="agent-desc">Impúlsate 12 metros hacia adelante a gran velocidad en la dirección donde miras. Ideal para esquivar ráfagas de disparos o reposicionarte.</p>
+        </div>
+
+        <div class="agent-card">
+          <div class="agent-card-header" style="border-color: #a855f7;">
+            <span class="agent-avatar">💨</span>
+            <div>
+              <h4>Super Salto Vertical</h4>
+              <span class="agent-role">Tecla [Q] · Altura</span>
+            </div>
           </div>
+          <p class="agent-desc">Propúlsate hacia arriba instantáneamente para subir a plataformas altas, pasarelas y sorprender a tus rivales desde el aire.</p>
+        </div>
+
+        <div class="agent-card">
+          <div class="agent-card-header" style="border-color: #64748b;">
+            <span class="agent-avatar">☁️</span>
+            <div>
+              <h4>Granada de Humo</h4>
+              <span class="agent-role">Tecla [C] · Cobertura</span>
+            </div>
+          </div>
+          <p class="agent-desc">Despliega una cortina esférica de humo que bloquea por completo la visión enemiga durante 5 segundos para cruzar zonas peligrosas.</p>
+        </div>
+
+        <div class="agent-card">
+          <div class="agent-card-header" style="border-color: #f59e0b;">
+            <span class="agent-avatar">🌪️</span>
+            <div>
+              <h4>Sobretensión Definitiva</h4>
+              <span class="agent-role">Tecla [X] · Modo Máximo</span>
+            </div>
+          </div>
+          <p class="agent-desc">Sobrecarga tus sistemas de combate con máxima adrenalina para dominar el duelo 1v1.</p>
         </div>
       </div>
 
@@ -1745,21 +1868,9 @@ function buyItem(item) {
         </div>
       </div>
 
-      <!-- AGENT SELECTION CAROUSEL -->
+      <!-- COMBAT LOADOUT INFO -->
       <div class="lobby-agent-selection">
-        <h4>SELECCIONA TU AGENTE PARA LA PARTIDA:</h4>
-        <div class="lobby-agents-row">
-          <div 
-            v-for="agent in Object.values(AGENTS)" 
-            :key="agent.id"
-            class="lobby-agent-card"
-            :class="{ selected: player.agentId === agent.id }"
-            @click="selectLobbyAgent(agent.id)"
-          >
-            <span class="card-avatar">{{ agent.avatar }}</span>
-            <span class="card-name">{{ agent.name }}</span>
-          </div>
-        </div>
+        <h4>⚡ EQUIPAMIENTO TÁCTICO: DASH [E] · SUPER SALTO [Q] · HUMO [C] · DEFENSOR/ATACANTE</h4>
       </div>
 
       <!-- LOBBY CHAT & CONTROLS -->
@@ -1784,7 +1895,7 @@ function buyItem(item) {
 
         <div class="lobby-action-btns">
           <button class="btn-secondary" @click="leaveLobby">SALIR DE LA SALA</button>
-          <button class="btn-lockin-sm" @click="lockLobbyAgent">CONFIRMAR AGENTE</button>
+          <button class="btn-lockin-sm" @click="lockLobbyAgent">⚔️ LISTO PARA EL DUELO</button>
           <button 
             v-if="isHost" 
             class="btn-start-match" 
@@ -1793,25 +1904,6 @@ function buyItem(item) {
           <div v-else class="waiting-host-msg">⏳ Esperando a que el anfitrión inicie la partida...</div>
         </div>
       </div>
-    </div>
-
-    <!-- AGENT SELECT -->
-    <div v-else-if="gameMode === 'AGENT_SELECT'" class="agent-select-overlay">
-      <h2 class="select-title">SELECCIONA TU AGENTE 3D</h2>
-      <div class="select-grid">
-        <div 
-          v-for="agent in Object.values(AGENTS)" 
-          :key="agent.id"
-          class="select-agent-card"
-          :class="{ selected: player.agentId === agent.id }"
-          @click="player.agentId = agent.id"
-        >
-          <div class="select-avatar">{{ agent.avatar }}</div>
-          <h3>{{ agent.name }}</h3>
-          <span class="role-tag">{{ agent.role }}</span>
-        </div>
-      </div>
-      <button class="btn-lockin" @click="lockAgent(player.agentId)">BLOQUEAR ELECCIÓN (LOCK IN)</button>
     </div>
 
     <!-- 3D IN-GAME HUD LAYER -->
@@ -1858,29 +1950,21 @@ function buyItem(item) {
         <canvas ref="radarCanvasRef" width="140" height="140" class="radar-canvas"></canvas>
       </div>
 
-      <!-- TOP SCOREBOARD -->
+      <!-- TOP SCOREBOARD (EQUIPO ROJO VS EQUIPO AZUL) -->
       <div class="hud-top">
+        <div class="team-badge-hud atk-badge">🔴 ROJO</div>
         <div class="team-score score-atk">{{ match.scoreAtk }}</div>
         <div class="timer-box">
           <div class="timer-val">{{ Math.ceil(match.timer) }}s</div>
-          <div class="round-label">RONDA {{ match.round }} · {{ match.phase === 'BUY_PHASE' ? 'COMPRA' : '3D EN VIVO' }}</div>
+          <div class="round-label">RONDA {{ match.round }} / {{ match.maxRounds }} · {{ match.phase === 'BUY_PHASE' ? 'COMPRA' : 'DUELO A MUERTE' }}</div>
         </div>
         <div class="team-score score-def">{{ match.scoreDef }}</div>
+        <div class="team-badge-hud def-badge">🔵 AZUL</div>
       </div>
 
       <!-- ANNOUNCEMENT BANNER -->
       <div v-if="match.announcement" class="announcement-banner">
         {{ match.announcement }}
-      </div>
-
-      <!-- PLANT / DEFUSE TACTICAL PROMPT -->
-      <div v-if="player.alive && inPlantZone" class="tactical-zone-prompt plant-active">
-        <span class="prompt-icon">🟢</span>
-        <span class="prompt-text">ZONA DE PLANTADO <strong>{{ plantSiteName }}</strong> — MANTÉN <strong>[4]</strong> O <strong>[F]</strong> PARA PLANTAR LA SPIKE</span>
-      </div>
-      <div v-else-if="player.alive && inDefuseZone" class="tactical-zone-prompt defuse-active">
-        <span class="prompt-icon">🔵</span>
-        <span class="prompt-text">SPIKE DETECTADA — MANTÉN <strong>[4]</strong> O <strong>[F]</strong> PARA DESACTIVAR (DEFUSE)</span>
       </div>
 
       <!-- KILLFEED -->
@@ -1944,32 +2028,100 @@ function buyItem(item) {
           </div>
         </div>
 
+        <!-- Inventory Switcher & Inspect Prompt -->
+        <div class="hud-inventory">
+          <button class="inv-slot" :class="{ active: player.currentSlot === 'primary' }" @click="equipPrimaryWeapon" title="Equipar Arma Principal [1]">
+            <span class="slot-num">1</span>
+            <span class="slot-icon">🔫</span>
+            <span class="slot-name">{{ (WEAPONS[player.primaryWeapon]?.name || 'PRIMARIA').toUpperCase() }}</span>
+          </button>
+          <button class="inv-slot" :class="{ active: player.currentSlot === 'melee' }" @click="equipMeleeWeapon" title="Equipar Cuchillo Mariposa [3 / Rueda]">
+            <span class="slot-num">3</span>
+            <span class="slot-icon">🗡️</span>
+            <span class="slot-name">CUCHILLO</span>
+          </button>
+          <button class="btn-inspect-hud" title="Inspeccionar Arma en Mano [Y]" @click="inspectCurrentWeapon">
+            <span class="slot-num">Y</span>
+            <span class="slot-icon">✨</span>
+            <span class="slot-name">INSPECCIONAR</span>
+          </button>
+        </div>
+
         <div class="hud-weapon">
           <div class="wep-name">{{ WEAPONS[player.weapon]?.name.toUpperCase() }}</div>
-          <div class="ammo-val">
+          <div v-if="!WEAPONS[player.weapon]?.isMelee" class="ammo-val">
             <span class="ammo-cur">{{ player.ammo }}</span>
             <span class="ammo-res">/ {{ player.reserveAmmo }}</span>
+          </div>
+          <div v-else class="ammo-val melee-val">
+            <span class="melee-badge">⚡ CORTE CUERPO A CUERPO</span>
           </div>
           <div class="credits-val">${{ player.credits }}</div>
         </div>
       </div>
 
+      <!-- FLOATING ECONOMY REWARD TOAST -->
+      <transition name="toast-anim">
+        <div v-if="economyToast" class="economy-toast">
+          {{ economyToast }}
+        </div>
+      </transition>
+
       <!-- BUY MENU (B) -->
-      <div v-if="showBuyMenu" class="buy-menu-overlay">
+      <div v-if="showBuyMenu" class="buy-menu-overlay" @click.stop>
         <div class="buy-header">
-          <h2>TIENDA DE ARSENAL TÁCTICO 3D · CRÉDITOS: <span class="text-gold">${{ player.credits }}</span></h2>
-          <button class="btn-close" @click="showBuyMenu = false">✕ CERRAR (B)</button>
+          <div class="buy-header-info">
+            <h2>🛒 TIENDA DE ARSENAL TÁCTICO 3D</h2>
+            <div class="shop-balance">CRÉDITOS DISPONIBLES: <span class="text-gold font-bold">${{ player.credits }}</span></div>
+          </div>
+          <button class="btn-close" @click.stop="closeBuyMenu">✕ CERRAR (B / ESC)</button>
         </div>
         <div class="buy-grid">
-          <div v-for="wep in Object.values(WEAPONS)" :key="wep.id" class="buy-card" @click="buyItem(wep)">
-            <h4>{{ wep.name }}</h4>
-            <span class="buy-cost">${{ wep.cost }}</span>
+          <div 
+            v-for="wep in Object.values(WEAPONS)" 
+            :key="wep.id" 
+            class="buy-card" 
+            :class="{ 
+              'equipped': (wep.isMelee ? player.meleeWeapon === wep.id : player.primaryWeapon === wep.id), 
+              'cant-afford': player.credits < wep.cost && (wep.isMelee ? player.meleeWeapon !== wep.id : player.primaryWeapon !== wep.id) 
+            }"
+            @click.stop="buyItem(wep)"
+          >
+            <div class="buy-card-top">
+              <div class="buy-name-row">
+                <span class="buy-icon">{{ wep.icon || '🔫' }}</span>
+                <h4>{{ wep.name }}</h4>
+              </div>
+              <span class="buy-cost">${{ wep.cost }}</span>
+            </div>
             <p>{{ wep.desc }}</p>
+            <div class="buy-card-status">
+              <span v-if="(wep.isMelee ? player.meleeWeapon === wep.id : player.primaryWeapon === wep.id)" class="badge-equipped">EQUIPADA</span>
+              <span v-else-if="player.credits < wep.cost" class="badge-no-money">FALTAN CRÉDITOS</span>
+              <span v-else class="badge-buy">COMPRAR [${{ wep.cost }}]</span>
+            </div>
           </div>
-          <div v-for="shield in Object.values(SHIELDS)" :key="shield.id" class="buy-card" @click="buyItem(shield)">
-            <h4>{{ shield.name }}</h4>
-            <span class="buy-cost">${{ shield.cost }}</span>
+
+          <div 
+            v-for="shield in Object.values(SHIELDS)" 
+            :key="shield.id" 
+            class="buy-card" 
+            :class="{ 'equipped': player.armor >= shield.amount, 'cant-afford': player.credits < shield.cost && player.armor < shield.amount }"
+            @click.stop="buyItem(shield)"
+          >
+            <div class="buy-card-top">
+              <div class="buy-name-row">
+                <span class="buy-icon">{{ shield.icon || '🛡️' }}</span>
+                <h4>{{ shield.name }}</h4>
+              </div>
+              <span class="buy-cost">${{ shield.cost }}</span>
+            </div>
             <p>{{ shield.desc }}</p>
+            <div class="buy-card-status">
+              <span v-if="player.armor >= shield.amount" class="badge-equipped">ACTIVO</span>
+              <span v-else-if="player.credits < shield.cost" class="badge-no-money">FALTAN CRÉDITOS</span>
+              <span v-else class="badge-buy">COMPRAR [${{ shield.cost }}]</span>
+            </div>
           </div>
         </div>
       </div>
@@ -2367,64 +2519,56 @@ function buyItem(item) {
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 20px;
-  background: rgba(15, 23, 42, 0.85);
+  gap: 16px;
+  background: rgba(15, 23, 42, 0.88);
   backdrop-filter: blur(8px);
   padding: 8px 24px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.team-badge-hud {
+  font-size: 0.75rem;
+  font-weight: 900;
+  padding: 4px 10px;
+  border-radius: 6px;
+  letter-spacing: 0.5px;
+}
+
+.atk-badge {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+}
+
+.def-badge {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.5);
 }
 
 .team-score { font-size: 1.8rem; font-weight: 900; }
 .score-atk { color: #ef4444; }
 .score-def { color: #3b82f6; }
-.timer-box { text-align: center; }
+.timer-box { text-align: center; min-width: 140px; }
 .timer-val { font-size: 1.4rem; font-weight: 800; }
 .round-label { font-size: 0.65rem; color: #94a3b8; letter-spacing: 1px; }
 
 .announcement-banner {
   position: absolute;
-  top: 90px;
+  top: 85px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(255, 70, 85, 0.9);
+  background: rgba(255, 70, 85, 0.95);
   color: #fff;
   padding: 8px 30px;
   border-radius: 6px;
   font-weight: 800;
-}
-
-.tactical-zone-prompt {
-  position: absolute;
-  top: 140px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 10px 24px;
-  border-radius: 30px;
-  font-size: 0.95rem;
-  font-weight: 800;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  box-shadow: 0 0 20px rgba(0, 0, 0, 0.6);
-  animation: pulsePrompt 1.4s infinite alternate ease-in-out;
-}
-
-.tactical-zone-prompt.plant-active {
-  background: rgba(16, 185, 129, 0.95);
-  border: 2px solid #4ade80;
-  color: #ffffff;
-}
-
-.tactical-zone-prompt.defuse-active {
-  background: rgba(56, 189, 248, 0.95);
-  border: 2px solid #bae6fd;
-  color: #0f172a;
-}
-
-@keyframes pulsePrompt {
-  0% { transform: translateX(-50%) scale(0.96); }
-  100% { transform: translateX(-50%) scale(1.04); }
+  box-shadow: 0 4px 20px rgba(255, 70, 85, 0.4);
+  letter-spacing: 0.5px;
+  text-align: center;
+  z-index: 50;
 }
 
 .killfeed-wrap {
@@ -2498,11 +2642,117 @@ function buyItem(item) {
   box-shadow: 0 0 12px rgba(56, 189, 248, 0.6);
 }
 
+/* INVENTORY SLOTS HUD */
+.hud-inventory {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 0 14px;
+}
+
+.inv-slot, .btn-inspect-hud {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(30, 41, 59, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 6px 12px;
+  border-radius: 6px;
+  color: #94a3b8;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  transition: all 0.15s ease;
+}
+
+.inv-slot:hover, .btn-inspect-hud:hover {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: #38bdf8;
+  color: #f8fafc;
+}
+
+.inv-slot.active {
+  background: rgba(56, 189, 248, 0.3);
+  border-color: #38bdf8;
+  color: #38bdf8;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+}
+
+.btn-inspect-hud {
+  border-color: rgba(234, 179, 8, 0.3);
+  color: #facc15;
+}
+
+.btn-inspect-hud:hover {
+  background: rgba(234, 179, 8, 0.25);
+  border-color: #facc15;
+  box-shadow: 0 0 10px rgba(234, 179, 8, 0.4);
+}
+
+.slot-num {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.65rem;
+  color: #ffffff;
+}
+
+.slot-icon {
+  font-size: 0.95rem;
+}
+
 .hud-weapon { text-align: right; }
 .wep-name { font-size: 0.85rem; font-weight: 800; color: #94a3b8; }
 .ammo-cur { font-size: 1.6rem; font-weight: 900; }
 .ammo-res { font-size: 1rem; color: #64748b; }
+.melee-badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.15);
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
 .credits-val { font-size: 0.8rem; color: #eab308; font-weight: 700; }
+
+/* FLOATING ECONOMY TOAST */
+.economy-toast {
+  position: absolute;
+  top: 135px;
+  right: 24px;
+  background: linear-gradient(135deg, rgba(234, 179, 8, 0.95), rgba(202, 138, 4, 0.95));
+  color: #0f172a;
+  font-weight: 900;
+  font-size: 1.05rem;
+  padding: 10px 20px;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(234, 179, 8, 0.4);
+  border: 1px solid #fef08a;
+  z-index: 90;
+  letter-spacing: 0.5px;
+  pointer-events: none;
+}
+
+.toast-anim-enter-active,
+.toast-anim-leave-active {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.toast-anim-enter-from {
+  opacity: 0;
+  transform: translateY(-20px) scale(0.9);
+}
+
+.toast-anim-leave-to {
+  opacity: 0;
+  transform: translateY(10px) scale(0.95);
+}
 
 /* BUY MENU */
 .buy-menu-overlay {
@@ -2510,23 +2760,158 @@ function buyItem(item) {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 85%;
-  max-width: 900px;
-  max-height: 80vh;
-  background: rgba(15, 23, 42, 0.95);
-  border: 1px solid #ff4655;
-  border-radius: 12px;
-  padding: 24px;
+  width: 90%;
+  max-width: 960px;
+  max-height: 85vh;
+  background: rgba(15, 23, 42, 0.97);
+  border: 2px solid #ff4655;
+  border-radius: 14px;
+  padding: 24px 28px;
   overflow-y: auto;
-  z-index: 100;
+  z-index: 200;
   pointer-events: auto;
+  box-shadow: 0 0 50px rgba(0, 0, 0, 0.8), 0 0 30px rgba(255, 70, 85, 0.2);
+  cursor: default;
 }
 
-.buy-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-.buy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
-.buy-card { background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); padding: 12px; border-radius: 8px; cursor: pointer; transition: all 0.15s ease; }
-.buy-card:hover { border-color: #38bdf8; background: rgba(56, 189, 248, 0.15); }
-.buy-cost { color: #eab308; font-weight: 800; }
+.buy-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 22px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 14px;
+}
+
+.buy-header-info h2 {
+  font-size: 1.4rem;
+  font-weight: 900;
+  margin: 0 0 4px 0;
+  color: #f8fafc;
+}
+
+.shop-balance {
+  font-size: 0.9rem;
+  color: #94a3b8;
+}
+
+.buy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.buy-card {
+  background: rgba(30, 41, 59, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 16px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.buy-card:hover:not(.cant-afford) {
+  border-color: #38bdf8;
+  background: rgba(56, 189, 248, 0.15);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+}
+
+.buy-card.equipped {
+  border-color: #10b981;
+  background: rgba(16, 185, 129, 0.15);
+}
+
+.buy-card.cant-afford {
+  opacity: 0.55;
+  cursor: not-allowed;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.buy-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+
+.buy-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.buy-name-row h4 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #f1f5f9;
+}
+
+.buy-icon {
+  font-size: 1.3rem;
+}
+
+.buy-cost {
+  color: #eab308;
+  font-weight: 900;
+  font-size: 1.1rem;
+}
+
+.buy-card p {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  line-height: 1.4;
+  margin: 0 0 14px 0;
+  flex: 1;
+}
+
+.buy-card-status {
+  margin-top: auto;
+}
+
+.badge-equipped {
+  display: block;
+  text-align: center;
+  background: #10b981;
+  color: #0f172a;
+  font-weight: 800;
+  font-size: 0.75rem;
+  padding: 6px 12px;
+  border-radius: 6px;
+  letter-spacing: 0.5px;
+}
+
+.badge-no-money {
+  display: block;
+  text-align: center;
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  font-weight: 700;
+  font-size: 0.75rem;
+  padding: 6px 12px;
+  border-radius: 6px;
+}
+
+.badge-buy {
+  display: block;
+  text-align: center;
+  background: #ff4655;
+  color: #ffffff;
+  font-weight: 800;
+  font-size: 0.75rem;
+  padding: 6px 12px;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+
+.buy-card:hover .badge-buy {
+  background: #f43f5e;
+}
 
 /* MULTIPLAYER SETUP & LOBBY STYLES */
 .mp-setup-card {

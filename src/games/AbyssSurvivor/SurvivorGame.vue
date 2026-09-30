@@ -441,11 +441,52 @@ const gameLoop = () => {
 const handleKeyDown = (e) => { keys[e.code] = true }
 const handleKeyUp = (e) => { keys[e.code] = false }
 
+const setKey = (code, val) => {
+  keys[code] = val
+  initAudio()
+}
+
+// Touch control on Canvas (move towards touch point)
+let isTouchMoving = false
+const handleCanvasTouch = (e) => {
+  if (!canvasRef.value || e.touches.length === 0) return
+  const touch = e.touches[0]
+  const rect = canvasRef.value.getBoundingClientRect()
+  const touchX = (touch.clientX - rect.left) * (canvasRef.value.width / rect.width)
+  const touchY = (touch.clientY - rect.top) * (canvasRef.value.height / rect.height)
+
+  const dx = touchX - player.x
+  const dy = touchY - player.y
+  const dist = Math.hypot(dx, dy)
+
+  if (dist > 15) {
+    keys['KeyA'] = dx < -10
+    keys['KeyD'] = dx > 10
+    keys['KeyW'] = dy < -10
+    keys['KeyS'] = dy > 10
+  } else {
+    keys['KeyA'] = false
+    keys['KeyD'] = false
+    keys['KeyW'] = false
+    keys['KeyS'] = false
+  }
+}
+
+const handleCanvasTouchEnd = () => {
+  keys['KeyA'] = false
+  keys['KeyD'] = false
+  keys['KeyW'] = false
+  keys['KeyS'] = false
+}
+
 onMounted(() => {
   if (canvasRef.value) {
     ctx = canvasRef.value.getContext('2d')
     window.addEventListener('keydown', handleKeyDown)
     window.addEventListener('keyup', handleKeyUp)
+    canvasRef.value.addEventListener('touchstart', (e) => { initAudio(); handleCanvasTouch(e) }, { passive: true })
+    canvasRef.value.addEventListener('touchmove', handleCanvasTouch, { passive: true })
+    canvasRef.value.addEventListener('touchend', handleCanvasTouchEnd)
     gameLoop()
   }
 })
@@ -536,11 +577,78 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- CONTROLES TÁCTILES MÓVILES -->
+    <div v-if="gameState === 'PLAYING'" class="mobile-touch-bar">
+      <div class="virtual-dpad">
+        <div></div>
+        <button 
+          class="dpad-btn" 
+          @touchstart.prevent="setKey('KeyW', true)" 
+          @touchend.prevent="setKey('KeyW', false)"
+          @mousedown="setKey('KeyW', true)"
+          @mouseup="setKey('KeyW', false)"
+        >⬆️</button>
+        <div></div>
+
+        <button 
+          class="dpad-btn" 
+          @touchstart.prevent="setKey('KeyA', true)" 
+          @touchend.prevent="setKey('KeyA', false)"
+          @mousedown="setKey('KeyA', true)"
+          @mouseup="setKey('KeyA', false)"
+        >⬅️</button>
+        <button 
+          class="dpad-btn" 
+          @touchstart.prevent="setKey('KeyS', true)" 
+          @touchend.prevent="setKey('KeyS', false)"
+          @mousedown="setKey('KeyS', true)"
+          @mouseup="setKey('KeyS', false)"
+        >⬇️</button>
+        <button 
+          class="dpad-btn" 
+          @touchstart.prevent="setKey('KeyD', true)" 
+          @touchend.prevent="setKey('KeyD', false)"
+          @mousedown="setKey('KeyD', true)"
+          @mouseup="setKey('KeyD', false)"
+        >➡️</button>
+
+        <div></div>
+        <div></div>
+        <div></div>
+      </div>
+
+      <div class="virtual-actions">
+        <div class="touch-hint">
+          <span>✨ Toca o arrastra en la pantalla para mover al mago</span>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .survivor-game { max-width: 820px; margin: 0 auto; }
+
+.touch-hint {
+  display: flex;
+  align-items: center;
+  color: #c084fc;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 8px 12px;
+  background: rgba(168, 85, 247, 0.15);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  border-radius: 10px;
+}
+
+@media (max-width: 640px) {
+  .cards-grid {
+    grid-template-columns: 1fr !important;
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+}
 
 .survivor-hud {
   display: flex; justify-content: space-between; align-items: center;

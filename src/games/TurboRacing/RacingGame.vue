@@ -455,6 +455,61 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- CONTROLES TÁCTILES MÓVILES -->
+    <div v-if="gameState === 'PLAYING'" class="mobile-touch-bar">
+      <!-- VOLANTE / DIRECCIÓN -->
+      <div class="virtual-dpad" style="grid-template-columns: repeat(2, 56px); grid-template-rows: 56px;">
+        <button 
+          class="dpad-btn" 
+          @touchstart.prevent="keys['KeyA'] = true; keys['ArrowLeft'] = true" 
+          @touchend.prevent="keys['KeyA'] = false; keys['ArrowLeft'] = false"
+          @mousedown="keys['KeyA'] = true"
+          @mouseup="keys['KeyA'] = false"
+        >⬅️</button>
+        <button 
+          class="dpad-btn" 
+          @touchstart.prevent="keys['KeyD'] = true; keys['ArrowRight'] = true" 
+          @touchend.prevent="keys['KeyD'] = false; keys['ArrowRight'] = false"
+          @mousedown="keys['KeyD'] = true"
+          @mouseup="keys['KeyD'] = false"
+        >➡️</button>
+      </div>
+
+      <!-- PEDALES Y NITRO -->
+      <div class="virtual-actions">
+        <button 
+          class="touch-action-btn" 
+          style="background: #ef4444; min-width: 70px; justify-content: center;" 
+          @touchstart.prevent="keys['KeyS'] = true; keys['ArrowDown'] = true" 
+          @touchend.prevent="keys['KeyS'] = false; keys['ArrowDown'] = false"
+          @mousedown="keys['KeyS'] = true"
+          @mouseup="keys['KeyS'] = false"
+        >
+          🛑 FRENO
+        </button>
+        <button 
+          class="touch-action-btn" 
+          style="background: #22c55e; min-width: 90px; justify-content: center; font-size: 0.95rem;" 
+          @touchstart.prevent="keys['KeyW'] = true; keys['ArrowUp'] = true" 
+          @touchend.prevent="keys['KeyW'] = false; keys['ArrowUp'] = false"
+          @mousedown="keys['KeyW'] = true"
+          @mouseup="keys['KeyW'] = false"
+        >
+          🏎️ GAS
+        </button>
+        <button 
+          class="touch-action-btn" 
+          style="background: #f59e0b; color: #000; font-weight: 900;" 
+          @touchstart.prevent="keys['Space'] = true" 
+          @touchend.prevent="keys['Space'] = false"
+          @mousedown="keys['Space'] = true"
+          @mouseup="keys['Space'] = false"
+        >
+          🚀 NITRO
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 

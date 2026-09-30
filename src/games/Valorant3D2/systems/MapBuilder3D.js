@@ -443,9 +443,9 @@ export function buildTacticalArena(scene) {
   addWall(-3.5, 0, 5.0, 1.4, 3.8, 1.4, darkTrimMat)
   addWall(3.5, 0, 5.0, 1.4, 3.8, 1.4, darkTrimMat)
 
-  // Mid Ground Textured Tactical Containers
-  addWall(-8.0, 0, 0, 2.2, 1.8, 3.2, containerMat)
-  addWall(8.0, 0, 0, 2.2, 1.8, 3.2, containerMat)
+  // Mid Ground Textured Tactical Containers (Positioned to keep stairways 100% open and clear)
+  addWall(-10.0, 0, 6.0, 2.2, 1.8, 3.2, containerMat)
+  addWall(10.0, 0, -6.0, 2.2, 1.8, 3.2, containerMat)
 
   // --- 9. SECOND FLOOR (ELEVATED LEVEL: Y = 3.6m to 3.8m) ---
 
@@ -459,22 +459,29 @@ export function buildTacticalArena(scene) {
 
   // B. A-Heaven Balcony (North-East: X in [7, 17], Z in [-21, -15] at Y = 3.6m)
   addPlatform(12.0, 3.6, -18.0, 10.0, 6.0, catwalkFloorMat)
-  addRailing(12.0, 3.6, -15.0, 10.0, true) // Front railing facing Site A
+  addRailing(9.0, 3.6, -15.0, 4.0, true) // Front railing partial (leaves stairs opening at X=12..17)
   addRailing(7.0, 3.6, -18.0, 6.0, false)   // West side railing
 
   // C. B-Heaven Balcony (South-East: X in [7, 17], Z in [15, 21] at Y = 3.6m)
   addPlatform(12.0, 3.6, 18.0, 10.0, 6.0, catwalkFloorMat)
-  addRailing(12.0, 3.6, 15.0, 10.0, true)  // Front railing facing Site B
+  addRailing(9.0, 3.6, 15.0, 4.0, true)  // Front railing partial (leaves stairs opening at X=12..17)
   addRailing(7.0, 3.6, 18.0, 6.0, false)   // West side railing
 
   // D. A-Rafters Balcony (North-West: X in [-17, -7], Z in [-21, -15] at Y = 3.6m)
   addPlatform(-12.0, 3.6, -18.0, 10.0, 6.0, catwalkFloorMat)
-  addRailing(-12.0, 3.6, -15.0, 10.0, true) // Front railing facing Site A
+  addRailing(-9.0, 3.6, -15.0, 4.0, true) // Front railing partial (leaves stairs opening at X=-17..-12)
   addRailing(-7.0, 3.6, -18.0, 6.0, false)   // East side railing
 
-  // E. Skybridge to Balcony Connectors
+  // E. B-Rafters Balcony (South-West: X in [-17, -7], Z in [15, 21] at Y = 3.6m)
+  addPlatform(-12.0, 3.6, 18.0, 10.0, 6.0, catwalkFloorMat)
+  addRailing(-9.0, 3.6, 15.0, 4.0, true)  // Front railing partial (leaves stairs opening at X=-17..-12)
+  addRailing(-7.0, 3.6, 18.0, 6.0, false)   // East side railing
+
+  // F. Skybridge to Balcony Connectors
   addPlatform(5.0, 3.8, -9.0, 4.0, 3.0, catwalkFloorMat) // Connects Mid Bridge to A-Heaven
   addPlatform(5.0, 3.8, 9.0, 4.0, 3.0, catwalkFloorMat)  // Connects Mid Bridge to B-Heaven
+  addPlatform(-5.0, 3.8, -9.0, 4.0, 3.0, catwalkFloorMat) // Connects Mid Bridge to A-Rafters
+  addPlatform(-5.0, 3.8, 9.0, 4.0, 3.0, catwalkFloorMat)  // Connects Mid Bridge to B-Rafters
 
   // --- 10. SOLID ARCHITECTURAL STAIRCASES (PERFECTLY ALIGNED & UNOBSTRUCTED) ---
   
@@ -489,6 +496,9 @@ export function buildTacticalArena(scene) {
 
   // 4. Attacker to A-Rafters Staircase (Starts at Z=-9, climbs North cleanly landing at Z=-15 onto A-Rafters)
   addStaircase(-14.0, -9.0, -14.0, -15.0, 0, 3.6, 3.0, 12)
+
+  // 5. Attacker to B-Rafters Staircase (Starts at Z=9, climbs South cleanly landing at Z=15 onto B-Rafters)
+  addStaircase(-14.0, 9.0, -14.0, 15.0, 0, 3.6, 3.0, 12)
 
   // --- 11. GREEN PLANT ZONES & HOLOGRAPHIC BEACONS ---
   const plantMat = new THREE.MeshBasicMaterial({

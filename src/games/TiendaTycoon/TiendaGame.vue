@@ -364,4 +364,15 @@ onUnmounted(() => {
 .mejora-info h4 { font-size: 0.8rem; }
 .mejora-info p { font-size: 0.65rem; color: #94a3b8; }
 .btn-upgrade { background: #f59e0b; color: #000; border: none; padding: 5px 8px; border-radius: 4px; font-weight: bold; font-size: 0.75rem; cursor: pointer; }
+
+@media (max-width: 768px) {
+  .header { padding: 10px; flex-direction: column; align-items: flex-start; }
+  .stats-bar { width: 100%; justify-content: space-between; flex-wrap: wrap; }
+  .btn-comprar, .btn-comprar-pack, .btn-vender, .btn-upgrade {
+    min-height: 42px;
+    font-size: 0.85rem;
+  }
+  .producto-card { padding: 12px 8px; }
+  .productos-grid { grid-template-columns: repeat(2, 1fr); }
+}
 </style>

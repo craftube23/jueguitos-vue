@@ -8,86 +8,158 @@ export class BotAI3D {
     this.scene = scene
     this.raycaster = new THREE.Raycaster()
     this.meshColliders = []
+    this.wallsAABB = []
   }
 
   setMeshColliders(meshList) {
     this.meshColliders = meshList || []
   }
 
-  updateBot(bot, dt, player, phase, map3D, onBotShoot) {
+  setColliders(wallsAABB) {
+    this.wallsAABB = wallsAABB || []
+  }
+
+  resolveMovement(currX, currZ, targetX, targetZ, radius = 0.55) {
+    let px = targetX
+    let pz = targetZ
+    const r = radius
+    const bound = 29.5
+
+    if (this.wallsAABB && this.wallsAABB.length > 0) {
+      // 1. Resolve X movement
+      let testX = px
+      for (const w of this.wallsAABB) {
+        const minX = w.x - w.w / 2 - r
+        const maxX = w.x + w.w / 2 + r
+        const minZ = w.z - w.d / 2 - r
+        const maxZ = w.z + w.d / 2 + r
+
+        if (testX > minX && testX < maxX && currZ > minZ && currZ < maxZ) {
+          if (targetX >= currX) {
+            testX = minX - 0.001
+          } else {
+            testX = maxX + 0.001
+          }
+        }
+      }
+      px = testX
+
+      // 2. Resolve Z movement
+      let testZ = pz
+      for (const w of this.wallsAABB) {
+        const minX = w.x - w.w / 2 - r
+        const maxX = w.x + w.w / 2 + r
+        const minZ = w.z - w.d / 2 - r
+        const maxZ = w.z + w.d / 2 + r
+
+        if (px > minX && px < maxX && testZ > minZ && testZ < maxZ) {
+          if (targetZ >= currZ) {
+            testZ = minZ - 0.001
+          } else {
+            testZ = maxZ + 0.001
+          }
+        }
+      }
+      pz = testZ
+    }
+
+    // Outer map perimeter containment
+    px = Math.max(-bound + r, Math.min(bound - r, px))
+    pz = Math.max(-bound + r, Math.min(bound - r, pz))
+
+    return { x: px, z: pz }
+  }
+
+  updateBot(bot, dt, player, phase, map3D, onBotShoot, allPlayersList = []) {
     if (!bot.alive) return
 
     // Buy Phase - stationary in spawn
     if (phase === 'BUY_PHASE') return
 
-    // Dummy bot behavior
+    // Practice Range Dummy bot behavior
     if (bot.isDummy) {
       if (bot.strafing) {
         bot.dummyTimer = (bot.dummyTimer || 0) + dt
-        bot.pos.z = bot.initialZ + Math.sin(bot.dummyTimer * 2) * 3.5
+        const targetZ = bot.initialZ + Math.sin(bot.dummyTimer * 2) * 3.5
+        const resolved = this.resolveMovement(bot.pos.x, bot.pos.z, bot.pos.x, targetZ)
+        bot.pos.x = resolved.x
+        bot.pos.z = resolved.z
       }
       return
     }
 
-    // Distance to local player
-    const distToPlayer = Math.hypot(player.pos.x - bot.pos.x, player.pos.z - bot.pos.z)
-
-    if (bot.team !== player.team && player.alive) {
-      // Rotate bot towards player
-      const angleToPlayer = Math.atan2(player.pos.x - bot.pos.x, player.pos.z - bot.pos.z)
-      bot.yaw = angleToPlayer
-
-      // Line of Sight & Combat: Check that no solid wall is blocking bot vision
-      if (distToPlayer < 24.0 && phase === 'ROUND_ACTIVE') {
-        let hasLineOfSight = true
-        if (this.meshColliders && this.meshColliders.length > 0) {
-          const botEye = new THREE.Vector3(bot.pos.x, (bot.pos.y || 1.7) + 0.3, bot.pos.z)
-          const playerEye = new THREE.Vector3(player.pos.x, (player.pos.y || 1.7) + 0.3, player.pos.z)
-          const dir = new THREE.Vector3().subVectors(playerEye, botEye).normalize()
-          this.raycaster.set(botEye, dir)
-          const hits = this.raycaster.intersectObjects(this.meshColliders, false)
-          if (hits.length > 0 && hits[0].distance < distToPlayer - 0.4) {
-            hasLineOfSight = false
-          }
+    // Find all living enemies
+    const candidates = []
+    if (player && player.alive && player.team !== bot.team) {
+      candidates.push(player)
+    }
+    if (Array.isArray(allPlayersList)) {
+      allPlayersList.forEach(p => {
+        if (p.id !== bot.id && p.alive && p.team !== bot.team && p.id !== player?.id) {
+          candidates.push(p)
         }
+      })
+    }
 
-        if (hasLineOfSight) {
-          bot.shootCooldown = (bot.shootCooldown || 0) - dt
-          if (bot.shootCooldown <= 0) {
-            bot.shootCooldown = 0.35 + Math.random() * 0.2
-            soundManager.play('vandal')
-            if (onBotShoot) onBotShoot(bot, player)
-          }
-          return
-        }
+    if (candidates.length === 0) return
+
+    // Pick closest enemy
+    let closestEnemy = candidates[0]
+    let minDist = Math.hypot(closestEnemy.pos.x - bot.pos.x, closestEnemy.pos.z - bot.pos.z)
+    for (let i = 1; i < candidates.length; i++) {
+      const d = Math.hypot(candidates[i].pos.x - bot.pos.x, candidates[i].pos.z - bot.pos.z)
+      if (d < minDist) {
+        minDist = d
+        closestEnemy = candidates[i]
       }
     }
 
-    // Tactical navigation towards objectives (Site A Top or Site B Bottom)
-    if (!bot.targetSiteKey) {
-      // Pick Site A or Site B based on bot ID parity
-      const isA = parseInt(bot.id.replace(/\D/g, '') || '0') % 2 === 0
-      bot.targetSiteKey = isA ? 'siteA' : 'siteB'
-      // Spread offset so bots don't clump
-      bot.targetOffset = {
-        x: ((parseInt(bot.id.replace(/\D/g, '') || '0') % 3) - 1) * 3.5,
-        z: ((parseInt(bot.id.replace(/\D/g, '') || '0') % 2) - 0.5) * 2.5
+    const distToEnemy = minDist
+    const angleToEnemy = Math.atan2(closestEnemy.pos.x - bot.pos.x, closestEnemy.pos.z - bot.pos.z)
+    bot.yaw = angleToEnemy
+
+    // Line of Sight Check
+    let hasLineOfSight = true
+    if (this.meshColliders && this.meshColliders.length > 0) {
+      const botEye = new THREE.Vector3(bot.pos.x, (bot.pos.y || 1.7) + 0.3, bot.pos.z)
+      const enemyEye = new THREE.Vector3(closestEnemy.pos.x, (closestEnemy.pos.y || 1.7) + 0.3, closestEnemy.pos.z)
+      const dir = new THREE.Vector3().subVectors(enemyEye, botEye).normalize()
+      this.raycaster.set(botEye, dir)
+      const hits = this.raycaster.intersectObjects(this.meshColliders, false)
+      if (hits.length > 0 && hits[0].distance < distToEnemy - 0.4) {
+        hasLineOfSight = false
       }
     }
 
-    const baseSite = map3D[bot.targetSiteKey] || map3D.siteA
-    const targetX = baseSite.x + (bot.targetOffset ? bot.targetOffset.x : 0)
-    const targetZ = baseSite.z + (bot.targetOffset ? bot.targetOffset.y || 0 : 0)
+    // Combat & Engagement
+    if (hasLineOfSight && distToEnemy < 28.0 && phase === 'ROUND_ACTIVE') {
+      bot.shootCooldown = (bot.shootCooldown || 0) - dt
+      if (bot.shootCooldown <= 0) {
+        bot.shootCooldown = 0.32 + Math.random() * 0.22
+        soundManager.play('vandal')
+        if (onBotShoot) onBotShoot(bot, closestEnemy)
+      }
 
-    const dx = targetX - bot.pos.x
-    const dz = targetZ - bot.pos.z
-    const distToSite = Math.hypot(dx, dz)
+      // Tactical combat strafing when in combat (respecting solid walls)
+      bot.strafeTimer = (bot.strafeTimer || 0) + dt
+      const strafeDir = Math.sin(bot.strafeTimer * 3.0)
+      const perpAngle = angleToEnemy + Math.PI / 2
+      const targetX = bot.pos.x + Math.sin(perpAngle) * strafeDir * 1.8 * dt
+      const targetZ = bot.pos.z + Math.cos(perpAngle) * strafeDir * 1.8 * dt
+      const resolved = this.resolveMovement(bot.pos.x, bot.pos.z, targetX, targetZ)
+      bot.pos.x = resolved.x
+      bot.pos.z = resolved.z
+      return
+    }
 
-    if (distToSite > 1.8) {
-      const moveAngle = Math.atan2(dx, dz)
-      bot.yaw = moveAngle
-      bot.pos.x += Math.sin(moveAngle) * 3.2 * dt
-      bot.pos.z += Math.cos(moveAngle) * 3.2 * dt
+    // Pursuit / Navigation towards closest enemy (respecting solid walls)
+    if (distToEnemy > 4.0) {
+      const speed = 3.6
+      const targetX = bot.pos.x + Math.sin(angleToEnemy) * speed * dt
+      const targetZ = bot.pos.z + Math.cos(angleToEnemy) * speed * dt
+      const resolved = this.resolveMovement(bot.pos.x, bot.pos.z, targetX, targetZ)
+      bot.pos.x = resolved.x
+      bot.pos.z = resolved.z
     }
   }
 }
