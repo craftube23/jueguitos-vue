@@ -4,16 +4,16 @@ import { Peer } from 'peerjs'
 export class NetworkSystem {
   constructor() {
     this.peer = null
-    this.connections = [] // Host: list of DataConnections
+    this.connections = [] // Host: list of client DataConnections
     this.hostConn = null   // Client: DataConnection to host
     this.connected = false
     this.isHost = false
     this.currentRoom = null
     this.myPlayer = null
-    this.ping = 0
     this.listeners = new Map()
     this.knownPublicRooms = new Map()
-    this.roomAnnounceInterval = null
+    this.heartbeatInterval = null
+    this.joinRetryInterval = null
 
     // BroadcastChannel local cross-tab mesh
     this.bc = null
@@ -51,46 +51,40 @@ export class NetworkSystem {
 
       // --- JOINING ROOM VIA BROADCAST CHANNEL ---
       else if (msg.type === 'BC_JOIN_REQ') {
-        if (this.isHost && this.currentRoom && (this.currentRoom.id === msg.roomId || this.currentRoom.id.toLowerCase() === msg.roomId.toLowerCase())) {
+        if (this.isHost && this.currentRoom && (this.currentRoom.id.toUpperCase() === (msg.roomId || '').toUpperCase())) {
           const exists = this.currentRoom.players.find(p => p.id === msg.player.id)
           if (!exists) {
             this.currentRoom.players.push(msg.player)
+          } else {
+            // Update player state
+            Object.assign(exists, msg.player)
           }
-          // Respond to joining client
+
+          // Reply to client
           this.bc.postMessage({
-            type: 'BC_ROOM_JOINED',
-            targetPlayerId: msg.player.id,
-            room: this.currentRoom,
-            player: msg.player
+            type: 'BC_ROOM_UPDATED',
+            room: this.currentRoom
           })
-          // Broadcast updated room to all
-          this.bc.postMessage({ type: 'BC_ROOM_UPDATED', room: this.currentRoom })
           this.emitInternal('room_updated', this.currentRoom)
-        }
-      } else if (msg.type === 'BC_ROOM_JOINED') {
-        if (this.myPlayer && msg.targetPlayerId === this.myPlayer.id) {
-          this.currentRoom = msg.room
-          this.connected = true
-          this.emitInternal('room_joined', { room: msg.room, player: this.myPlayer })
         }
       }
 
       // --- LOBBY ACTIONS ---
-      else if (msg.type === 'BC_SWITCH_TEAM' && this.isHost && this.currentRoom && this.currentRoom.id === msg.roomId) {
+      else if (msg.type === 'BC_SWITCH_TEAM' && this.isHost && this.currentRoom && (this.currentRoom.id.toUpperCase() === (msg.roomId || '').toUpperCase())) {
         const p = this.currentRoom.players.find(x => x.id === msg.playerId)
         if (p) {
           p.team = msg.targetTeam
           this.bc.postMessage({ type: 'BC_ROOM_UPDATED', room: this.currentRoom })
           this.emitInternal('room_updated', this.currentRoom)
         }
-      } else if (msg.type === 'BC_SELECT_AGENT' && this.isHost && this.currentRoom && this.currentRoom.id === msg.roomId) {
+      } else if (msg.type === 'BC_SELECT_AGENT' && this.isHost && this.currentRoom && (this.currentRoom.id.toUpperCase() === (msg.roomId || '').toUpperCase())) {
         const p = this.currentRoom.players.find(x => x.id === msg.playerId)
         if (p) {
           p.agentId = msg.agentId
           this.bc.postMessage({ type: 'BC_ROOM_UPDATED', room: this.currentRoom })
           this.emitInternal('room_updated', this.currentRoom)
         }
-      } else if (msg.type === 'BC_LOCK_AGENT' && this.isHost && this.currentRoom && this.currentRoom.id === msg.roomId) {
+      } else if (msg.type === 'BC_LOCK_AGENT' && this.isHost && this.currentRoom && (this.currentRoom.id.toUpperCase() === (msg.roomId || '').toUpperCase())) {
         const p = this.currentRoom.players.find(x => x.id === msg.playerId)
         if (p) {
           p.isLocked = true
@@ -98,27 +92,27 @@ export class NetworkSystem {
           this.bc.postMessage({ type: 'BC_ROOM_UPDATED', room: this.currentRoom })
           this.emitInternal('room_updated', this.currentRoom)
         }
-      } else if (msg.type === 'BC_ROOM_UPDATED' && this.currentRoom && (this.currentRoom.id === msg.room.id || this.currentRoom.id.toLowerCase() === msg.room.id.toLowerCase())) {
+      } else if (msg.type === 'BC_ROOM_UPDATED' && this.currentRoom && (this.currentRoom.id.toUpperCase() === (msg.room.id || '').toUpperCase())) {
         this.currentRoom = msg.room
         this.emitInternal('room_updated', msg.room)
-      } else if (msg.type === 'BC_START_MATCH' && this.currentRoom && (this.currentRoom.id === msg.roomId || this.currentRoom.id.toLowerCase() === msg.roomId.toLowerCase())) {
+      } else if (msg.type === 'BC_START_MATCH' && this.currentRoom && (this.currentRoom.id.toUpperCase() === (msg.roomId || '').toUpperCase())) {
         this.currentRoom = msg.room || this.currentRoom
         this.currentRoom.status = 'in_game'
         this.emitInternal('match_started', this.currentRoom)
       }
 
       // --- IN-GAME REAL-TIME SYNC ---
-      else if (msg.type === 'BC_PLAYER_SYNC' && this.currentRoom && this.currentRoom.id === msg.roomId) {
+      else if (msg.type === 'BC_PLAYER_SYNC' && this.currentRoom && (this.currentRoom.id.toUpperCase() === (msg.roomId || '').toUpperCase())) {
         if (this.myPlayer && msg.data.id !== this.myPlayer.id) {
           this.emitInternal('player_moved', msg.data)
         }
-      } else if (msg.type === 'BC_GAME_EVENT' && this.currentRoom && this.currentRoom.id === msg.roomId) {
+      } else if (msg.type === 'BC_GAME_EVENT' && this.currentRoom && (this.currentRoom.id.toUpperCase() === (msg.roomId || '').toUpperCase())) {
         if (this.myPlayer && msg.event.senderId !== this.myPlayer.id) {
           this.emitInternal('game_event', msg.event)
         }
-      } else if (msg.type === 'BC_PLAYER_HIT' && this.currentRoom && this.currentRoom.id === msg.roomId) {
+      } else if (msg.type === 'BC_PLAYER_HIT' && this.currentRoom && (this.currentRoom.id.toUpperCase() === (msg.roomId || '').toUpperCase())) {
         this.emitInternal('player_took_damage', msg.data)
-      } else if (msg.type === 'BC_CHAT' && this.currentRoom && this.currentRoom.id === msg.roomId) {
+      } else if (msg.type === 'BC_CHAT' && this.currentRoom && (this.currentRoom.id.toUpperCase() === (msg.roomId || '').toUpperCase())) {
         this.emitInternal('chat_received', msg.chat)
       }
     }
@@ -163,9 +157,8 @@ export class NetworkSystem {
     if (this.peer) {
       try { this.peer.destroy() } catch (e) {}
     }
-    if (this.roomAnnounceInterval) {
-      clearInterval(this.roomAnnounceInterval)
-    }
+    if (this.heartbeatInterval) clearInterval(this.heartbeatInterval)
+    if (this.joinRetryInterval) clearInterval(this.joinRetryInterval)
 
     const roomId = this.generateCode()
     const peerRoomId = `v3d_${roomId.toLowerCase()}`
@@ -213,15 +206,16 @@ export class NetworkSystem {
     this.myPlayer = hostPlayer
     this.connected = true
 
-    // Broadcast room existence immediately and periodically
-    if (this.bc) {
-      this.bc.postMessage({ type: 'BC_ANNOUNCE_ROOM', room })
-      this.roomAnnounceInterval = setInterval(() => {
-        if (this.isHost && this.currentRoom && this.currentRoom.status === 'lobby') {
+    // Continuous Room Announcement and Sync Heartbeat (every 1s)
+    this.heartbeatInterval = setInterval(() => {
+      if (this.isHost && this.currentRoom && this.currentRoom.status === 'lobby') {
+        if (this.bc) {
           this.bc.postMessage({ type: 'BC_ANNOUNCE_ROOM', room: this.currentRoom })
+          this.bc.postMessage({ type: 'BC_ROOM_UPDATED', room: this.currentRoom })
         }
-      }, 2000)
-    }
+        this.broadcastToAll({ type: 'ROOM_UPDATE', room: this.currentRoom })
+      }
+    }, 1000)
 
     try {
       this.peer = new Peer(peerRoomId, {
@@ -241,13 +235,21 @@ export class NetworkSystem {
       })
 
       this.peer.on('connection', (conn) => {
-        conn.on('open', () => {
+        const setupConn = () => {
           if (!this.connections.includes(conn)) {
             this.connections.push(conn)
           }
-        })
+          // Send instant full room state to newly connected client
+          try {
+            conn.send({ type: 'ROOM_UPDATE', room: this.currentRoom })
+          } catch (e) {}
+        }
+
+        if (conn.open) setupConn()
+        else conn.on('open', setupConn)
 
         conn.on('data', (data) => {
+          if (!this.connections.includes(conn)) this.connections.push(conn)
           this.handleHostReceivedData(conn, data)
         })
 
@@ -267,10 +269,8 @@ export class NetworkSystem {
       })
     } catch (e) {
       console.warn('Peer fallback error:', e)
-      this.emitInternal('room_joined', { room, player: hostPlayer })
     }
 
-    // Local instant confirmation
     this.emitInternal('room_joined', { room, player: hostPlayer })
     return room
   }
@@ -283,16 +283,25 @@ export class NetworkSystem {
       if (!this.connections.includes(conn)) {
         this.connections.push(conn)
       }
+
+      // Check if duplicate name with host and differentiate
+      if (msg.player.name === this.myPlayer?.name) {
+        msg.player.name = 'Operador 2'
+      }
+
       const exists = this.currentRoom.players.find(p => p.id === msg.player.id)
       if (!exists) {
         this.currentRoom.players.push(msg.player)
+      } else {
+        Object.assign(exists, msg.player)
       }
-      // Send direct confirmation back to joining peer
+
+      // Reply directly to client
       try {
-        conn.send({ type: 'ROOM_JOINED', room: this.currentRoom, player: msg.player })
+        conn.send({ type: 'ROOM_UPDATE', room: this.currentRoom })
       } catch (e) {}
 
-      // Broadcast full room state to all clients
+      // Broadcast updated room state to all peers and cross-tab
       this.broadcastToAll({ type: 'ROOM_UPDATE', room: this.currentRoom })
       this.emitInternal('room_updated', this.currentRoom)
     } else if (msg.type === 'SWITCH_TEAM') {
@@ -354,6 +363,8 @@ export class NetworkSystem {
     if (this.peer) {
       try { this.peer.destroy() } catch (e) {}
     }
+    if (this.heartbeatInterval) clearInterval(this.heartbeatInterval)
+    if (this.joinRetryInterval) clearInterval(this.joinRetryInterval)
 
     const cleanCode = (roomId || '').trim().toUpperCase()
     const peerTargetId = `v3d_${cleanCode.toLowerCase()}`
@@ -398,16 +409,37 @@ export class NetworkSystem {
     this.myPlayer = joinPlayer
     this.connected = true
 
-    // 1. Instant Cross-Tab BroadcastChannel Request
-    if (this.bc) {
-      this.bc.postMessage({
-        type: 'BC_JOIN_REQ',
-        roomId: cleanCode,
-        player: joinPlayer
-      })
+    const sendJoinRequest = () => {
+      // 1. Cross-tab BroadcastChannel
+      if (this.bc) {
+        this.bc.postMessage({
+          type: 'BC_JOIN_REQ',
+          roomId: cleanCode,
+          player: joinPlayer
+        })
+      }
+      // 2. PeerJS DataConnection
+      if (this.hostConn && this.hostConn.open) {
+        try {
+          this.hostConn.send({
+            type: 'JOIN_REQ',
+            player: joinPlayer
+          })
+        } catch (e) {}
+      }
     }
 
-    // 2. PeerJS Network Connection Request
+    // Send immediately
+    sendJoinRequest()
+
+    // Retry sending join request every 800ms while waiting for room sync
+    this.joinRetryInterval = setInterval(() => {
+      if (!this.isHost && this.currentRoom && this.currentRoom.players.length <= 1) {
+        sendJoinRequest()
+      }
+    }, 800)
+
+    // PeerJS Network Connection Request
     try {
       this.peer = new Peer({
         debug: 0,
@@ -425,10 +457,7 @@ export class NetworkSystem {
 
         this.hostConn.on('open', () => {
           this.connected = true
-          this.hostConn.send({
-            type: 'JOIN_REQ',
-            player: joinPlayer
-          })
+          sendJoinRequest()
         })
 
         this.hostConn.on('data', (data) => {
@@ -447,15 +476,16 @@ export class NetworkSystem {
       console.warn('Peer connect error:', e)
     }
 
-    // Immediate local transition so client enters lobby without hang
+    // Enter lobby UI immediately
     this.emitInternal('room_joined', { room: placeholderRoom, player: joinPlayer })
   }
 
   handleClientReceivedData(msg) {
     if (!msg || !msg.type) return
 
-    if (msg.type === 'ROOM_JOINED' || msg.type === 'ROOM_UPDATE') {
+    if (msg.type === 'ROOM_UPDATE' || msg.type === 'ROOM_JOINED') {
       this.currentRoom = msg.room
+      if (this.joinRetryInterval) clearInterval(this.joinRetryInterval)
       this.emitInternal('room_updated', msg.room)
     } else if (msg.type === 'START_MATCH') {
       this.currentRoom = msg.room || this.currentRoom
@@ -485,7 +515,7 @@ export class NetworkSystem {
       this.emitInternal('room_updated', this.currentRoom)
     } else {
       if (this.hostConn && this.hostConn.open) {
-        this.hostConn.send({ type: 'SWITCH_TEAM', playerId: this.myPlayer.id, targetTeam })
+        try { this.hostConn.send({ type: 'SWITCH_TEAM', playerId: this.myPlayer.id, targetTeam }) } catch (e) {}
       }
       if (this.bc) {
         this.bc.postMessage({ type: 'BC_SWITCH_TEAM', roomId, playerId: this.myPlayer.id, targetTeam })
@@ -502,7 +532,7 @@ export class NetworkSystem {
       this.emitInternal('room_updated', this.currentRoom)
     } else {
       if (this.hostConn && this.hostConn.open) {
-        this.hostConn.send({ type: 'SELECT_AGENT', playerId: this.myPlayer.id, agentId })
+        try { this.hostConn.send({ type: 'SELECT_AGENT', playerId: this.myPlayer.id, agentId }) } catch (e) {}
       }
       if (this.bc) {
         this.bc.postMessage({ type: 'BC_SELECT_AGENT', roomId, playerId: this.myPlayer.id, agentId })
@@ -525,7 +555,7 @@ export class NetworkSystem {
       this.emitInternal('room_updated', this.currentRoom)
     } else {
       if (this.hostConn && this.hostConn.open) {
-        this.hostConn.send({ type: 'LOCK_AGENT', playerId: this.myPlayer.id })
+        try { this.hostConn.send({ type: 'LOCK_AGENT', playerId: this.myPlayer.id }) } catch (e) {}
       }
       if (this.bc) {
         this.bc.postMessage({ type: 'BC_LOCK_AGENT', roomId, playerId: this.myPlayer.id })
@@ -554,7 +584,7 @@ export class NetworkSystem {
     if (this.isHost) {
       this.broadcastToAll(payload)
     } else if (this.hostConn && this.hostConn.open) {
-      this.hostConn.send(payload)
+      try { this.hostConn.send(payload) } catch (e) {}
     }
     if (this.bc && !this.isHost) {
       this.bc.postMessage({ type: 'BC_PLAYER_SYNC', roomId, data: payload.data })
@@ -566,7 +596,7 @@ export class NetworkSystem {
     if (this.isHost) {
       this.broadcastToAll(payload)
     } else if (this.hostConn && this.hostConn.open) {
-      this.hostConn.send(payload)
+      try { this.hostConn.send(payload) } catch (e) {}
     }
     if (this.bc && !this.isHost) {
       this.bc.postMessage({ type: 'BC_GAME_EVENT', roomId, event: payload.event })
@@ -588,7 +618,7 @@ export class NetworkSystem {
     if (this.isHost) {
       this.broadcastToAll(payload)
     } else if (this.hostConn && this.hostConn.open) {
-      this.hostConn.send(payload)
+      try { this.hostConn.send(payload) } catch (e) {}
     }
     if (this.bc && !this.isHost) {
       this.bc.postMessage({ type: 'BC_PLAYER_HIT', roomId, data: payload.data })
@@ -610,7 +640,7 @@ export class NetworkSystem {
       this.emitInternal('chat_received', chat)
     } else {
       if (this.hostConn && this.hostConn.open) {
-        this.hostConn.send(payload)
+        try { this.hostConn.send(payload) } catch (e) {}
       }
       if (this.bc) {
         this.bc.postMessage({ type: 'BC_CHAT', roomId, chat })
@@ -620,9 +650,8 @@ export class NetworkSystem {
   }
 
   leaveRoom() {
-    if (this.roomAnnounceInterval) {
-      clearInterval(this.roomAnnounceInterval)
-    }
+    if (this.heartbeatInterval) clearInterval(this.heartbeatInterval)
+    if (this.joinRetryInterval) clearInterval(this.joinRetryInterval)
     if (this.peer) {
       try { this.peer.destroy() } catch (e) {}
     }
