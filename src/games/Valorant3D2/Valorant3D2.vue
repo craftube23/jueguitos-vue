@@ -571,6 +571,8 @@ function updateGame3D(dt) {
   player.pos.z = playerController.position.z
   player.yaw = playerController.yaw
   player.pitch = playerController.pitch
+  player.crouching = playerController.isCrouching
+  player.onGround = playerController.onGround
 
   // Blind recovery
   if (player.blindAlpha > 0) {
@@ -840,7 +842,13 @@ function updatePlayer3DMeshes() {
     }
 
     mesh.visible = p.alive && (!isLocal || isThirdPerson.value)
-    mesh.position.set(p.pos.x, 0, p.pos.z)
+
+    // Calculate real dynamic ground/airborne feet Y position
+    const currentEyeH = isLocal ? (playerController ? playerController.currentEyeHeight : (p.crouching ? 1.1 : 1.7)) : (p.crouching ? 1.1 : 1.7)
+    const rawFeetY = (p.pos.y !== undefined ? p.pos.y : 1.7) - currentEyeH
+    const feetY = Math.max(0, rawFeetY)
+    
+    mesh.position.set(p.pos.x, feetY, p.pos.z)
     if (p.yaw !== undefined) {
       mesh.rotation.y = p.yaw
     }
@@ -857,6 +865,16 @@ function updatePlayer3DMeshes() {
       mesh.userData.lastZ = p.pos.z
       mesh.userData.moveSpeed = THREE.MathUtils.lerp(mesh.userData.moveSpeed || 0, instantSpeed, 0.22)
 
+      // Smooth Crouch Transition Progress (0: standing, 1: fully crouched)
+      const targetCrouch = p.crouching ? 1.0 : 0.0
+      mesh.userData.crouchProgress = THREE.MathUtils.lerp(mesh.userData.crouchProgress || 0, targetCrouch, 0.25)
+      const crouchProg = mesh.userData.crouchProgress
+
+      // Airborne Jump Detection Progress (0: on ground, 1: airborne leap)
+      const inAir = (isLocal ? !playerController?.onGround : !p.onGround) && (rawFeetY > 0.08)
+      mesh.userData.jumpProgress = THREE.MathUtils.lerp(mesh.userData.jumpProgress || 0, inAir ? 1.0 : 0.0, 0.25)
+      const jumpProg = mesh.userData.jumpProgress
+
       const isMoving = mesh.userData.moveSpeed > 0.15
       if (isMoving) {
         mesh.userData.walkTimer = (mesh.userData.walkTimer || 0) + mesh.userData.moveSpeed * 0.16
@@ -865,36 +883,39 @@ function updatePlayer3DMeshes() {
       }
 
       const walkTimer = mesh.userData.walkTimer || 0
-      const walkWeight = Math.min(1.0, mesh.userData.moveSpeed / 2.5)
+      const walkWeight = Math.min(1.0, mesh.userData.moveSpeed / 2.5) * (1.0 - jumpProg * 0.7) * (1.0 - crouchProg * 0.4)
       const walkSwing = Math.sin(walkTimer) * 0.58 * walkWeight
       const idleTime = performance.now() * 0.0022
       const breath = Math.sin(idleTime) * 0.02
 
-      // 1. Legs Locomotion Cycle (Thighs, Calfs, Feet)
+      // 1. Legs Locomotion Cycle, Crouch Knee Bends & Airborne Jump Tucking
+      const rThighOffset = walkSwing + crouchProg * 0.85 + jumpProg * 0.42
+      const lThighOffset = -walkSwing + crouchProg * 0.85 + jumpProg * 0.35
+      const rCalfOffset = (Math.max(0, -Math.sin(walkTimer)) * 0.78 * walkWeight) - crouchProg * 1.25 - jumpProg * 0.55
+      const lCalfOffset = (Math.max(0, Math.sin(walkTimer)) * 0.78 * walkWeight) - crouchProg * 1.25 - jumpProg * 0.45
+
       if (bones['CC_Base_R_Thigh_097'] && baseRot['CC_Base_R_Thigh_097']) {
-        bones['CC_Base_R_Thigh_097'].rotation.x = baseRot['CC_Base_R_Thigh_097'].x + walkSwing
+        bones['CC_Base_R_Thigh_097'].rotation.x = baseRot['CC_Base_R_Thigh_097'].x + rThighOffset
       }
       if (bones['CC_Base_L_Thigh_0117'] && baseRot['CC_Base_L_Thigh_0117']) {
-        bones['CC_Base_L_Thigh_0117'].rotation.x = baseRot['CC_Base_L_Thigh_0117'].x - walkSwing
+        bones['CC_Base_L_Thigh_0117'].rotation.x = baseRot['CC_Base_L_Thigh_0117'].x + lThighOffset
       }
       if (bones['CC_Base_R_Calf_0100'] && baseRot['CC_Base_R_Calf_0100']) {
-        const calfFlex = Math.max(0, -Math.sin(walkTimer)) * 0.78 * walkWeight
-        bones['CC_Base_R_Calf_0100'].rotation.x = baseRot['CC_Base_R_Calf_0100'].x + calfFlex
+        bones['CC_Base_R_Calf_0100'].rotation.x = baseRot['CC_Base_R_Calf_0100'].x + rCalfOffset
       }
       if (bones['CC_Base_L_Calf_0120'] && baseRot['CC_Base_L_Calf_0120']) {
-        const calfFlex = Math.max(0, Math.sin(walkTimer)) * 0.78 * walkWeight
-        bones['CC_Base_L_Calf_0120'].rotation.x = baseRot['CC_Base_L_Calf_0120'].x + calfFlex
+        bones['CC_Base_L_Calf_0120'].rotation.x = baseRot['CC_Base_L_Calf_0120'].x + lCalfOffset
       }
       if (bones['CC_Base_R_Foot_0104'] && baseRot['CC_Base_R_Foot_0104']) {
-        bones['CC_Base_R_Foot_0104'].rotation.x = baseRot['CC_Base_R_Foot_0104'].x + walkSwing * 0.35
+        bones['CC_Base_R_Foot_0104'].rotation.x = baseRot['CC_Base_R_Foot_0104'].x + walkSwing * 0.35 + crouchProg * 0.38
       }
       if (bones['CC_Base_L_Foot_0124'] && baseRot['CC_Base_L_Foot_0124']) {
-        bones['CC_Base_L_Foot_0124'].rotation.x = baseRot['CC_Base_L_Foot_0124'].x - walkSwing * 0.35
+        bones['CC_Base_L_Foot_0124'].rotation.x = baseRot['CC_Base_L_Foot_0124'].x - walkSwing * 0.35 + crouchProg * 0.38
       }
 
       // 2. Arms Tactical Combat Hold & Stance (Hands holding rifle)
       if (bones['CC_Base_R_Upperarm_06'] && baseRot['CC_Base_R_Upperarm_06']) {
-        bones['CC_Base_R_Upperarm_06'].rotation.x = baseRot['CC_Base_R_Upperarm_06'].x + 0.85 + breath
+        bones['CC_Base_R_Upperarm_06'].rotation.x = baseRot['CC_Base_R_Upperarm_06'].x + 0.85 + breath - crouchProg * 0.12
         bones['CC_Base_R_Upperarm_06'].rotation.y = baseRot['CC_Base_R_Upperarm_06'].y - 0.45
         bones['CC_Base_R_Upperarm_06'].rotation.z = baseRot['CC_Base_R_Upperarm_06'].z - 0.35
       }
@@ -902,7 +923,7 @@ function updatePlayer3DMeshes() {
         bones['CC_Base_R_Forearm_09'].rotation.x = baseRot['CC_Base_R_Forearm_09'].x + 1.15
       }
       if (bones['CC_Base_L_Upperarm_035'] && baseRot['CC_Base_L_Upperarm_035']) {
-        bones['CC_Base_L_Upperarm_035'].rotation.x = baseRot['CC_Base_L_Upperarm_035'].x + 0.95 + breath
+        bones['CC_Base_L_Upperarm_035'].rotation.x = baseRot['CC_Base_L_Upperarm_035'].x + 0.95 + breath - crouchProg * 0.12
         bones['CC_Base_L_Upperarm_035'].rotation.y = baseRot['CC_Base_L_Upperarm_035'].y + 0.55
         bones['CC_Base_L_Upperarm_035'].rotation.z = baseRot['CC_Base_L_Upperarm_035'].z + 0.35
       }
@@ -910,10 +931,10 @@ function updatePlayer3DMeshes() {
         bones['CC_Base_L_Forearm_038'].rotation.x = baseRot['CC_Base_L_Forearm_038'].x + 1.35
       }
 
-      // 3. Torso & Head Pitch Aiming (looking up/down with player/bot view)
+      // 3. Torso & Head Pitch Aiming (looking up/down with player/bot view and crouch forward lean)
       const aimPitch = p.pitch || 0
       if (bones['CC_Base_Spine01_03'] && baseRot['CC_Base_Spine01_03']) {
-        bones['CC_Base_Spine01_03'].rotation.x = baseRot['CC_Base_Spine01_03'].x - aimPitch * 0.35 + breath * 0.5
+        bones['CC_Base_Spine01_03'].rotation.x = baseRot['CC_Base_Spine01_03'].x - aimPitch * 0.35 + breath * 0.5 + crouchProg * 0.28
       }
       if (bones['CC_Base_Head_075'] && baseRot['CC_Base_Head_075']) {
         bones['CC_Base_Head_075'].rotation.x = baseRot['CC_Base_Head_075'].x - aimPitch * 0.45

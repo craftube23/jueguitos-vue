@@ -99,7 +99,7 @@ export class PlayerController3D {
     if (keys['KeyA']) { moveX -= right.x; moveZ -= right.z }
     if (keys['KeyD']) { moveX += right.x; moveZ += right.z }
 
-    this.isCrouching = !!keys['ControlLeft'] || !!keys['KeyC_crouch']
+    this.isCrouching = !!keys['ControlLeft'] || !!keys['ControlRight'] || !!keys['KeyC'] || !!keys['KeyC_crouch']
     const isSilent = !!keys['ShiftLeft'] || !!keys['ShiftRight']
 
     let targetSpeed = this.walkSpeed

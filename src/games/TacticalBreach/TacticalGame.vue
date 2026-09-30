@@ -27,7 +27,13 @@ const playerHealth = ref(100)
 
 let audioCtx = null
 const initAudio = () => {
-  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)()
+  if (!audioCtx) {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext
+    if (AudioContextClass) audioCtx = new AudioContextClass()
+  }
+  if (audioCtx && audioCtx.state === 'suspended') {
+    audioCtx.resume()
+  }
 }
 
 const playSound = (type) => {
@@ -41,32 +47,54 @@ const playSound = (type) => {
 
     if (type === 'gunshot') {
       osc.type = 'sawtooth'
-      osc.frequency.setValueAtTime(450, now)
-      osc.frequency.exponentialRampToValueAtTime(40, now + 0.1)
+      osc.frequency.setValueAtTime(480, now)
+      osc.frequency.exponentialRampToValueAtTime(40, now + 0.12)
+      gain.gain.setValueAtTime(0.35, now)
+      gain.gain.linearRampToValueAtTime(0.01, now + 0.12)
+      osc.start(now); osc.stop(now + 0.12)
+    } else if (type === 'shotgun') {
+      osc.type = 'sawtooth'
+      osc.frequency.setValueAtTime(250, now)
+      osc.frequency.exponentialRampToValueAtTime(30, now + 0.2)
+      gain.gain.setValueAtTime(0.5, now)
+      gain.gain.linearRampToValueAtTime(0.01, now + 0.2)
+      osc.start(now); osc.stop(now + 0.2)
+    } else if (type === 'silenced') {
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(280, now)
+      osc.frequency.exponentialRampToValueAtTime(60, now + 0.07)
+      gain.gain.setValueAtTime(0.18, now)
+      gain.gain.linearRampToValueAtTime(0.01, now + 0.07)
+      osc.start(now); osc.stop(now + 0.07)
+    } else if (type === 'reload') {
+      osc.type = 'triangle'
+      osc.frequency.setValueAtTime(320, now)
+      osc.frequency.linearRampToValueAtTime(620, now + 0.12)
+      gain.gain.setValueAtTime(0.25, now)
+      gain.gain.linearRampToValueAtTime(0.01, now + 0.12)
+      osc.start(now); osc.stop(now + 0.12)
+    } else if (type === 'flash') {
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(1100, now)
+      osc.frequency.linearRampToValueAtTime(100, now + 0.6)
+      gain.gain.setValueAtTime(0.4, now)
+      gain.gain.linearRampToValueAtTime(0.01, now + 0.6)
+      osc.start(now); osc.stop(now + 0.6)
+    } else if (type === 'rescue') {
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(523.25, now) // C5
+      osc.frequency.setValueAtTime(659.25, now + 0.1) // E5
+      osc.frequency.setValueAtTime(783.99, now + 0.2) // G5
+      gain.gain.setValueAtTime(0.3, now)
+      gain.gain.linearRampToValueAtTime(0.01, now + 0.4)
+      osc.start(now); osc.stop(now + 0.4)
+    } else if (type === 'hit') {
+      osc.type = 'sawtooth'
+      osc.frequency.setValueAtTime(150, now)
+      osc.frequency.exponentialRampToValueAtTime(50, now + 0.1)
       gain.gain.setValueAtTime(0.3, now)
       gain.gain.linearRampToValueAtTime(0.01, now + 0.1)
       osc.start(now); osc.stop(now + 0.1)
-    } else if (type === 'silenced') {
-      osc.type = 'sine'
-      osc.frequency.setValueAtTime(250, now)
-      osc.frequency.exponentialRampToValueAtTime(50, now + 0.06)
-      gain.gain.setValueAtTime(0.15, now)
-      gain.gain.linearRampToValueAtTime(0.01, now + 0.06)
-      osc.start(now); osc.stop(now + 0.06)
-    } else if (type === 'reload') {
-      osc.type = 'triangle'
-      osc.frequency.setValueAtTime(300, now)
-      osc.frequency.linearRampToValueAtTime(600, now + 0.1)
-      gain.gain.setValueAtTime(0.2, now)
-      gain.gain.linearRampToValueAtTime(0.01, now + 0.1)
-      osc.start(now); osc.stop(now + 0.1)
-    } else if (type === 'flash') {
-      osc.type = 'sine'
-      osc.frequency.setValueAtTime(900, now)
-      osc.frequency.linearRampToValueAtTime(100, now + 0.5)
-      gain.gain.setValueAtTime(0.35, now)
-      gain.gain.linearRampToValueAtTime(0.01, now + 0.5)
-      osc.start(now); osc.stop(now + 0.5)
     }
   } catch (e) {}
 }
@@ -80,15 +108,15 @@ let mouse = { x: 400, y: 300, isDown: false }
 let lastShotTime = 0
 
 // OPERADOR JUGADOR
-let player = {
-  x: 100,
-  y: 100,
+const player = {
+  x: 90,
+  y: 90,
   angle: 0,
-  speed: 2.8,
+  speed: 3.2,
   size: 14
 }
 
-// MAPA TÁCTICO: MUROS Y HABITACIONES
+// MAPA TÁCTICO: MUROS Y HABITACIONES CQB
 const walls = [
   // Bordes exteriores
   { x: 0, y: 0, w: 800, h: 20 },
@@ -102,18 +130,19 @@ const walls = [
   { x: 530, y: 20, w: 20, h: 180 },
   { x: 530, y: 280, w: 20, h: 300 },
   // Cajas de cobertura
-  { x: 120, y: 280, w: 40, h: 40 },
+  { x: 120, y: 280, w: 45, h: 45 },
   { x: 380, y: 120, w: 50, h: 50 },
   { x: 650, y: 400, w: 60, h: 40 },
-  { x: 680, y: 160, w: 40, h: 40 }
+  { x: 680, y: 160, w: 45, h: 45 }
 ]
 
 let enemies = []
 let bullets = []
 let bloodStains = []
 let smokeClouds = []
+let hitSparks = []
 let flashEffect = 0
-let hostage = { x: 700, y: 100, rescued: false, size: 12 }
+const hostage = { x: 700, y: 100, rescued: false, size: 13 }
 
 const startMission = () => {
   initAudio()
@@ -129,11 +158,13 @@ const startMission = () => {
   smokes.value = 1
   isReloading.value = false
 
-  player.x = 80
-  player.y = 80
+  player.x = 90
+  player.y = 90
+  player.angle = 0
   bullets = []
   bloodStains = []
   smokeClouds = []
+  hitSparks = []
   flashEffect = 0
   hostage.rescued = false
 
@@ -144,7 +175,7 @@ const startMission = () => {
     { x: 400, y: 240, hp: 60, maxHp: 60, angle: Math.PI, state: 'patrol', patrolDir: -1, sightRange: 280, stunned: 0, shootTimer: 0 },
     { x: 400, y: 450, hp: 80, maxHp: 80, angle: 0, state: 'guard', sightRange: 300, stunned: 0, shootTimer: 0 },
     { x: 680, y: 480, hp: 70, maxHp: 70, angle: -Math.PI / 2, state: 'patrol', patrolDir: 1, sightRange: 280, stunned: 0, shootTimer: 0 },
-    { x: 660, y: 100, hp: 100, maxHp: 100, angle: Math.PI, state: 'guard', isBoss: true, sightRange: 320, stunned: 0, shootTimer: 0 } // Guardia del rehén
+    { x: 660, y: 100, hp: 110, maxHp: 110, angle: Math.PI, state: 'guard', isBoss: true, sightRange: 330, stunned: 0, shootTimer: 0 } // Guardia del rehén
   ]
   terroristsLeft.value = enemies.length
 
@@ -160,8 +191,10 @@ const reload = () => {
   isReloading.value = true
   playSound('reload')
   setTimeout(() => {
-    totalMags.value--
-    currentAmmo.value = maxAmmo.value
+    if (totalMags.value > 0) {
+      totalMags.value--
+      currentAmmo.value = maxAmmo.value
+    }
     isReloading.value = false
   }, selectedWeapon.value.reloadTime)
 }
@@ -176,7 +209,7 @@ const throwFlashbang = () => {
   // Cegar a todos los enemigos en rango
   enemies.forEach(e => {
     const dist = Math.hypot(e.x - player.x, e.y - player.y)
-    if (dist < 400) {
+    if (dist < 420) {
       e.stunned = 240 // 4 segundos aturdido
     }
   })
@@ -189,8 +222,8 @@ const throwSmoke = () => {
   smokeClouds.push({
     x: player.x + Math.cos(player.angle) * 80,
     y: player.y + Math.sin(player.angle) * 80,
-    radius: 70,
-    life: 500
+    radius: 80,
+    life: 550
   })
 }
 
@@ -209,7 +242,8 @@ const shootWeapon = () => {
   currentAmmo.value--
   const w = selectedWeapon.value
 
-  if (w.silenced) playSound('silenced')
+  if (w.id === 'shotgun') playSound('shotgun')
+  else if (w.silenced) playSound('silenced')
   else playSound('gunshot')
 
   const count = w.pellets || 1
@@ -219,8 +253,8 @@ const shootWeapon = () => {
     bullets.push({
       x: player.x + Math.cos(player.angle) * 18,
       y: player.y + Math.sin(player.angle) * 18,
-      vx: Math.cos(finalAngle) * 16,
-      vy: Math.sin(finalAngle) * 16,
+      vx: Math.cos(finalAngle) * 17,
+      vy: Math.sin(finalAngle) * 17,
       damage: w.damage,
       range: w.range,
       distanceTraveled: 0,
@@ -231,7 +265,7 @@ const shootWeapon = () => {
   // Alerta sonora a enemigos si el arma no es silenciada
   if (!w.silenced) {
     enemies.forEach(e => {
-      if (Math.hypot(e.x - player.x, e.y - player.y) < 420) {
+      if (Math.hypot(e.x - player.x, e.y - player.y) < 440) {
         e.state = 'alert'
       }
     })
@@ -239,7 +273,7 @@ const shootWeapon = () => {
 }
 
 // COLISIÓN CON MUROS
-const checkWallCollision = (x, y, radius) => {
+const checkWallCollision = (x, y, radius = 14) => {
   for (const w of walls) {
     if (x + radius > w.x && x - radius < w.x + w.w &&
         y + radius > w.y && y - radius < w.y + w.h) {
@@ -251,7 +285,7 @@ const checkWallCollision = (x, y, radius) => {
 
 // RAYCASTING SIMPLE PARA LÍNEA DE VISIÓN
 const hasLineOfSight = (x1, y1, x2, y2) => {
-  const steps = 25
+  const steps = 30
   for (let i = 1; i < steps; i++) {
     const t = i / steps
     const cx = x1 + (x2 - x1) * t
@@ -265,28 +299,28 @@ const gameLoop = () => {
   if (!ctx) return
 
   // 1. DIBUJAR SUELO DE LA INSTALACIÓN TÁCTICA
-  ctx.fillStyle = '#111827'
+  ctx.fillStyle = '#0f172a'
   ctx.fillRect(0, 0, 800, 600)
 
-  // Baldosas
-  ctx.strokeStyle = '#1f2937'
+  // Baldosas CQB
+  ctx.strokeStyle = '#1e293b'
   ctx.lineWidth = 1
-  for (let x = 0; x < 800; x += 50) {
+  for (let x = 0; x < 800; x += 40) {
     ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 600); ctx.stroke()
   }
-  for (let y = 0; y < 600; y += 50) {
+  for (let y = 0; y < 600; y += 40) {
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(800, y); ctx.stroke()
   }
 
   // Manchas de sangre
   bloodStains.forEach(b => {
-    ctx.fillStyle = 'rgba(153, 27, 27, 0.6)'
+    ctx.fillStyle = 'rgba(185, 28, 28, 0.65)'
     ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill()
   })
 
   // 2. DIBUJAR MUROS
-  ctx.fillStyle = '#374151'
-  ctx.strokeStyle = '#4b5563'
+  ctx.fillStyle = '#334155'
+  ctx.strokeStyle = '#64748b'
   ctx.lineWidth = 2
   walls.forEach(w => {
     ctx.fillRect(w.x, w.y, w.w, w.h)
@@ -295,33 +329,44 @@ const gameLoop = () => {
 
   // 3. REHÉN
   if (!hostage.rescued) {
+    ctx.save()
     ctx.fillStyle = '#38bdf8'
     ctx.beginPath(); ctx.arc(hostage.x, hostage.y, hostage.size, 0, Math.PI * 2); ctx.fill()
-    ctx.fillStyle = '#fff'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center'
-    ctx.fillText('REHÉN', hostage.x, hostage.y - 15)
+    ctx.strokeStyle = '#bae6fd'
+    ctx.lineWidth = 2
+    ctx.stroke()
+    ctx.fillStyle = '#f8fafc'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'
+    ctx.fillText('REHÉN 🛡️', hostage.x, hostage.y - 18)
+    ctx.restore()
 
-    if (Math.hypot(player.x - hostage.x, player.y - hostage.y) < 35) {
+    if (Math.hypot(player.x - hostage.x, player.y - hostage.y) < 38) {
       hostage.rescued = true
       hostageRescued.value = true
       score.value += 500
+      playSound('rescue')
+
+      if (enemies.length === 0) {
+        gameState.value = 'VICTORY'
+        if (timerInterval) clearInterval(timerInterval)
+      }
     }
   }
 
   if (gameState.value === 'PLAYING') {
     // 4. MOVIMIENTO OPERADOR
     let mx = 0, my = 0
-    if (keys['KeyW'] || keys['ArrowUp']) my -= 1
-    if (keys['KeyS'] || keys['ArrowDown']) my += 1
-    if (keys['KeyA'] || keys['ArrowLeft']) mx -= 1
-    if (keys['KeyD'] || keys['ArrowRight']) mx += 1
+    if (keys['KeyW'] || keys['ArrowUp'] || keys['w'] || keys['arrowup']) my -= 1
+    if (keys['KeyS'] || keys['ArrowDown'] || keys['s'] || keys['arrowdown']) my += 1
+    if (keys['KeyA'] || keys['ArrowLeft'] || keys['a'] || keys['arrowleft']) mx -= 1
+    if (keys['KeyD'] || keys['ArrowRight'] || keys['d'] || keys['arrowright']) mx += 1
 
     if (mx !== 0 || my !== 0) {
       const len = Math.hypot(mx, my)
-      const nextX = player.x + (mx / len) * player.speed
-      const nextY = player.y + (my / len) * player.speed
+      const stepX = (mx / len) * player.speed
+      const stepY = (my / len) * player.speed
 
-      if (!checkWallCollision(nextX, player.y, player.size)) player.x = nextX
-      if (!checkWallCollision(player.x, nextY, player.size)) player.y = nextY
+      if (!checkWallCollision(player.x + stepX, player.y, player.size)) player.x += stepX
+      if (!checkWallCollision(player.x, player.y + stepY, player.size)) player.y += stepY
     }
 
     // Ángulo apuntando al ratón
@@ -346,7 +391,7 @@ const gameLoop = () => {
       b.distanceTraveled += Math.hypot(b.vx, b.vy)
 
       ctx.fillStyle = b.isEnemy ? '#ef4444' : '#facc15'
-      ctx.beginPath(); ctx.arc(b.x, b.y, 2.5, 0, Math.PI * 2); ctx.fill()
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.isEnemy ? 2.5 : 3.0, 0, Math.PI * 2); ctx.fill()
 
       // Choque con muros
       if (checkWallCollision(b.x, b.y, 2) || b.distanceTraveled > b.range) {
@@ -358,16 +403,21 @@ const gameLoop = () => {
       if (b.isEnemy) {
         if (Math.hypot(player.x - b.x, player.y - b.y) < player.size + 3) {
           playerHealth.value -= b.damage
+          playSound('hit')
           bloodStains.push({ x: player.x, y: player.y, r: 10 + Math.random() * 8 })
           bullets.splice(i, 1)
-          if (playerHealth.value <= 0) gameState.value = 'GAMEOVER'
+          if (playerHealth.value <= 0) {
+            playerHealth.value = 0
+            gameState.value = 'GAMEOVER'
+            if (timerInterval) clearInterval(timerInterval)
+          }
           continue
         }
       } else {
         // Bala jugador -> Enemigo
         for (let j = enemies.length - 1; j >= 0; j--) {
           const e = enemies[j]
-          if (Math.hypot(e.x - b.x, e.y - b.y) < 16) {
+          if (Math.hypot(e.x - b.x, e.y - b.y) < 18) {
             e.hp -= b.damage
             bloodStains.push({ x: e.x, y: e.y, r: 8 + Math.random() * 6 })
             bullets.splice(i, 1)
@@ -383,7 +433,7 @@ const gameLoop = () => {
                 if (timerInterval) clearInterval(timerInterval)
               }
             } else {
-              e.state = 'alert'
+              e.state = 'attack'
             }
             break
           }
@@ -395,6 +445,11 @@ const gameLoop = () => {
     enemies.forEach(e => {
       if (e.stunned > 0) {
         e.stunned--
+        // Icono de aturdido
+        ctx.fillStyle = '#ffd700'
+        ctx.font = '12px sans-serif'
+        ctx.textAlign = 'center'
+        ctx.fillText('💫', e.x, e.y - 22)
         return
       }
 
@@ -407,7 +462,7 @@ const gameLoop = () => {
 
         // Disparo terrorista
         e.shootTimer++
-        if (e.shootTimer > (e.isBoss ? 25 : 45)) {
+        if (e.shootTimer > (e.isBoss ? 28 : 48)) {
           e.shootTimer = 0
           playSound('gunshot')
           bullets.push({
@@ -415,14 +470,14 @@ const gameLoop = () => {
             y: e.y + Math.sin(e.angle) * 16,
             vx: Math.cos(e.angle) * 10,
             vy: Math.sin(e.angle) * 10,
-            damage: 18,
+            damage: 16,
             range: 400,
             distanceTraveled: 0,
             isEnemy: true
           })
         }
       } else if (e.state === 'patrol') {
-        e.x += e.patrolDir * 0.8
+        e.x += e.patrolDir * 0.9
         if (checkWallCollision(e.x + e.patrolDir * 16, e.y, 14)) e.patrolDir *= -1
         e.angle = e.patrolDir === 1 ? 0 : Math.PI
       }
@@ -431,10 +486,13 @@ const gameLoop = () => {
       ctx.save()
       ctx.translate(e.x, e.y)
       ctx.rotate(e.angle)
-      ctx.fillStyle = e.isBoss ? '#b91c1c' : '#dc2626'
+      ctx.fillStyle = e.isBoss ? '#991b1b' : '#dc2626'
       ctx.beginPath(); ctx.arc(0, 0, 14, 0, Math.PI * 2); ctx.fill()
+      ctx.strokeStyle = '#f87171'
+      ctx.lineWidth = 1.5
+      ctx.stroke()
       // Arma terrorista
-      ctx.fillStyle = '#111827'; ctx.fillRect(8, 2, 14, 4)
+      ctx.fillStyle = '#0f172a'; ctx.fillRect(8, 2, 14, 4)
       ctx.restore()
 
       // Barra de vida
@@ -449,9 +507,9 @@ const gameLoop = () => {
     ctx.translate(player.x, player.y)
     ctx.rotate(player.angle)
 
-    // Cono de visión / Linterna táctica
+    // Cono de visión táctica / Linterna
     const gradient = ctx.createRadialGradient(0, 0, 10, 0, 0, 320)
-    gradient.addColorStop(0, 'rgba(56, 189, 248, 0.25)')
+    gradient.addColorStop(0, 'rgba(56, 189, 248, 0.28)')
     gradient.addColorStop(1, 'rgba(56, 189, 248, 0)')
     ctx.fillStyle = gradient
     ctx.beginPath()
@@ -460,17 +518,28 @@ const gameLoop = () => {
     ctx.closePath()
     ctx.fill()
 
+    // Línea láser táctica
+    ctx.strokeStyle = 'rgba(239, 68, 68, 0.35)'
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(14, 4)
+    ctx.lineTo(360, 4)
+    ctx.stroke()
+
     // Cuerpo Operador SWAT
     ctx.fillStyle = '#1e3a8a'
     ctx.beginPath(); ctx.arc(0, 0, player.size, 0, Math.PI * 2); ctx.fill()
+    ctx.strokeStyle = '#38bdf8'
+    ctx.lineWidth = 1.5
+    ctx.stroke()
 
     // Casco
     ctx.fillStyle = '#0f172a'
     ctx.beginPath(); ctx.arc(0, 0, 9, 0, Math.PI * 2); ctx.fill()
 
     // Arma
-    ctx.fillStyle = '#000'
-    ctx.fillRect(8, 3, 16, 5)
+    ctx.fillStyle = '#020617'
+    ctx.fillRect(8, 2, 16, 5)
     ctx.restore()
   }
 
@@ -486,18 +555,32 @@ const gameLoop = () => {
 
 const handleKeyDown = (e) => {
   keys[e.code] = true
-  if (e.code === 'KeyR') reload()
-  if (e.code === 'KeyF') throwFlashbang()
-  if (e.code === 'KeyG') throwSmoke()
+  if (e.key) keys[e.key.toLowerCase()] = true
+  if (e.code === 'KeyR' || e.key?.toLowerCase() === 'r') reload()
+  if (e.code === 'KeyF' || e.key?.toLowerCase() === 'f') throwFlashbang()
+  if (e.code === 'KeyG' || e.key?.toLowerCase() === 'g') throwSmoke()
 }
+
+const handleKeyUp = (e) => {
+  keys[e.code] = false
+  if (e.key) keys[e.key.toLowerCase()] = false
+}
+
 const handleMouseMove = (e) => {
   if (!canvasRef.value) return
   const rect = canvasRef.value.getBoundingClientRect()
   mouse.x = (e.clientX - rect.left) * (canvasRef.value.width / rect.width)
   mouse.y = (e.clientY - rect.top) * (canvasRef.value.height / rect.height)
 }
-const handleMouseDown = () => { mouse.isDown = true; initAudio() }
-const handleMouseUp = () => { mouse.isDown = false }
+
+const handleMouseDown = () => {
+  mouse.isDown = true
+  initAudio()
+}
+
+const handleMouseUp = () => {
+  mouse.isDown = false
+}
 
 const handleTouchMove = (e) => {
   if (!canvasRef.value || e.touches.length === 0) return
@@ -506,12 +589,14 @@ const handleTouchMove = (e) => {
   mouse.x = (touch.clientX - rect.left) * (canvasRef.value.width / rect.width)
   mouse.y = (touch.clientY - rect.top) * (canvasRef.value.height / rect.height)
 }
+
 const handleTouchStart = (e) => {
   if (!canvasRef.value || e.touches.length === 0) return
   handleTouchMove(e)
   mouse.isDown = true
   initAudio()
 }
+
 const handleTouchEnd = () => {
   mouse.isDown = false
 }
@@ -526,9 +611,9 @@ onMounted(() => {
     ctx = canvasRef.value.getContext('2d')
     window.addEventListener('keydown', handleKeyDown)
     window.addEventListener('keyup', handleKeyUp)
-    canvasRef.value.addEventListener('mousemove', handleMouseMove)
-    canvasRef.value.addEventListener('mousedown', handleMouseDown)
+    window.addEventListener('mousemove', handleMouseMove)
     window.addEventListener('mouseup', handleMouseUp)
+    canvasRef.value.addEventListener('mousedown', handleMouseDown)
     canvasRef.value.addEventListener('touchstart', handleTouchStart, { passive: true })
     canvasRef.value.addEventListener('touchmove', handleTouchMove, { passive: true })
     canvasRef.value.addEventListener('touchend', handleTouchEnd)
@@ -541,6 +626,7 @@ onUnmounted(() => {
   if (timerInterval) clearInterval(timerInterval)
   window.removeEventListener('keydown', handleKeyDown)
   window.removeEventListener('keyup', handleKeyUp)
+  window.removeEventListener('mousemove', handleMouseMove)
   window.removeEventListener('mouseup', handleMouseUp)
 })
 </script>
@@ -708,35 +794,107 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.tactical-game { max-width: 820px; margin: 0 auto; }
+.tactical-game {
+  width: 100%;
+  max-width: 860px;
+  margin: 0 auto;
+}
 
 .tactical-hud {
-  display: flex; justify-content: space-between; align-items: center;
-  background: rgba(15, 23, 42, 0.95); padding: 12px 18px; border-radius: 12px; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(15, 23, 42, 0.95);
+  padding: 12px 18px;
+  border-radius: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 10px;
   border: 1px solid rgba(56, 189, 248, 0.2);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
 }
+
 .hud-item { display: flex; flex-direction: column; }
-.label { font-size: 0.65rem; color: #94a3b8; font-weight: bold; }
+.label { font-size: 0.65rem; color: #94a3b8; font-weight: bold; letter-spacing: 0.5px; }
 .val { font-size: 1.05rem; font-weight: 800; color: #f8fafc; }
 .ammo-val { color: #facc15; }
 .rescued-tag { color: #4ade80 !important; }
 
 .hp-bar-wrap { width: 120px; height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; margin-top: 3px; }
-.hp-bar-fill { height: 100%; background: #22c55e; }
+.hp-bar-fill { height: 100%; background: #22c55e; transition: width 0.15s ease; }
 
 .gadget-btns { display: flex; gap: 6px; margin-top: 2px; }
 .btn-gadget {
-  background: #334155; border: 1px solid rgba(255,255,255,0.1); color: #cbd5e1; padding: 4px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; cursor: pointer;
+  background: #334155;
+  border: 1px solid rgba(255,255,255,0.1);
+  color: #cbd5e1;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-gadget:hover:not(:disabled) {
+  background: #475569;
+  color: #38bdf8;
+  border-color: #38bdf8;
 }
 .btn-gadget:disabled { opacity: 0.4; cursor: not-allowed; }
 
-.canvas-wrap { position: relative; width: 100%; aspect-ratio: 4/3; border-radius: 12px; overflow: hidden; border: 1px solid rgba(56, 189, 248, 0.3); }
-canvas { width: 100%; height: 100%; display: block; cursor: crosshair; }
+.canvas-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4/3;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 2px solid rgba(56, 189, 248, 0.3);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  background: #000;
+}
 
-.overlay { position: absolute; inset: 0; background: rgba(10, 15, 30, 0.92); backdrop-filter: blur(6px); display: flex; justify-content: center; align-items: center; padding: 20px; }
-.modal { background: rgba(30, 41, 59, 0.96); border: 1px solid #38bdf8; border-radius: 16px; padding: 25px; text-align: center; max-width: 580px; width: 100%; }
+canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: crosshair;
+}
 
-.tac-badge { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid #38bdf8; padding: 3px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; display: inline-block; margin-bottom: 8px; }
+.overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 15, 30, 0.92);
+  backdrop-filter: blur(6px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+  z-index: 20;
+}
+
+.modal {
+  background: rgba(30, 41, 59, 0.96);
+  border: 1px solid #38bdf8;
+  border-radius: 16px;
+  padding: 25px;
+  text-align: center;
+  max-width: 580px;
+  width: 100%;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
+}
+
+.tac-badge {
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+  border: 1px solid #38bdf8;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: bold;
+  display: inline-block;
+  margin-bottom: 8px;
+}
+
 .modal h1 { color: #f8fafc; font-size: 1.8rem; margin-bottom: 6px; }
 .win-title { color: #22c55e !important; }
 .fail-title { color: #ef4444 !important; }
@@ -745,13 +903,113 @@ canvas { width: 100%; height: 100%; display: block; cursor: crosshair; }
 .loadout-picker { margin-bottom: 15px; text-align: left; }
 .loadout-picker label { font-size: 0.8rem; color: #cbd5e1; font-weight: bold; margin-bottom: 8px; display: block; }
 .weapons-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-.w-card { background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 10px; text-align: center; cursor: pointer; }
-.w-card.active { border-color: #38bdf8; background: rgba(56, 189, 248, 0.15); }
+.w-card {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  padding: 10px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.w-card:hover {
+  background: rgba(56, 189, 248, 0.08);
+  transform: translateY(-2px);
+}
+.w-card.active {
+  border-color: #38bdf8;
+  background: rgba(56, 189, 248, 0.15);
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.3);
+}
 .w-icon { font-size: 1.8rem; margin-bottom: 4px; }
 .w-card h4 { font-size: 0.75rem; color: #fff; margin-bottom: 2px; }
 .w-stat { font-size: 0.65rem; color: #94a3b8; }
 
-.controls-guide { background: rgba(0,0,0,0.4); padding: 8px; border-radius: 8px; font-size: 0.75rem; color: #cbd5e1; margin-bottom: 16px; }
+.controls-guide {
+  background: rgba(0,0,0,0.4);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  color: #cbd5e1;
+  margin-bottom: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
 
-.btn-breach { background: linear-gradient(135deg, #0284c7, #2563eb); color: white; border: none; padding: 12px 26px; border-radius: 8px; font-weight: 800; font-size: 1rem; cursor: pointer; }
+.btn-breach {
+  background: linear-gradient(135deg, #0284c7, #2563eb);
+  color: white;
+  border: none;
+  padding: 12px 26px;
+  border-radius: 8px;
+  font-weight: 800;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-breach:hover {
+  transform: scale(1.03);
+  box-shadow: 0 0 20px rgba(56, 189, 248, 0.5);
+}
+
+/* CONTROLES MÓVILES */
+.mobile-touch-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 12px;
+  padding: 10px;
+  background: rgba(15, 23, 42, 0.9);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  touch-action: manipulation;
+}
+
+.virtual-dpad {
+  display: grid;
+  grid-template-columns: repeat(3, 46px);
+  grid-template-rows: repeat(3, 46px);
+  gap: 4px;
+}
+
+.dpad-btn {
+  background: rgba(51, 65, 85, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #fff;
+  border-radius: 8px;
+  font-size: 1.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+}
+.dpad-btn:active {
+  background: #38bdf8;
+  color: #000;
+}
+
+.virtual-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.touch-action-btn {
+  padding: 10px 14px;
+  background: #334155;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.75rem;
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.btn-fire-touch {
+  background: #dc2626;
+  grid-column: span 2;
+  font-size: 0.9rem;
+}
+.btn-fire-touch:active { background: #ef4444; }
+.btn-reload-touch { background: #d97706; }
 </style>

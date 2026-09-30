@@ -19,6 +19,26 @@ export class BotAI3D {
     this.wallsAABB = wallsAABB || []
   }
 
+  probeGround(x, z) {
+    if (!this.meshColliders || this.meshColliders.length === 0) return 0
+    const probeOrigin = new THREE.Vector3(x, 16.0, z)
+    const down = new THREE.Vector3(0, -1, 0)
+    this.raycaster.set(probeOrigin, down)
+    this.raycaster.far = 32.0
+    const hits = this.raycaster.intersectObjects(this.meshColliders, false)
+    let bestGroundY = 0
+    if (hits.length > 0) {
+      for (const hit of hits) {
+        const normal = hit.face ? hit.face.normal.clone() : new THREE.Vector3(0, 1, 0)
+        normal.applyQuaternion(hit.object.getWorldQuaternion(new THREE.Quaternion()))
+        if (normal.y > 0.35 && hit.point.y > bestGroundY) {
+          bestGroundY = hit.point.y
+        }
+      }
+    }
+    return Math.max(0, bestGroundY)
+  }
+
   resolveMovement(currX, currZ, targetX, targetZ, radius = 0.55) {
     let px = targetX
     let pz = targetZ
@@ -75,6 +95,11 @@ export class BotAI3D {
 
     // Buy Phase - stationary in spawn
     if (phase === 'BUY_PHASE') return
+
+    // Update vertical elevation based on ground/stairs/ramps
+    const groundY = this.probeGround(bot.pos.x, bot.pos.z)
+    bot.pos.y = groundY + 1.7
+    bot.onGround = true
 
     // Practice Range Dummy bot behavior
     if (bot.isDummy) {
