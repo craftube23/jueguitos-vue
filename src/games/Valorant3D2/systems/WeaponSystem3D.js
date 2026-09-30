@@ -53,8 +53,8 @@ const WEAPON_MODELS = {
     },
     hideBodyMesh: true,
     hipPos: [0.08, -0.855, -0.22],
-    adsPos: [-0.041, -0.778, -0.15],
-    muzzlePos: [0.0, 0.778, -0.90],
+    adsPos: [-0.0227, -0.816, -0.16],
+    muzzlePos: [0.0, 0.816, -0.90],
     animMap: {
       draw: 'Rig|M4_Idle',
       idle: 'Rig|M4_Idle',
