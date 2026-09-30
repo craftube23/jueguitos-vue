@@ -45,9 +45,9 @@ const WEAPON_MODELS = {
     scale: [0.009, 0.009, 0.009],
     rotation: [0, Math.PI, 0],
     hideBodyMesh: true,
-    hipPos: [0.03, -1.36, -0.40],
-    adsPos: [-0.1098, -1.287, -0.32],
-    muzzlePos: [0.0, 1.28, -0.65],
+    hipPos: [0.03, -1.42, -0.38],
+    adsPos: [-0.1102, -1.348, -0.28],
+    muzzlePos: [0.0, 1.348, -0.70],
     subclips: {
       draw: { fromClip: 'Draw', start: 4.166, end: 4.666 },
       idle: { fromClip: 'Draw', start: 4.55, end: 4.666 },
