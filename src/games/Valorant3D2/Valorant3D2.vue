@@ -2348,7 +2348,7 @@ function buyItem(item) {
         <div class="lobby-header-right" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
           <div class="net-badge" :style="{ color: networkStatus === 'CONNECTED' ? '#4ade80' : '#facc15' }" style="font-size: 0.75rem; padding: 6px 12px; border-radius: 6px; font-weight: 800; display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1);">
             <span>{{ networkStatus === 'CONNECTED' ? '🟢' : '🟡' }}</span>
-            <span>{{ networkStatus === 'CONNECTED' ? 'EN LÍNEA (P2P)' : 'CONECTANDO...' }}</span>
+            <span>{{ networkStatus === 'CONNECTED' ? 'EN LÍNEA (CLOUD REALTIME)' : 'CONECTANDO...' }}</span>
           </div>
           <div class="lobby-code-box" style="display: flex; align-items: center; gap: 8px;">
             <span class="code-label">SALA:</span>
