@@ -38,8 +38,8 @@ const WEAPON_MODELS = {
       draw: 'DRAW',
       idle: 'IDLE',
       shoot: 'SHOOT',
-      reload: 'RELOAD1',
-      inspect: 'DRAW'
+      reload: 'RELOAD2',
+      inspect: 'INSPEC'
     }
   },
   benelli_m4: {
@@ -409,7 +409,7 @@ export class WeaponSystem3D {
     this.swayY = Math.max(-0.035, Math.min(0.035, this.swayY + movementY * 0.0003))
   }
 
-  update(dt, isReloading, reloadProgress, isAiming = false, baseFov = 75, isSniper = false) {
+  update(dt, isReloading, reloadProgress, isAiming = false, baseFov = 75, isSniper = false, expectedReloadDuration = 2.8) {
     this.idleTimer += dt
 
     // Update all loaded GLTF Skeletal Animation Mixers
@@ -423,18 +423,18 @@ export class WeaponSystem3D {
       const cfg = activeData.config
       if (isReloading && !this.wasReloading) {
         const reloadAnim = cfg.animMap.reload
-        if (reloadAnim) {
-          this.playWeaponAnimation(this.activeModelKey, reloadAnim, false, 1.35, () => {
-            if (cfg.holdPose) {
-              this.playWeaponAnimation(this.activeModelKey, cfg.animMap.draw, false, 2.0)
+        if (reloadAnim && activeData.actions[reloadAnim]) {
+          const action = activeData.actions[reloadAnim]
+          const clip = action.getClip()
+          const clipDuration = clip ? clip.duration : 3.0
+          const targetDuration = expectedReloadDuration || 2.8
+          // Calculate exact timeScale so the animation plays completely from 0% to 100% without being cut off
+          const dynamicTimeScale = Math.max(0.6, clipDuration / targetDuration)
+          this.playWeaponAnimation(this.activeModelKey, reloadAnim, false, dynamicTimeScale, () => {
+            if (cfg.animMap.idle) {
+              this.playWeaponAnimation(this.activeModelKey, cfg.animMap.idle, true, 1.0)
             }
           })
-        }
-      } else if (!isReloading && this.wasReloading) {
-        if (cfg.holdPose) {
-          this.playWeaponAnimation(this.activeModelKey, cfg.animMap.draw, false, 2.0)
-        } else if (cfg.animMap.idle) {
-          this.playWeaponAnimation(this.activeModelKey, cfg.animMap.idle, true, 1.0)
         }
       }
     }

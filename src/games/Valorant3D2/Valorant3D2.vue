@@ -731,8 +731,8 @@ function updateGame3D(dt) {
   }
 
   const isSniper = wep.category === WEAPON_CATEGORIES.SNIPERS
-  const reloadProgress = player.isReloading ? (1.0 - player.reloadTimer / (wep.reloadTime || 2.2)) : 0
-  weaponSystem.update(dt, player.isReloading, reloadProgress, isAiming.value, settings.fov, isSniper)
+  const reloadProgress = player.isReloading ? (1.0 - player.reloadTimer / (wep.reloadTime || 2.8)) : 0
+  weaponSystem.update(dt, player.isReloading, reloadProgress, isAiming.value, settings.fov, isSniper, wep.reloadTime || 2.8)
   if (isThirdPerson.value && weaponSystem && weaponSystem.gunGroup) {
     weaponSystem.gunGroup.visible = false
   }
