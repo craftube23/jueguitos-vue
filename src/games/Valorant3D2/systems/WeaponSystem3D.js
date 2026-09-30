@@ -637,18 +637,26 @@ export class WeaponSystem3D {
         }
       }
 
-      const hitThreshold = isMelee ? (target.radius * 2.5) : (target.radius * 1.5 + 0.12)
+      // Precise Head Hitbox Sphere (Radius 0.18m centered on head)
+      const headCenter = new THREE.Vector3(target.pos.x, headY - 0.08, target.pos.z)
+      const distToHead = raycaster.ray.distanceToPoint(headCenter)
 
-      if (distToBody < hitThreshold) {
-        const hitPosition = new THREE.Vector3(target.pos.x, bestHitY, target.pos.z)
+      // Precise Body Cylinder Hitbox (Radius 0.30m standing, 0.35m crouching)
+      const bodyRadius = target.crouching ? 0.35 : 0.30
+      const hitThreshold = isMelee ? 0.65 : bodyRadius
+
+      const isHeadHit = distToHead <= 0.18
+      const isBodyHit = distToBody <= hitThreshold
+
+      if (isHeadHit || isBodyHit) {
+        const hitPosition = isHeadHit ? headCenter : new THREE.Vector3(target.pos.x, bestHitY, target.pos.z)
         const distFromShooter = origin.distanceTo(hitPosition)
 
         if (distFromShooter <= maxReach && distFromShooter < wallHitDist) {
           if (!closestHit || distFromShooter < closestHit.dist) {
-            const isHead = bestHitY >= (headY - 0.28)
             closestHit = { dist: distFromShooter, pos: hitPosition }
             hitTarget = target
-            isHeadshot = isHead
+            isHeadshot = isHeadHit
           }
         }
       }

@@ -691,11 +691,23 @@ function updateGame3D(dt) {
     players.value.forEach(bot => {
       if (bot.id !== player.id && !bot.isRemotePlayer) {
         botAI.updateBot(bot, dt, player, match.phase, MAP_3D, (shooter, target) => {
-          weaponSystem.spawnTracer(new THREE.Vector3(shooter.pos.x, shooter.pos.y, shooter.pos.z), new THREE.Vector3(target.pos.x, target.pos.y, target.pos.z))
-          if (target.id === player.id) return
-          const res = DamageSystem.applyDamage(target, 25, false, false, 'bullet')
-          if (res.killed) {
-            handlePlayerKilled3D(target, shooter.id, 'Vandal', false)
+          const dist = Math.hypot(target.pos.x - shooter.pos.x, target.pos.z - shooter.pos.z)
+          const accuracy = Math.max(0.25, 0.65 - (dist / 35.0) * 0.3)
+          const hit = Math.random() < accuracy
+          const targetHeadY = (target.pos.y || 1.7)
+
+          if (hit) {
+            const targetPoint = new THREE.Vector3(target.pos.x, targetHeadY - 0.3, target.pos.z)
+            weaponSystem.spawnTracer(new THREE.Vector3(shooter.pos.x, (shooter.pos.y || 1.7) + 0.3, shooter.pos.z), targetPoint)
+            if (target.id === player.id) return
+            const res = DamageSystem.applyDamage(target, 25, false, false, 'bullet')
+            if (res.killed) {
+              handlePlayerKilled3D(target, shooter.id, 'Vandal', false)
+            }
+          } else {
+            const missOffset = new THREE.Vector3((Math.random() - 0.5) * 1.8, (Math.random() - 0.5) * 1.4, (Math.random() - 0.5) * 1.8)
+            const targetPoint = new THREE.Vector3(target.pos.x, targetHeadY, target.pos.z).add(missOffset)
+            weaponSystem.spawnTracer(new THREE.Vector3(shooter.pos.x, (shooter.pos.y || 1.7) + 0.3, shooter.pos.z), targetPoint)
           }
         }, players.value)
       }
@@ -760,12 +772,26 @@ function updateGame3D(dt) {
     players.value.forEach(bot => {
       if (bot.id !== player.id && !bot.isRemotePlayer && !bot.isDummy) {
         botAI.updateBot(bot, dt, player, match.phase, MAP_3D, (shooter, target) => {
-          weaponSystem.spawnTracer(new THREE.Vector3(shooter.pos.x, shooter.pos.y, shooter.pos.z), new THREE.Vector3(target.pos.x, target.pos.y, target.pos.z))
-          if (!godMode.value) {
-            const res = DamageSystem.applyDamage(target, 25, false, false, 'bullet')
-            if (res.killed) {
-              handlePlayerKilled3D(target, shooter.id, 'Vandal', false)
+          const dist = Math.hypot(target.pos.x - shooter.pos.x, target.pos.z - shooter.pos.z)
+          const isTargetMoving = (target.id === player.id && playerController) ? (Math.hypot(playerController.velocity.x, playerController.velocity.z) > 1.2) : false
+          // Human-like accuracy: drops with distance and target movement
+          const accuracy = Math.max(0.20, 0.60 - (dist / 35.0) * 0.28 - (isTargetMoving ? 0.20 : 0))
+          const hit = Math.random() < accuracy
+          const targetHeadY = (target.pos.y || 1.7)
+
+          if (hit) {
+            const targetPoint = new THREE.Vector3(target.pos.x, targetHeadY - 0.3, target.pos.z)
+            weaponSystem.spawnTracer(new THREE.Vector3(shooter.pos.x, (shooter.pos.y || 1.7) + 0.3, shooter.pos.z), targetPoint)
+            if (!godMode.value || target.id !== player.id) {
+              const res = DamageSystem.applyDamage(target, 25, false, false, 'bullet')
+              if (res.killed) {
+                handlePlayerKilled3D(target, shooter.id, 'Vandal', false)
+              }
             }
+          } else {
+            const missOffset = new THREE.Vector3((Math.random() - 0.5) * 1.8, (Math.random() - 0.5) * 1.4, (Math.random() - 0.5) * 1.8)
+            const targetPoint = new THREE.Vector3(target.pos.x, targetHeadY, target.pos.z).add(missOffset)
+            weaponSystem.spawnTracer(new THREE.Vector3(shooter.pos.x, (shooter.pos.y || 1.7) + 0.3, shooter.pos.z), targetPoint)
           }
         }, players.value)
       }
