@@ -347,7 +347,7 @@ function initThreeJS() {
   scene.fog = new THREE.Fog(0x0b132b, 45, 160)
 
   // 2. Camera
-  camera = new THREE.PerspectiveCamera(settings.fov, width / height, 0.1, 1000)
+  camera = new THREE.PerspectiveCamera(settings.fov, width / height, 0.05, 1000)
   camera.position.set(player.pos.x, player.pos.y, player.pos.z)
 
   // 3. Lighting (Rich Tactical Illumination)

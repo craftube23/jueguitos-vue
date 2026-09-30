@@ -6,18 +6,25 @@ import { soundManager } from './SoundSystem.js'
 const WEAPON_MODELS = {
   m4a1: {
     path: '/models/armas/m4_-_fps_weapon_animations_pack_v.1.glb',
-    scale: [0.01, 0.01, 0.01],
+    scale: [1, 1, 1],
     rotation: [0, Math.PI, 0],
     hideBodyMesh: false,
-    hipPos: [0.0, -1.53, -0.10],
-    adsPos: [0.06, -1.48, -0.04],
-    muzzlePos: [0.06, 1.48, -0.85],
+    hipPos: [0.04, -1.50, -0.18],
+    adsPos: [-0.015, -1.465, -0.12],
+    muzzlePos: [0.04, 1.48, -0.85],
+    subclips: {
+      draw: { fromClip: 'Draw', start: 0.0, end: 1.033 },
+      idle: { fromClip: 'Draw', start: 0.95, end: 1.033 },
+      shoot: { fromClip: 'Fire', start: 0.0, end: 0.80 },
+      reload: { fromClip: 'Reload', start: 0.0, end: 3.63 },
+      inspect: { fromClip: 'Holster', start: 0.0, end: 0.57 }
+    },
     animMap: {
-      draw: 'Draw',
-      idle: 'Draw',
-      shoot: 'Fire',
-      reload: 'Reload',
-      inspect: 'Holster'
+      draw: 'draw',
+      idle: 'idle',
+      shoot: 'shoot',
+      reload: 'reload',
+      inspect: 'inspect'
     }
   },
   ak74u: {
