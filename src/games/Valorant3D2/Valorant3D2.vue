@@ -1175,6 +1175,31 @@ function renderRadar() {
   })
 }
 
+function getPlayerSpawnSlot(targetPlayer) {
+  if (!targetPlayer) return { x: 0, y: 1.7, z: 0 }
+  const team = targetPlayer.team || 'attackers'
+  const isAtk = team === 'attackers'
+  const slots = isAtk ? MAP_3D.spawnAtkSlots : MAP_3D.spawnDefSlots
+
+  const roomList = (roomPlayerList.value && roomPlayerList.value.length > 0)
+    ? roomPlayerList.value
+    : players.value
+
+  const sameTeam = roomList.filter(p => p.team === team)
+  let idx = sameTeam.findIndex(p => p.id === targetPlayer.id)
+
+  if (idx === -1) {
+    let hash = 0
+    const str = targetPlayer.id || targetPlayer.name || '0'
+    for (let i = 0; i < str.length; i++) hash = (hash * 31 + str.charCodeAt(i)) & 0xffffffff
+    idx = Math.abs(hash) % slots.length
+  } else {
+    idx = idx % slots.length
+  }
+
+  return slots[idx] || slots[0]
+}
+
 function resetRound(fullReset = false) {
   if (fullReset) {
     match.scoreAtk = 0
@@ -1210,8 +1235,10 @@ function resetRound(fullReset = false) {
     }
   }
 
-  const mySlots = player.team === 'attackers' ? MAP_3D.spawnAtkSlots : MAP_3D.spawnDefSlots
-  const mySpawn = mySlots[2]
+  const mySpawn = getPlayerSpawnSlot(player)
+  player.pos.x = mySpawn.x
+  player.pos.y = mySpawn.y
+  player.pos.z = mySpawn.z
 
   if (playerController) {
     playerController.position.set(mySpawn.x, mySpawn.y, mySpawn.z)
@@ -1253,37 +1280,31 @@ function setup3DBots() {
     return
   }
 
-  // If online multiplayer: preserve and reset existing remote players
+  // If online multiplayer: preserve and reset existing remote players with unique individual slots
   if (isOnline.value) {
     if (remotePlayers.length > 0) {
       remotePlayers.forEach(rp => {
         rp.alive = true
         rp.health = 100
         rp.armor = 50
-        const isAtk = rp.team === 'attackers'
-        const spawnSlots = isAtk ? MAP_3D.spawnAtkSlots : MAP_3D.spawnDefSlots
-        const slot = spawnSlots[0] || { x: isAtk ? -24 : 24, y: 1.7, z: 0 }
+        const slot = getPlayerSpawnSlot(rp)
         rp.pos.x = slot.x
         rp.pos.y = slot.y
         rp.pos.z = slot.z
+        rp.yaw = rp.team === 'attackers' ? Math.PI / 2 : -Math.PI / 2
         players.value.push(rp)
       })
     } else if (roomPlayerList.value && roomPlayerList.value.length > 0) {
-      let atkSlotIdx = 0
-      let defSlotIdx = 0
       roomPlayerList.value.forEach(p => {
         if (p.id !== player.id) {
-          const isAtk = p.team === 'attackers'
-          const slot = isAtk
-            ? MAP_3D.spawnAtkSlots[(atkSlotIdx++) % MAP_3D.spawnAtkSlots.length]
-            : MAP_3D.spawnDefSlots[(defSlotIdx++) % MAP_3D.spawnDefSlots.length]
+          const slot = getPlayerSpawnSlot(p)
           players.value.push({
             id: p.id,
             name: p.name || 'Operador',
             team: p.team || (player.team === 'attackers' ? 'defenders' : 'attackers'),
             agentId: p.agentId || 'jett',
             pos: { x: slot.x, y: slot.y, z: slot.z },
-            yaw: isAtk ? Math.PI / 2 : -Math.PI / 2,
+            yaw: p.team === 'attackers' ? Math.PI / 2 : -Math.PI / 2,
             pitch: 0,
             radius: 0.6,
             health: 100,
@@ -1913,23 +1934,24 @@ function setupOnlinePlayers(room) {
   player.team = myRoomData.team || player.team
   player.credits = cfg.startingCredits || 5000
 
-  const mySlots = player.team === 'attackers' ? MAP_3D.spawnAtkSlots : MAP_3D.spawnDefSlots
-  const mySpawn = mySlots[2]
+  const mySpawn = getPlayerSpawnSlot(player)
   player.pos.x = mySpawn.x
   player.pos.y = mySpawn.y
   player.pos.z = mySpawn.z
 
-  players.value.push(player)
+  if (playerController) {
+    playerController.position.set(mySpawn.x, mySpawn.y, mySpawn.z)
+    playerController.velocity.set(0, 0, 0)
+    playerController.yaw = player.team === 'attackers' ? Math.PI / 2 : -Math.PI / 2
+    playerController.pitch = 0
+  }
 
-  let atkSlotIdx = 0
-  let defSlotIdx = 0
+  players.value.push(player)
 
   roomPlayers.forEach(p => {
     if (p.id !== player.id) {
       const isAtk = p.team === 'attackers'
-      const slot = isAtk
-        ? MAP_3D.spawnAtkSlots[(atkSlotIdx++) % MAP_3D.spawnAtkSlots.length]
-        : MAP_3D.spawnDefSlots[(defSlotIdx++) % MAP_3D.spawnDefSlots.length]
+      const slot = getPlayerSpawnSlot(p)
 
       players.value.push({
         id: p.id,
