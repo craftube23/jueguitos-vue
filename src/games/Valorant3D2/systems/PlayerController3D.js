@@ -99,7 +99,7 @@ export class PlayerController3D {
     if (keys['KeyA']) { moveX -= right.x; moveZ -= right.z }
     if (keys['KeyD']) { moveX += right.x; moveZ += right.z }
 
-    this.isCrouching = !!keys['ControlLeft'] || !!keys['KeyC_crouch']
+    this.isCrouching = !!keys['ControlLeft'] || !!keys['ControlRight'] || !!keys['Control'] || !!keys['KeyC_crouch']
     const isSilent = !!keys['ShiftLeft'] || !!keys['ShiftRight']
 
     let targetSpeed = this.walkSpeed
@@ -210,7 +210,7 @@ export class PlayerController3D {
         .add(right.clone().multiplyScalar(shoulderOffset))
         .sub(forward.clone().multiplyScalar(maxDist))
 
-      // Raycast from head to targetCamPos to prevent camera from clipping inside walls
+      // Raycast from head to targetCamPos to prevent camera from clipping inside walls (ignoring floor treads)
       if (this.meshColliders && this.meshColliders.length > 0) {
         const rayDir = new THREE.Vector3().subVectors(targetCamPos, headPos)
         const rayDist = rayDir.length()
@@ -218,9 +218,14 @@ export class PlayerController3D {
           rayDir.normalize()
           const camRay = new THREE.Raycaster(headPos, rayDir, 0.1, rayDist)
           const hits = camRay.intersectObjects(this.meshColliders, false)
-          if (hits.length > 0 && hits[0].distance < rayDist) {
-            const safeDist = Math.max(0.3, hits[0].distance - 0.25)
-            targetCamPos.copy(headPos).add(rayDir.multiplyScalar(safeDist))
+          for (const hit of hits) {
+            const normal = hit.face ? hit.face.normal.clone() : new THREE.Vector3(0, 1, 0)
+            normal.applyQuaternion(hit.object.getWorldQuaternion(new THREE.Quaternion()))
+            if (normal.y < 0.6 && hit.point.y > this.currentFloorY + 0.25) {
+              const safeDist = Math.max(0.4, hit.distance - 0.25)
+              targetCamPos.copy(headPos).add(rayDir.multiplyScalar(safeDist))
+              break
+            }
           }
         }
       }

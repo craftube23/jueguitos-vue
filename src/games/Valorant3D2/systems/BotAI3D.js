@@ -19,6 +19,26 @@ export class BotAI3D {
     this.wallsAABB = wallsAABB || []
   }
 
+  probeGround(x, z) {
+    if (!this.meshColliders || this.meshColliders.length === 0) return 0
+    const probeOrigin = new THREE.Vector3(x, 16.0, z)
+    const down = new THREE.Vector3(0, -1, 0)
+    this.raycaster.set(probeOrigin, down)
+    this.raycaster.far = 32.0
+    const hits = this.raycaster.intersectObjects(this.meshColliders, false)
+    let bestY = 0
+    if (hits.length > 0) {
+      for (const hit of hits) {
+        const normal = hit.face ? hit.face.normal.clone() : new THREE.Vector3(0, 1, 0)
+        normal.applyQuaternion(hit.object.getWorldQuaternion(new THREE.Quaternion()))
+        if (normal.y > 0.35 && hit.point.y > bestY) {
+          bestY = hit.point.y
+        }
+      }
+    }
+    return bestY
+  }
+
   resolveMovement(currX, currZ, targetX, targetZ, radius = 0.55) {
     let px = targetX
     let pz = targetZ
@@ -149,6 +169,7 @@ export class BotAI3D {
       const resolved = this.resolveMovement(bot.pos.x, bot.pos.z, targetX, targetZ)
       bot.pos.x = resolved.x
       bot.pos.z = resolved.z
+      bot.pos.y = this.probeGround(bot.pos.x, bot.pos.z) + 1.7
       return
     }
 
@@ -160,6 +181,7 @@ export class BotAI3D {
       const resolved = this.resolveMovement(bot.pos.x, bot.pos.z, targetX, targetZ)
       bot.pos.x = resolved.x
       bot.pos.z = resolved.z
+      bot.pos.y = this.probeGround(bot.pos.x, bot.pos.z) + 1.7
     }
   }
 }

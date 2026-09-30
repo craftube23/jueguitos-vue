@@ -559,7 +559,7 @@ function updateGame3D(dt) {
         }, players.value)
       }
     })
-    updatePlayer3DMeshes()
+    updatePlayer3DMeshes(dt)
     return
   }
 
@@ -571,6 +571,8 @@ function updateGame3D(dt) {
   player.pos.z = playerController.position.z
   player.yaw = playerController.yaw
   player.pitch = playerController.pitch
+  player.crouching = playerController.isCrouching
+  player.onGround = playerController.onGround
 
   // Blind recovery
   if (player.blindAlpha > 0) {
@@ -628,7 +630,7 @@ function updateGame3D(dt) {
   })
 
   // Update 3D Meshes
-  updatePlayer3DMeshes()
+  updatePlayer3DMeshes(dt)
 
   // Online Sync
   if (isOnline.value && networkSystem && networkSystem.connected) {
@@ -638,6 +640,8 @@ function updateGame3D(dt) {
       z: player.pos.z,
       yaw: player.yaw,
       pitch: player.pitch,
+      crouching: playerController.isCrouching,
+      onGround: playerController.onGround,
       health: player.health,
       armor: player.armor,
       weapon: player.weapon
@@ -645,7 +649,7 @@ function updateGame3D(dt) {
   }
 }
 
-function updatePlayer3DMeshes() {
+function updatePlayer3DMeshes(dt = 0.016) {
   players.value.forEach(p => {
     const isLocal = (p.id === player.id)
     if (isLocal && !isThirdPerson.value) {
@@ -774,8 +778,6 @@ function updatePlayer3DMeshes() {
           roughness: 0.45,
           metalness: 0.4
         })
-        const teamGlowMat = new THREE.MeshBasicMaterial({ color: baseTeamColor })
-        const agentGlowMat = new THREE.MeshBasicMaterial({ color: agentColor })
 
         const legGeo = new THREE.CylinderGeometry(0.085, 0.065, 0.75, 8)
         const leftLeg = new THREE.Mesh(legGeo, armorMat)
@@ -839,8 +841,13 @@ function updatePlayer3DMeshes() {
       playerMeshes.set(p.id, mesh)
     }
 
+    const eyeH = p.crouching ? 1.1 : 1.7
+    const feetY = (isLocal && playerController)
+      ? (playerController.position.y - playerController.currentEyeHeight)
+      : Math.max(0, (p.pos.y || 1.7) - eyeH)
+
     mesh.visible = p.alive && (!isLocal || isThirdPerson.value)
-    mesh.position.set(p.pos.x, 0, p.pos.z)
+    mesh.position.set(p.pos.x, feetY, p.pos.z)
     if (p.yaw !== undefined) {
       mesh.rotation.y = p.yaw
     }
@@ -849,52 +856,84 @@ function updatePlayer3DMeshes() {
     const bones = mesh.userData.bones
     const baseRot = mesh.userData.baseRot
     if (bones && baseRot && p.alive) {
+      // 1. Smooth Crouch Weight Lerp
+      const isCrouching = isLocal ? (playerController?.isCrouching || false) : (!!p.crouching)
+      mesh.userData.crouchWeight = THREE.MathUtils.lerp(
+        mesh.userData.crouchWeight !== undefined ? mesh.userData.crouchWeight : 0,
+        isCrouching ? 1.0 : 0.0,
+        Math.min(1.0, 18 * dt)
+      )
+      const crouchW = mesh.userData.crouchWeight
+
+      // Lower 3D character root into low-profile tactical crouch stance
+      const charClone = mesh.children.find(c => c.type === 'Group' || c.type === 'Object3D')
+      if (charClone && bones['CC_Base_Pelvis_096']) {
+        charClone.position.y = -0.38 * crouchW
+        charClone.position.z = -0.06 * crouchW
+      }
+
+      // 2. Airborne / Jump State
+      const isAirborne = isLocal ? (!playerController?.onGround) : (!p.onGround)
+
       const lastX = mesh.userData.lastX !== undefined ? mesh.userData.lastX : p.pos.x
       const lastZ = mesh.userData.lastZ !== undefined ? mesh.userData.lastZ : p.pos.z
       const moveDist = Math.hypot(p.pos.x - lastX, p.pos.z - lastZ)
-      const instantSpeed = Math.min(8.0, moveDist / 0.016)
+      const instantSpeed = Math.min(8.0, moveDist / Math.max(0.001, dt))
       mesh.userData.lastX = p.pos.x
       mesh.userData.lastZ = p.pos.z
       mesh.userData.moveSpeed = THREE.MathUtils.lerp(mesh.userData.moveSpeed || 0, instantSpeed, 0.22)
 
       const isMoving = mesh.userData.moveSpeed > 0.15
-      if (isMoving) {
-        mesh.userData.walkTimer = (mesh.userData.walkTimer || 0) + mesh.userData.moveSpeed * 0.16
+      if (isMoving && !isAirborne) {
+        mesh.userData.walkTimer = (mesh.userData.walkTimer || 0) + mesh.userData.moveSpeed * (isCrouching ? 0.12 : 0.16)
       } else {
         mesh.userData.walkTimer = (mesh.userData.walkTimer || 0) * 0.86
       }
 
       const walkTimer = mesh.userData.walkTimer || 0
-      const walkWeight = Math.min(1.0, mesh.userData.moveSpeed / 2.5)
+      const walkWeight = Math.min(1.0, mesh.userData.moveSpeed / 2.5) * (isAirborne ? 0.2 : (1.0 - 0.50 * crouchW))
       const walkSwing = Math.sin(walkTimer) * 0.58 * walkWeight
       const idleTime = performance.now() * 0.0022
       const breath = Math.sin(idleTime) * 0.02
 
-      // 1. Legs Locomotion Cycle (Thighs, Calfs, Feet)
+      // Aim Pitch (looking up/down with camera & reticle)
+      const aimPitch = p.pitch || 0
+
+      // Crouch & Jump Leg Offsets (Wide Combat Stance)
+      const crouchThighBend = 0.95 * crouchW
+      const crouchCalfBend = -1.35 * crouchW
+      const crouchFootBend = 0.48 * crouchW
+
+      const jumpThighBend = isAirborne ? 0.40 : 0
+      const jumpCalfBend = isAirborne ? -0.60 : 0
+
+      // Legs Locomotion Cycle (Thighs, Calfs, Feet with Jump & Tactical Crouch)
       if (bones['CC_Base_R_Thigh_097'] && baseRot['CC_Base_R_Thigh_097']) {
-        bones['CC_Base_R_Thigh_097'].rotation.x = baseRot['CC_Base_R_Thigh_097'].x + walkSwing
+        bones['CC_Base_R_Thigh_097'].rotation.x = baseRot['CC_Base_R_Thigh_097'].x + walkSwing + crouchThighBend + jumpThighBend
+        bones['CC_Base_R_Thigh_097'].rotation.z = baseRot['CC_Base_R_Thigh_097'].z - 0.12 * crouchW
       }
       if (bones['CC_Base_L_Thigh_0117'] && baseRot['CC_Base_L_Thigh_0117']) {
-        bones['CC_Base_L_Thigh_0117'].rotation.x = baseRot['CC_Base_L_Thigh_0117'].x - walkSwing
+        bones['CC_Base_L_Thigh_0117'].rotation.x = baseRot['CC_Base_L_Thigh_0117'].x - walkSwing + crouchThighBend + jumpThighBend
+        bones['CC_Base_L_Thigh_0117'].rotation.z = baseRot['CC_Base_L_Thigh_0117'].z + 0.12 * crouchW
       }
       if (bones['CC_Base_R_Calf_0100'] && baseRot['CC_Base_R_Calf_0100']) {
         const calfFlex = Math.max(0, -Math.sin(walkTimer)) * 0.78 * walkWeight
-        bones['CC_Base_R_Calf_0100'].rotation.x = baseRot['CC_Base_R_Calf_0100'].x + calfFlex
+        bones['CC_Base_R_Calf_0100'].rotation.x = baseRot['CC_Base_R_Calf_0100'].x + calfFlex + crouchCalfBend + jumpCalfBend
       }
       if (bones['CC_Base_L_Calf_0120'] && baseRot['CC_Base_L_Calf_0120']) {
         const calfFlex = Math.max(0, Math.sin(walkTimer)) * 0.78 * walkWeight
-        bones['CC_Base_L_Calf_0120'].rotation.x = baseRot['CC_Base_L_Calf_0120'].x + calfFlex
+        bones['CC_Base_L_Calf_0120'].rotation.x = baseRot['CC_Base_L_Calf_0120'].x + calfFlex + crouchCalfBend + jumpCalfBend
       }
       if (bones['CC_Base_R_Foot_0104'] && baseRot['CC_Base_R_Foot_0104']) {
-        bones['CC_Base_R_Foot_0104'].rotation.x = baseRot['CC_Base_R_Foot_0104'].x + walkSwing * 0.35
+        bones['CC_Base_R_Foot_0104'].rotation.x = baseRot['CC_Base_R_Foot_0104'].x + walkSwing * 0.35 + crouchFootBend
       }
       if (bones['CC_Base_L_Foot_0124'] && baseRot['CC_Base_L_Foot_0124']) {
-        bones['CC_Base_L_Foot_0124'].rotation.x = baseRot['CC_Base_L_Foot_0124'].x - walkSwing * 0.35
+        bones['CC_Base_L_Foot_0124'].rotation.x = baseRot['CC_Base_L_Foot_0124'].x - walkSwing * 0.35 + crouchFootBend
       }
 
-      // 2. Arms Tactical Combat Hold & Stance (Hands holding rifle)
+      // Arms Tactical Combat Hold & Weapon Pitch Aiming (Tucked in tight when crouching)
       if (bones['CC_Base_R_Upperarm_06'] && baseRot['CC_Base_R_Upperarm_06']) {
-        bones['CC_Base_R_Upperarm_06'].rotation.x = baseRot['CC_Base_R_Upperarm_06'].x + 0.85 + breath
+        bones['CC_Base_R_Upperarm_06'].rotation.x = baseRot['CC_Base_R_Upperarm_06'].x + 0.85 + breath - aimPitch * 0.45 - 0.08 * crouchW
         bones['CC_Base_R_Upperarm_06'].rotation.y = baseRot['CC_Base_R_Upperarm_06'].y - 0.45
         bones['CC_Base_R_Upperarm_06'].rotation.z = baseRot['CC_Base_R_Upperarm_06'].z - 0.35
       }
@@ -902,7 +941,7 @@ function updatePlayer3DMeshes() {
         bones['CC_Base_R_Forearm_09'].rotation.x = baseRot['CC_Base_R_Forearm_09'].x + 1.15
       }
       if (bones['CC_Base_L_Upperarm_035'] && baseRot['CC_Base_L_Upperarm_035']) {
-        bones['CC_Base_L_Upperarm_035'].rotation.x = baseRot['CC_Base_L_Upperarm_035'].x + 0.95 + breath
+        bones['CC_Base_L_Upperarm_035'].rotation.x = baseRot['CC_Base_L_Upperarm_035'].x + 0.95 + breath - aimPitch * 0.45 - 0.08 * crouchW
         bones['CC_Base_L_Upperarm_035'].rotation.y = baseRot['CC_Base_L_Upperarm_035'].y + 0.55
         bones['CC_Base_L_Upperarm_035'].rotation.z = baseRot['CC_Base_L_Upperarm_035'].z + 0.35
       }
@@ -910,13 +949,18 @@ function updatePlayer3DMeshes() {
         bones['CC_Base_L_Forearm_038'].rotation.x = baseRot['CC_Base_L_Forearm_038'].x + 1.35
       }
 
-      // 3. Torso & Head Pitch Aiming (looking up/down with player/bot view)
-      const aimPitch = p.pitch || 0
+      // Torso Spine & Head Pitch Aiming (leaning into gun sights when crouching)
       if (bones['CC_Base_Spine01_03'] && baseRot['CC_Base_Spine01_03']) {
-        bones['CC_Base_Spine01_03'].rotation.x = baseRot['CC_Base_Spine01_03'].x - aimPitch * 0.35 + breath * 0.5
+        bones['CC_Base_Spine01_03'].rotation.x = baseRot['CC_Base_Spine01_03'].x - aimPitch * 0.42 + breath * 0.5 - 0.32 * crouchW
       }
       if (bones['CC_Base_Head_075'] && baseRot['CC_Base_Head_075']) {
-        bones['CC_Base_Head_075'].rotation.x = baseRot['CC_Base_Head_075'].x - aimPitch * 0.45
+        bones['CC_Base_Head_075'].rotation.x = baseRot['CC_Base_Head_075'].x - aimPitch * 0.58
+      }
+
+      // Floating Nameplate Position tracking crouch height
+      const nameSprite = mesh.children.find(c => c.isSprite)
+      if (nameSprite) {
+        nameSprite.position.set(0, 2.22 - 0.55 * crouchW, 0)
       }
     }
   })

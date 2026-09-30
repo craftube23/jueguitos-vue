@@ -535,8 +535,9 @@ export class WeaponSystem3D {
     }
 
     if (!isMelee) {
-      // Recoil kick & Visual Muzzle Flash (reduced by 75% in ADS for superior precision)
-      const recoilKick = (wep.recoil || 0.35) * (isAiming ? 0.25 : 1.0)
+      // Recoil kick & Visual Muzzle Flash (reduced in ADS and when Crouching for superior precision)
+      const crouchRecoilMult = shooter.crouching ? 0.65 : 1.0
+      const recoilKick = (wep.recoil || 0.35) * (isAiming ? 0.25 : 1.0) * crouchRecoilMult
       this.recoil = Math.min(1.0, this.recoil + recoilKick)
       this.flashTimer = 0.06
 
@@ -555,8 +556,9 @@ export class WeaponSystem3D {
     const origin = new THREE.Vector3(shooter.pos.x, shooter.pos.y, shooter.pos.z)
     const dir = new THREE.Vector3(0, 0, -1).applyEuler(this.camera.rotation)
 
-    // Spread (Zero spread in ADS = Pinpoint Laser Precision!)
-    const baseSpread = shooter.isSilent ? 0 : (wep.spread || 0)
+    // Spread (Zero spread in ADS, significantly reduced when crouching)
+    const crouchSpreadMult = shooter.crouching ? 0.45 : 1.0
+    const baseSpread = shooter.isSilent ? 0 : ((wep.spread || 0) * crouchSpreadMult)
     const spreadVal = (isAiming || isMelee) ? 0.0 : baseSpread
     if (spreadVal > 0) {
       dir.x += (Math.random() - 0.5) * spreadVal
