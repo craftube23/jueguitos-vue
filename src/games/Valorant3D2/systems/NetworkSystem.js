@@ -4,16 +4,18 @@ import { Peer } from 'peerjs'
 export class NetworkSystem {
   constructor() {
     this.peer = null
-    this.connections = [] // For host: list of DataConnections
-    this.hostConn = null   // For client: DataConnection to host
+    this.connections = [] // Host: list of DataConnections
+    this.hostConn = null   // Client: DataConnection to host
     this.connected = false
     this.isHost = false
     this.currentRoom = null
     this.myPlayer = null
     this.ping = 0
     this.listeners = new Map()
+    this.knownPublicRooms = new Map()
+    this.roomAnnounceInterval = null
 
-    // BroadcastChannel local fallback
+    // BroadcastChannel local cross-tab mesh
     this.bc = null
     if (typeof BroadcastChannel !== 'undefined') {
       try {
@@ -26,7 +28,6 @@ export class NetworkSystem {
   }
 
   connect() {
-    // PeerJS initializes on room creation or join
     this.connected = true
   }
 
@@ -36,13 +37,78 @@ export class NetworkSystem {
       const msg = e.data
       if (!msg || !msg.type) return
 
-      if (msg.type === 'BC_ROOM_UPDATED' && this.currentRoom && this.currentRoom.id === msg.room.id) {
+      // --- DISCOVERY & ANNOUNCEMENTS ---
+      if (msg.type === 'BC_GET_ROOMS') {
+        if (this.isHost && this.currentRoom && this.currentRoom.status === 'lobby') {
+          this.bc.postMessage({ type: 'BC_ANNOUNCE_ROOM', room: this.currentRoom })
+        }
+      } else if (msg.type === 'BC_ANNOUNCE_ROOM') {
+        if (msg.room && msg.room.id) {
+          this.knownPublicRooms.set(msg.room.id, msg.room)
+          this.emitInternal('rooms_list', Array.from(this.knownPublicRooms.values()))
+        }
+      }
+
+      // --- JOINING ROOM VIA BROADCAST CHANNEL ---
+      else if (msg.type === 'BC_JOIN_REQ') {
+        if (this.isHost && this.currentRoom && (this.currentRoom.id === msg.roomId || this.currentRoom.id.toLowerCase() === msg.roomId.toLowerCase())) {
+          const exists = this.currentRoom.players.find(p => p.id === msg.player.id)
+          if (!exists) {
+            this.currentRoom.players.push(msg.player)
+          }
+          // Respond to joining client
+          this.bc.postMessage({
+            type: 'BC_ROOM_JOINED',
+            targetPlayerId: msg.player.id,
+            room: this.currentRoom,
+            player: msg.player
+          })
+          // Broadcast updated room to all
+          this.bc.postMessage({ type: 'BC_ROOM_UPDATED', room: this.currentRoom })
+          this.emitInternal('room_updated', this.currentRoom)
+        }
+      } else if (msg.type === 'BC_ROOM_JOINED') {
+        if (this.myPlayer && msg.targetPlayerId === this.myPlayer.id) {
+          this.currentRoom = msg.room
+          this.connected = true
+          this.emitInternal('room_joined', { room: msg.room, player: this.myPlayer })
+        }
+      }
+
+      // --- LOBBY ACTIONS ---
+      else if (msg.type === 'BC_SWITCH_TEAM' && this.isHost && this.currentRoom && this.currentRoom.id === msg.roomId) {
+        const p = this.currentRoom.players.find(x => x.id === msg.playerId)
+        if (p) {
+          p.team = msg.targetTeam
+          this.bc.postMessage({ type: 'BC_ROOM_UPDATED', room: this.currentRoom })
+          this.emitInternal('room_updated', this.currentRoom)
+        }
+      } else if (msg.type === 'BC_SELECT_AGENT' && this.isHost && this.currentRoom && this.currentRoom.id === msg.roomId) {
+        const p = this.currentRoom.players.find(x => x.id === msg.playerId)
+        if (p) {
+          p.agentId = msg.agentId
+          this.bc.postMessage({ type: 'BC_ROOM_UPDATED', room: this.currentRoom })
+          this.emitInternal('room_updated', this.currentRoom)
+        }
+      } else if (msg.type === 'BC_LOCK_AGENT' && this.isHost && this.currentRoom && this.currentRoom.id === msg.roomId) {
+        const p = this.currentRoom.players.find(x => x.id === msg.playerId)
+        if (p) {
+          p.isLocked = true
+          p.isReady = true
+          this.bc.postMessage({ type: 'BC_ROOM_UPDATED', room: this.currentRoom })
+          this.emitInternal('room_updated', this.currentRoom)
+        }
+      } else if (msg.type === 'BC_ROOM_UPDATED' && this.currentRoom && (this.currentRoom.id === msg.room.id || this.currentRoom.id.toLowerCase() === msg.room.id.toLowerCase())) {
         this.currentRoom = msg.room
         this.emitInternal('room_updated', msg.room)
-      } else if (msg.type === 'BC_START_MATCH' && this.currentRoom && this.currentRoom.id === msg.roomId) {
+      } else if (msg.type === 'BC_START_MATCH' && this.currentRoom && (this.currentRoom.id === msg.roomId || this.currentRoom.id.toLowerCase() === msg.roomId.toLowerCase())) {
+        this.currentRoom = msg.room || this.currentRoom
         this.currentRoom.status = 'in_game'
         this.emitInternal('match_started', this.currentRoom)
-      } else if (msg.type === 'BC_PLAYER_SYNC' && this.currentRoom && this.currentRoom.id === msg.roomId) {
+      }
+
+      // --- IN-GAME REAL-TIME SYNC ---
+      else if (msg.type === 'BC_PLAYER_SYNC' && this.currentRoom && this.currentRoom.id === msg.roomId) {
         if (this.myPlayer && msg.data.id !== this.myPlayer.id) {
           this.emitInternal('player_moved', msg.data)
         }
@@ -56,6 +122,9 @@ export class NetworkSystem {
         this.emitInternal('chat_received', msg.chat)
       }
     }
+
+    // Ask active hosts for available rooms
+    this.bc.postMessage({ type: 'BC_GET_ROOMS' })
   }
 
   on(event, cb) {
@@ -75,7 +144,7 @@ export class NetworkSystem {
   emitInternal(event, data) {
     if (this.listeners.has(event)) {
       for (const cb of this.listeners.get(event)) {
-        cb(data)
+        try { cb(data) } catch (err) { console.error('Listener error:', err) }
       }
     }
   }
@@ -93,6 +162,9 @@ export class NetworkSystem {
   createRoom(roomName, playerName, team = 'attackers', customConfig = null) {
     if (this.peer) {
       try { this.peer.destroy() } catch (e) {}
+    }
+    if (this.roomAnnounceInterval) {
+      clearInterval(this.roomAnnounceInterval)
     }
 
     const roomId = this.generateCode()
@@ -112,7 +184,7 @@ export class NetworkSystem {
       pos: { x: team === 'attackers' ? -26.0 : 26.0, y: 1.7, z: 0 },
       health: 100,
       armor: 50,
-      weapon: 'vandal'
+      weapon: 'ak74u'
     }
 
     const defaultCustomConfig = {
@@ -124,7 +196,8 @@ export class NetworkSystem {
       startingCredits: 5000,
       infiniteAmmo: false,
       infiniteAbilities: false,
-      buyPhaseDuration: 15
+      buyPhaseDuration: 15,
+      mapId: 'kasbah_temple'
     }
 
     const room = {
@@ -138,26 +211,41 @@ export class NetworkSystem {
 
     this.currentRoom = room
     this.myPlayer = hostPlayer
+    this.connected = true
+
+    // Broadcast room existence immediately and periodically
+    if (this.bc) {
+      this.bc.postMessage({ type: 'BC_ANNOUNCE_ROOM', room })
+      this.roomAnnounceInterval = setInterval(() => {
+        if (this.isHost && this.currentRoom && this.currentRoom.status === 'lobby') {
+          this.bc.postMessage({ type: 'BC_ANNOUNCE_ROOM', room: this.currentRoom })
+        }
+      }, 2000)
+    }
 
     try {
       this.peer = new Peer(peerRoomId, {
-        debug: 1,
+        debug: 0,
         config: {
           iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' }
+            { urls: 'stun:global.stun.twilio.com:3478' }
           ]
         }
       })
 
-      this.peer.on('open', (id) => {
+      this.peer.on('open', () => {
         this.connected = true
         this.emitInternal('room_joined', { room, player: hostPlayer })
       })
 
       this.peer.on('connection', (conn) => {
-        this.connections.push(conn)
+        conn.on('open', () => {
+          if (!this.connections.includes(conn)) {
+            this.connections.push(conn)
+          }
+        })
 
         conn.on('data', (data) => {
           this.handleHostReceivedData(conn, data)
@@ -175,13 +263,16 @@ export class NetworkSystem {
 
       this.peer.on('error', (err) => {
         console.warn('PeerJS Host notice:', err)
-        // If error, still allow local broadcast
         this.emitInternal('room_joined', { room, player: hostPlayer })
       })
     } catch (e) {
       console.warn('Peer fallback error:', e)
       this.emitInternal('room_joined', { room, player: hostPlayer })
     }
+
+    // Local instant confirmation
+    this.emitInternal('room_joined', { room, player: hostPlayer })
+    return room
   }
 
   handleHostReceivedData(conn, msg) {
@@ -189,11 +280,19 @@ export class NetworkSystem {
 
     if (msg.type === 'JOIN_REQ') {
       conn.playerId = msg.player.id
+      if (!this.connections.includes(conn)) {
+        this.connections.push(conn)
+      }
       const exists = this.currentRoom.players.find(p => p.id === msg.player.id)
       if (!exists) {
         this.currentRoom.players.push(msg.player)
       }
-      // Send full room state to all clients
+      // Send direct confirmation back to joining peer
+      try {
+        conn.send({ type: 'ROOM_JOINED', room: this.currentRoom, player: msg.player })
+      } catch (e) {}
+
+      // Broadcast full room state to all clients
       this.broadcastToAll({ type: 'ROOM_UPDATE', room: this.currentRoom })
       this.emitInternal('room_updated', this.currentRoom)
     } else if (msg.type === 'SWITCH_TEAM') {
@@ -219,7 +318,6 @@ export class NetworkSystem {
         this.emitInternal('room_updated', this.currentRoom)
       }
     } else if (msg.type === 'PLAYER_SYNC') {
-      // Broadcast to other peers and fire locally
       this.broadcastToAll(msg, conn)
       this.emitInternal('player_moved', msg.data)
     } else if (msg.type === 'GAME_EVENT') {
@@ -237,17 +335,17 @@ export class NetworkSystem {
   broadcastToAll(data, excludeConn = null) {
     this.connections.forEach(c => {
       if (c !== excludeConn && c.open) {
-        c.send(data)
+        try { c.send(data) } catch (e) {}
       }
     })
     // Local BroadcastChannel sync
-    if (this.bc) {
+    if (this.bc && this.currentRoom) {
       if (data.type === 'ROOM_UPDATE') this.bc.postMessage({ type: 'BC_ROOM_UPDATED', room: data.room })
-      else if (data.type === 'START_MATCH') this.bc.postMessage({ type: 'BC_START_MATCH', roomId: this.currentRoom?.id })
-      else if (data.type === 'PLAYER_SYNC') this.bc.postMessage({ type: 'BC_PLAYER_SYNC', roomId: this.currentRoom?.id, data: data.data })
-      else if (data.type === 'GAME_EVENT') this.bc.postMessage({ type: 'BC_GAME_EVENT', roomId: this.currentRoom?.id, event: data.event })
-      else if (data.type === 'PLAYER_HIT') this.bc.postMessage({ type: 'BC_PLAYER_HIT', roomId: this.currentRoom?.id, data: data.data })
-      else if (data.type === 'CHAT') this.bc.postMessage({ type: 'BC_CHAT', roomId: this.currentRoom?.id, chat: data.chat })
+      else if (data.type === 'START_MATCH') this.bc.postMessage({ type: 'BC_START_MATCH', roomId: this.currentRoom.id, room: data.room })
+      else if (data.type === 'PLAYER_SYNC') this.bc.postMessage({ type: 'BC_PLAYER_SYNC', roomId: this.currentRoom.id, data: data.data })
+      else if (data.type === 'GAME_EVENT') this.bc.postMessage({ type: 'BC_GAME_EVENT', roomId: this.currentRoom.id, event: data.event })
+      else if (data.type === 'PLAYER_HIT') this.bc.postMessage({ type: 'BC_PLAYER_HIT', roomId: this.currentRoom.id, data: data.data })
+      else if (data.type === 'CHAT') this.bc.postMessage({ type: 'BC_CHAT', roomId: this.currentRoom.id, chat: data.chat })
     }
   }
 
@@ -273,7 +371,7 @@ export class NetworkSystem {
       pos: { x: team === 'attackers' ? -26.0 : 26.0, y: 1.7, z: 5.0 },
       health: 100,
       armor: 50,
-      weapon: 'vandal'
+      weapon: 'ak74u'
     }
 
     const placeholderRoom = {
@@ -291,21 +389,33 @@ export class NetworkSystem {
         startingCredits: 5000,
         infiniteAmmo: false,
         infiniteAbilities: false,
-        buyPhaseDuration: 15
+        buyPhaseDuration: 15,
+        mapId: 'kasbah_temple'
       }
     }
 
     this.currentRoom = placeholderRoom
     this.myPlayer = joinPlayer
+    this.connected = true
 
+    // 1. Instant Cross-Tab BroadcastChannel Request
+    if (this.bc) {
+      this.bc.postMessage({
+        type: 'BC_JOIN_REQ',
+        roomId: cleanCode,
+        player: joinPlayer
+      })
+    }
+
+    // 2. PeerJS Network Connection Request
     try {
       this.peer = new Peer({
-        debug: 1,
+        debug: 0,
         config: {
           iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' }
+            { urls: 'stun:global.stun.twilio.com:3478' }
           ]
         }
       })
@@ -319,7 +429,6 @@ export class NetworkSystem {
             type: 'JOIN_REQ',
             player: joinPlayer
           })
-          this.emitInternal('room_joined', { room: this.currentRoom, player: joinPlayer })
         })
 
         this.hostConn.on('data', (data) => {
@@ -327,25 +436,25 @@ export class NetworkSystem {
         })
 
         this.hostConn.on('error', (err) => {
-          console.warn('Connection to host error:', err)
-          this.emitInternal('room_joined', { room: this.currentRoom, player: joinPlayer })
+          console.warn('Peer connection error (BC active):', err)
         })
       })
 
       this.peer.on('error', (err) => {
-        console.warn('Peer client error:', err)
-        this.emitInternal('room_joined', { room: this.currentRoom, player: joinPlayer })
+        console.warn('Peer client error (BC active):', err)
       })
     } catch (e) {
       console.warn('Peer connect error:', e)
-      this.emitInternal('room_joined', { room: this.currentRoom, player: joinPlayer })
     }
+
+    // Immediate local transition so client enters lobby without hang
+    this.emitInternal('room_joined', { room: placeholderRoom, player: joinPlayer })
   }
 
   handleClientReceivedData(msg) {
     if (!msg || !msg.type) return
 
-    if (msg.type === 'ROOM_UPDATE') {
+    if (msg.type === 'ROOM_JOINED' || msg.type === 'ROOM_UPDATE') {
       this.currentRoom = msg.room
       this.emitInternal('room_updated', msg.room)
     } else if (msg.type === 'START_MATCH') {
@@ -374,8 +483,13 @@ export class NetworkSystem {
       if (p) p.team = targetTeam
       this.broadcastToAll({ type: 'ROOM_UPDATE', room: this.currentRoom })
       this.emitInternal('room_updated', this.currentRoom)
-    } else if (this.hostConn && this.hostConn.open) {
-      this.hostConn.send({ type: 'SWITCH_TEAM', playerId: this.myPlayer.id, targetTeam })
+    } else {
+      if (this.hostConn && this.hostConn.open) {
+        this.hostConn.send({ type: 'SWITCH_TEAM', playerId: this.myPlayer.id, targetTeam })
+      }
+      if (this.bc) {
+        this.bc.postMessage({ type: 'BC_SWITCH_TEAM', roomId, playerId: this.myPlayer.id, targetTeam })
+      }
     }
   }
 
@@ -386,8 +500,13 @@ export class NetworkSystem {
       if (p) p.agentId = agentId
       this.broadcastToAll({ type: 'ROOM_UPDATE', room: this.currentRoom })
       this.emitInternal('room_updated', this.currentRoom)
-    } else if (this.hostConn && this.hostConn.open) {
-      this.hostConn.send({ type: 'SELECT_AGENT', playerId: this.myPlayer.id, agentId })
+    } else {
+      if (this.hostConn && this.hostConn.open) {
+        this.hostConn.send({ type: 'SELECT_AGENT', playerId: this.myPlayer.id, agentId })
+      }
+      if (this.bc) {
+        this.bc.postMessage({ type: 'BC_SELECT_AGENT', roomId, playerId: this.myPlayer.id, agentId })
+      }
     }
   }
 
@@ -404,8 +523,13 @@ export class NetworkSystem {
       }
       this.broadcastToAll({ type: 'ROOM_UPDATE', room: this.currentRoom })
       this.emitInternal('room_updated', this.currentRoom)
-    } else if (this.hostConn && this.hostConn.open) {
-      this.hostConn.send({ type: 'LOCK_AGENT', playerId: this.myPlayer.id })
+    } else {
+      if (this.hostConn && this.hostConn.open) {
+        this.hostConn.send({ type: 'LOCK_AGENT', playerId: this.myPlayer.id })
+      }
+      if (this.bc) {
+        this.bc.postMessage({ type: 'BC_LOCK_AGENT', roomId, playerId: this.myPlayer.id })
+      }
     }
   }
 
@@ -432,6 +556,9 @@ export class NetworkSystem {
     } else if (this.hostConn && this.hostConn.open) {
       this.hostConn.send(payload)
     }
+    if (this.bc && !this.isHost) {
+      this.bc.postMessage({ type: 'BC_PLAYER_SYNC', roomId, data: payload.data })
+    }
   }
 
   sendGameEvent(roomId, event) {
@@ -440,6 +567,9 @@ export class NetworkSystem {
       this.broadcastToAll(payload)
     } else if (this.hostConn && this.hostConn.open) {
       this.hostConn.send(payload)
+    }
+    if (this.bc && !this.isHost) {
+      this.bc.postMessage({ type: 'BC_GAME_EVENT', roomId, event: payload.event })
     }
   }
 
@@ -460,6 +590,9 @@ export class NetworkSystem {
     } else if (this.hostConn && this.hostConn.open) {
       this.hostConn.send(payload)
     }
+    if (this.bc && !this.isHost) {
+      this.bc.postMessage({ type: 'BC_PLAYER_HIT', roomId, data: payload.data })
+    }
   }
 
   sendChat(roomId, text, teamOnly = false) {
@@ -475,22 +608,27 @@ export class NetworkSystem {
     if (this.isHost) {
       this.broadcastToAll(payload)
       this.emitInternal('chat_received', chat)
-    } else if (this.hostConn && this.hostConn.open) {
-      this.hostConn.send(payload)
+    } else {
+      if (this.hostConn && this.hostConn.open) {
+        this.hostConn.send(payload)
+      }
+      if (this.bc) {
+        this.bc.postMessage({ type: 'BC_CHAT', roomId, chat })
+      }
+      this.emitInternal('chat_received', chat)
     }
   }
 
   leaveRoom() {
-    if (this.hostConn) {
-      try { this.hostConn.close() } catch (e) {}
-      this.hostConn = null
+    if (this.roomAnnounceInterval) {
+      clearInterval(this.roomAnnounceInterval)
     }
     if (this.peer) {
       try { this.peer.destroy() } catch (e) {}
-      this.peer = null
     }
-    this.connections = []
     this.currentRoom = null
-    this.myPlayer = null
+    this.isHost = false
+    this.connections = []
+    this.hostConn = null
   }
 }
