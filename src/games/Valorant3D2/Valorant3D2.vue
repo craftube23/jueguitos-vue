@@ -1403,6 +1403,12 @@ function setupNetworkListeners() {
     roomCode.value = room.id
     isHost.value = p.isHost
     roomPlayerList.value = room.players || []
+    if (room.customConfig) {
+      Object.assign(customSettings, room.customConfig)
+      match.maxRounds = room.customConfig.maxRounds || 5
+      infiniteAmmo.value = !!room.customConfig.infiniteAmmo
+      infiniteAbilities.value = !!room.customConfig.infiniteAbilities
+    }
     player.id = p.id
     player.team = p.team
     gameMode.value = 'MULTIPLAYER_LOBBY'
@@ -1410,6 +1416,12 @@ function setupNetworkListeners() {
 
   networkSystem.on('room_updated', (room) => {
     roomPlayerList.value = room.players || []
+    if (room.customConfig) {
+      Object.assign(customSettings, room.customConfig)
+      match.maxRounds = room.customConfig.maxRounds || 5
+      infiniteAmmo.value = !!room.customConfig.infiniteAmmo
+      infiniteAbilities.value = !!room.customConfig.infiniteAbilities
+    }
     const me = room.players.find(p => p.id === player.id)
     if (me) {
       player.team = me.team
@@ -1420,6 +1432,12 @@ function setupNetworkListeners() {
   networkSystem.on('match_started', (room) => {
     isOnline.value = true
     gameMode.value = 'IN_GAME'
+    if (room.customConfig) {
+      Object.assign(customSettings, room.customConfig)
+      match.maxRounds = room.customConfig.maxRounds || 5
+      infiniteAmmo.value = !!room.customConfig.infiniteAmmo
+      infiniteAbilities.value = !!room.customConfig.infiniteAbilities
+    }
     setupOnlinePlayers(room)
     resetRound(true)
     setTimeout(requestPointerLock, 100)
@@ -1503,9 +1521,30 @@ function setupNetworkListeners() {
   })
 }
 
-function createMultiplayerRoom() {
+function updateCustomLobbySetting(key, val) {
+  customSettings[key] = val
+  if (key === 'maxRounds') match.maxRounds = val
+  if (key === 'infiniteAmmo') infiniteAmmo.value = !!val
+  if (key === 'infiniteAbilities') infiniteAbilities.value = !!val
+  if (isHost.value && networkSystem) {
+    networkSystem.updateRoomConfig(roomCode.value, { [key]: val })
+  }
+}
+
+function createMultiplayerRoom(customConfigOverrides = null) {
   networkSystem.connect()
-  networkSystem.createRoom(`Sala 3D de ${player.name}`, player.name, player.team)
+  const cfg = customConfigOverrides || {
+    gameType: customSettings.gameType || 'CUSTOM_MATCH',
+    enableBots: customSettings.enableBots,
+    enemyBotCount: customSettings.enemyBotCount,
+    allyBotCount: customSettings.allyBotCount,
+    maxRounds: customSettings.maxRounds,
+    startingCredits: customSettings.startingCredits,
+    infiniteAmmo: infiniteAmmo.value,
+    infiniteAbilities: infiniteAbilities.value,
+    buyPhaseDuration: 15
+  }
+  networkSystem.createRoom(`Sala 3D de ${player.name}`, player.name, player.team, cfg)
 }
 
 function joinMultiplayerRoom(code) {
@@ -1552,27 +1591,82 @@ function copyRoomCode() {
 }
 
 function setupOnlinePlayers(room) {
-  players.value = [player]
   const roomPlayers = (room && room.players) ? room.players : (roomPlayerList.value || [])
+  const cfg = room?.customConfig || customSettings
+
+  players.value = []
+
+  const myRoomData = roomPlayers.find(p => p.id === player.id) || { team: player.team, name: player.name }
+  player.team = myRoomData.team || player.team
+  player.credits = cfg.startingCredits || 5000
+
+  const mySlots = player.team === 'attackers' ? MAP_3D.spawnAtkSlots : MAP_3D.spawnDefSlots
+  const mySpawn = mySlots[2]
+  player.pos.x = mySpawn.x
+  player.pos.y = mySpawn.y
+  player.pos.z = mySpawn.z
+
+  players.value.push(player)
+
+  let atkSlotIdx = 0
+  let defSlotIdx = 0
+
   roomPlayers.forEach(p => {
     if (p.id !== player.id) {
+      const isAtk = p.team === 'attackers'
+      const slot = isAtk
+        ? MAP_3D.spawnAtkSlots[(atkSlotIdx++) % MAP_3D.spawnAtkSlots.length]
+        : MAP_3D.spawnDefSlots[(defSlotIdx++) % MAP_3D.spawnDefSlots.length]
+
       players.value.push({
         id: p.id,
-        name: p.name,
-        team: p.team,
+        name: p.name || 'Operador',
+        team: p.team || 'defenders',
         agentId: p.agentId || 'jett',
-        pos: { x: p.team === 'attackers' ? -26.0 : 26.0, y: 1.7, z: 0 },
-        yaw: p.team === 'attackers' ? Math.PI / 2 : -Math.PI / 2,
+        pos: { x: slot.x, y: slot.y, z: slot.z },
+        yaw: isAtk ? Math.PI / 2 : -Math.PI / 2,
         pitch: 0,
         radius: 0.6,
         health: 100,
         armor: 50,
         alive: true,
         weapon: p.weapon || 'vandal',
+        credits: cfg.startingCredits || 5000,
+        kills: 0,
+        deaths: 0,
         isRemotePlayer: true
       })
     }
   })
+
+  // Spawn bots if enabled in online custom match
+  if (cfg.enableBots) {
+    const botAgents = ['sova', 'phoenix', 'reyna', 'sage', 'chamber', 'omen']
+    const enemyTeam = player.team === 'attackers' ? 'defenders' : 'attackers'
+    const enemySlots = player.team === 'attackers' ? MAP_3D.spawnDefSlots : MAP_3D.spawnAtkSlots
+
+    const humanEnemies = players.value.filter(p => p.team === enemyTeam).length
+    const botsToAdd = Math.max(0, (cfg.enemyBotCount || 1) - humanEnemies)
+
+    for (let i = 0; i < botsToAdd; i++) {
+      const slot = enemySlots[(i + humanEnemies) % enemySlots.length]
+      players.value.push({
+        id: `online_bot_${i}`,
+        name: `Rival ${i + 1} (Bot)`,
+        team: enemyTeam,
+        agentId: botAgents[i % botAgents.length],
+        pos: { x: slot.x, y: slot.y, z: slot.z },
+        radius: 0.6,
+        health: 100,
+        armor: 50,
+        alive: true,
+        weapon: 'ak74u',
+        credits: cfg.startingCredits || 5000,
+        kills: 0,
+        deaths: 0
+      })
+    }
+  }
 }
 
 function start1v1Duel() {
@@ -2001,9 +2095,104 @@ function buyItem(item) {
         </div>
       </div>
 
-      <!-- COMBAT LOADOUT INFO -->
-      <div class="lobby-agent-selection">
-        <h4>⚡ EQUIPAMIENTO TÁCTICO: DASH [E] · SUPER SALTO [Q] · HUMO [C] · DEFENSOR/ATACANTE</h4>
+      <!-- ONLINE CUSTOM MATCH SETTINGS CARD IN LOBBY -->
+      <div class="lobby-custom-config-card">
+        <div class="lobby-config-header">
+          <div class="config-badge">
+            <span class="icon">🛠️</span>
+            <span>{{ isHost ? 'AJUSTES DE LA PARTIDA PERSONALIZADA (TÚ ERES EL ANFITRIÓN)' : 'REGLAS DE LA PARTIDA (CONFIGURADAS POR EL ANFITRIÓN)' }}</span>
+          </div>
+          <span v-if="!isHost" class="guest-notice">🔒 Solo el anfitrión puede modificar las reglas</span>
+        </div>
+
+        <div class="lobby-config-grid">
+          <!-- Rondas para Ganar -->
+          <div class="lobby-config-item">
+            <span class="cfg-title">🏆 RONDAS PARA GANAR:</span>
+            <div class="cfg-buttons">
+              <button 
+                v-for="r in [3, 5, 7, 13]" 
+                :key="'mp_r_' + r"
+                class="btn-cfg-opt"
+                :class="{ active: customSettings.maxRounds === r, 'is-guest': !isHost }"
+                :disabled="!isHost"
+                @click="updateCustomLobbySetting('maxRounds', r)"
+              >{{ r }} Rondas</button>
+            </div>
+          </div>
+
+          <!-- Créditos Iniciales -->
+          <div class="lobby-config-item">
+            <span class="cfg-title">💰 CRÉDITOS INICIALES:</span>
+            <div class="cfg-buttons">
+              <button 
+                v-for="c in [800, 2900, 5000, 9999]" 
+                :key="'mp_c_' + c"
+                class="btn-cfg-opt"
+                :class="{ active: customSettings.startingCredits === c, 'is-guest': !isHost }"
+                :disabled="!isHost"
+                @click="updateCustomLobbySetting('startingCredits', c)"
+              >{{ c === 9999 ? '$9999 (Ilimitado)' : '$' + c }}</button>
+            </div>
+          </div>
+
+          <!-- Rellenar con Bots -->
+          <div class="lobby-config-item">
+            <span class="cfg-title">🤖 BOTS DE RELLENO:</span>
+            <div class="cfg-buttons">
+              <button 
+                class="btn-cfg-opt"
+                :class="{ active: !customSettings.enableBots, 'is-guest': !isHost }"
+                :disabled="!isHost"
+                @click="updateCustomLobbySetting('enableBots', false); updateCustomLobbySetting('enemyBotCount', 0); updateCustomLobbySetting('allyBotCount', 0)"
+              >🔴 Sin Bots (PVP Puro)</button>
+              <button 
+                class="btn-cfg-opt"
+                :class="{ active: customSettings.enableBots, 'is-guest': !isHost }"
+                :disabled="!isHost"
+                @click="updateCustomLobbySetting('enableBots', true); if(customSettings.enemyBotCount === 0) updateCustomLobbySetting('enemyBotCount', 1)"
+              >🟢 Con Bots de Relleno</button>
+            </div>
+          </div>
+
+          <!-- Munición Infinita -->
+          <div class="lobby-config-item">
+            <span class="cfg-title">♾️ MUNICIÓN INFINITA:</span>
+            <div class="cfg-buttons">
+              <button 
+                class="btn-cfg-opt"
+                :class="{ active: !infiniteAmmo, 'is-guest': !isHost }"
+                :disabled="!isHost"
+                @click="updateCustomLobbySetting('infiniteAmmo', false)"
+              >Normal</button>
+              <button 
+                class="btn-cfg-opt"
+                :class="{ active: infiniteAmmo, 'is-guest': !isHost }"
+                :disabled="!isHost"
+                @click="updateCustomLobbySetting('infiniteAmmo', true)"
+              >Infinita 🔥</button>
+            </div>
+          </div>
+
+          <!-- Habilidades Infinitas -->
+          <div class="lobby-config-item">
+            <span class="cfg-title">⚡ HABILIDADES INFINITAS:</span>
+            <div class="cfg-buttons">
+              <button 
+                class="btn-cfg-opt"
+                :class="{ active: !infiniteAbilities, 'is-guest': !isHost }"
+                :disabled="!isHost"
+                @click="updateCustomLobbySetting('infiniteAbilities', false)"
+              >Normal</button>
+              <button 
+                class="btn-cfg-opt"
+                :class="{ active: infiniteAbilities, 'is-guest': !isHost }"
+                :disabled="!isHost"
+                @click="updateCustomLobbySetting('infiniteAbilities', true)"
+              >Infinitas ⚡</button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- LOBBY CHAT & CONTROLS -->
@@ -3286,6 +3475,106 @@ function buyItem(item) {
 .lobby-agent-card.selected { border-color: #ff4655; background: rgba(255, 70, 85, 0.25); transform: translateY(-3px); }
 .card-avatar { font-size: 1.6rem; }
 .card-name { font-size: 0.75rem; font-weight: 800; }
+
+/* ONLINE CUSTOM CONFIG CARD IN LOBBY */
+.lobby-custom-config-card {
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin: 12px 0 16px 0;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+.lobby-config-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.config-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 900;
+  font-size: 0.85rem;
+  color: #38bdf8;
+  letter-spacing: 0.5px;
+}
+
+.guest-notice {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  font-style: italic;
+  background: rgba(30, 41, 59, 0.6);
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.lobby-config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px 16px;
+}
+
+.lobby-config-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cfg-title {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #94a3b8;
+  letter-spacing: 0.5px;
+}
+
+.cfg-buttons {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.btn-cfg-opt {
+  flex: 1;
+  min-width: 70px;
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #cbd5e1;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+}
+
+.btn-cfg-opt:hover:not(:disabled) {
+  border-color: #38bdf8;
+  background: rgba(56, 189, 248, 0.15);
+  color: #fff;
+}
+
+.btn-cfg-opt.active {
+  background: #38bdf8;
+  color: #0f172a;
+  border-color: #38bdf8;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.35);
+}
+
+.btn-cfg-opt:disabled, .btn-cfg-opt.is-guest {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.btn-cfg-opt.is-guest:not(.active) {
+  opacity: 0.45;
+}
 
 .lobby-footer {
   display: grid;

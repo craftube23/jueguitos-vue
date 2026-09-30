@@ -90,7 +90,7 @@ export class NetworkSystem {
   }
 
   // --- HOST: CREATE ROOM ---
-  createRoom(roomName, playerName, team = 'attackers') {
+  createRoom(roomName, playerName, team = 'attackers', customConfig = null) {
     if (this.peer) {
       try { this.peer.destroy() } catch (e) {}
     }
@@ -115,12 +115,25 @@ export class NetworkSystem {
       weapon: 'vandal'
     }
 
+    const defaultCustomConfig = {
+      gameType: '1V1_DUEL',
+      enableBots: false,
+      enemyBotCount: 0,
+      allyBotCount: 0,
+      maxRounds: 5,
+      startingCredits: 5000,
+      infiniteAmmo: false,
+      infiniteAbilities: false,
+      buyPhaseDuration: 15
+    }
+
     const room = {
       id: roomId,
       name: roomName || `Sala ${roomId}`,
       status: 'lobby',
       hostId: hostPlayer.id,
-      players: [hostPlayer]
+      players: [hostPlayer],
+      customConfig: customConfig ? { ...defaultCustomConfig, ...customConfig } : defaultCustomConfig
     }
 
     this.currentRoom = room
@@ -268,7 +281,18 @@ export class NetworkSystem {
       name: `Sala ${cleanCode}`,
       status: 'lobby',
       hostId: 'host',
-      players: [joinPlayer]
+      players: [joinPlayer],
+      customConfig: {
+        gameType: '1V1_DUEL',
+        enableBots: false,
+        enemyBotCount: 0,
+        allyBotCount: 0,
+        maxRounds: 5,
+        startingCredits: 5000,
+        infiniteAmmo: false,
+        infiniteAbilities: false,
+        buyPhaseDuration: 15
+      }
     }
 
     this.currentRoom = placeholderRoom
@@ -382,6 +406,14 @@ export class NetworkSystem {
       this.emitInternal('room_updated', this.currentRoom)
     } else if (this.hostConn && this.hostConn.open) {
       this.hostConn.send({ type: 'LOCK_AGENT', playerId: this.myPlayer.id })
+    }
+  }
+
+  updateRoomConfig(roomId, newConfig) {
+    if (this.isHost && this.currentRoom) {
+      this.currentRoom.customConfig = { ...(this.currentRoom.customConfig || {}), ...newConfig }
+      this.broadcastToAll({ type: 'ROOM_UPDATE', room: this.currentRoom })
+      this.emitInternal('room_updated', this.currentRoom)
     }
   }
 
