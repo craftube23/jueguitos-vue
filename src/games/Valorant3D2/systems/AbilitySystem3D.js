@@ -7,198 +7,63 @@ export class AbilitySystem3D {
   constructor(scene, camera) {
     this.scene = scene
     this.camera = camera
+    this.playerController = null
+    this.meshColliders = []
 
-    // Active 3D VFX Objects
+    // Active 1v1.LOL 3D Structures & VFX
     this.smokes = []
-    this.fires = []
-    this.walls = []
-    this.sonarPulses = []
-    this.beams = []
-    this.updraftVortices = []
+    this.ramps = []
+    this.grappleCables = []
+    this.launchPads = []
     this.dashTrails = []
-    this.projectiles = []
-    this.flashOrbs = []
+    this.updraftVortices = []
     this.healingAuras = []
-    this.activeUltKnives = [] // 5 orbiting daggers for Jett / Gladiator Blade Storm
-    this.hasUltKnivesActive = false
   }
 
-  // --- LOCAL ABILITY CAST ---
+  setPlayerController(pc) {
+    this.playerController = pc
+  }
+
+  setMeshColliders(meshList) {
+    this.meshColliders = meshList || []
+  }
+
+  // --- LOCAL 1V1.LOL ABILITY CAST ---
   cast(player, key, targets = [], onAnnouncement) {
-    const forward = new THREE.Vector3(0, 0, -1).applyEuler(this.camera.rotation)
-    const pos = new THREE.Vector3(player.pos.x, player.pos.y, player.pos.z)
-    const agent = player.agentId || 'jett'
-
-    // ==========================================
-    // 1. JETT / GLADIATOR / DEFAULT AGENT
-    // ==========================================
-    if (agent === 'jett' || agent === 'gladiator' || !['phoenix', 'sova', 'sage', 'brimstone', 'reyna'].includes(agent)) {
-      if (key === 'C') {
-        // --- C: NUBE DE HUMO RADIANITA (CLOUDBURST) ---
-        const targetPos = pos.clone().addScaledVector(forward, 7)
-        this.spawnSmoke(targetPos, 4.5, 0x64748b, 7.0)
-        soundManager.play('flash')
-        if (onAnnouncement) onAnnouncement('☁️ ¡NUBE DE HUMO TÁCTICA DESPLEGADA!')
-      } else if (key === 'Q') {
-        // --- Q: SUPER SALTO CON VÓRTICE DE VIENTO (UPDRAFT) ---
-        player.vel.y = 12.5
-        player.onGround = false
-        this.spawnUpdraftVortex(pos)
-        soundManager.play('dash')
-        if (onAnnouncement) onAnnouncement('💨 ¡SUPER SALTO CICLÓN!')
-      } else if (key === 'E') {
-        // --- E: DASH SUPERSÓNICO CON ESTELA DE VIENTO (TAILWIND) ---
-        const dashDir = new THREE.Vector3(forward.x, 0, forward.z).normalize()
-        const startPos = pos.clone()
-        const targetPos = pos.clone().addScaledVector(dashDir, 14.0)
-
-        // Spawn visual speed streaks and wind rings
-        this.spawnDashTrail(startPos, targetPos, dashDir)
-        player.pos.x = targetPos.x
-        player.pos.z = targetPos.z
-        soundManager.play('dash')
-        if (onAnnouncement) onAnnouncement('⚡ ¡DASH SUPERSÓNICO!')
-      } else if (key === 'X') {
-        // --- X: TORMENTA DE CUCHILLAS / DAGAS VOLADORAS (BLADE STORM) ---
-        if (this.hasUltKnivesActive && this.activeUltKnives.length > 0) {
-          // Fire one dagger forward
-          this.fireUltDagger(pos, forward, targets, player.id)
-          if (onAnnouncement) onAnnouncement('🗡️ ¡DAGA RADIANITA LANZADA!')
-        } else {
-          // Activate Blade Storm: spawn 5 floating glowing daggers around player
-          this.activateBladeStorm(player)
-          soundManager.play('ult_activate')
-          if (onAnnouncement) onAnnouncement('🌪️ ¡TORMENTA DE CUCHILLAS ACTIVADA (5 DAGAS)!')
-        }
-      }
-    }
-
-    // ==========================================
-    // 2. PHOENIX (FUEGO & FLASHES)
-    // ==========================================
-    else if (agent === 'phoenix') {
-      if (key === 'C') {
-        // --- C: MURO DE FUEGO (BLAZE) ---
-        this.spawnFireWall(pos.clone().addScaledVector(forward, 4), forward, 8.0)
-        soundManager.play('flash')
-        if (onAnnouncement) onAnnouncement('🔥 PHOENIX: ¡MURO DE FUEGO INFERNAL!')
-      } else if (key === 'Q') {
-        // --- Q: FLASH CEGADORA ORBE (CURVEBALL) ---
-        const flashPos = pos.clone().addScaledVector(forward, 8).add(new THREE.Vector3(0, 1.2, 0))
-        this.spawnFlashOrb(flashPos, targets, player.id)
-        soundManager.play('flash')
-        if (onAnnouncement) onAnnouncement('✨ PHOENIX: ¡ORBE DE DESTELLO CEGADOR!')
-      } else if (key === 'E') {
-        // --- E: MOLOTOV DE FUEGO LÍQUIDO (HOT HANDS) ---
-        const fireLanding = pos.clone().addScaledVector(forward, 11)
-        fireLanding.y = 0.2
-        this.spawnFireZone(fireLanding, 4.2, 7.0)
-        soundManager.play('flash')
-        if (onAnnouncement) onAnnouncement('🔥 PHOENIX: ¡ZONA DE FUEGO MOLOTOV!')
-      } else if (key === 'X') {
-        // --- X: AURA DE RENACIMIENTO FÉNIX (RUN IT BACK) ---
-        this.spawnPhoenixAura(player)
-        soundManager.play('ult_activate')
-        if (onAnnouncement) onAnnouncement('🔥 PHOENIX: ¡RENACIMIENTO DEL FÉNIX!')
-      }
-    }
-
-    // ==========================================
-    // 3. SOVA (SONAR & RAYO DEFINITIVO)
-    // ==========================================
-    else if (agent === 'sova') {
-      if (key === 'C') {
-        // --- C: FLECHA DE CHOQUE EXPLOSIVA (SHOCK BOLT) ---
-        const impactPos = pos.clone().addScaledVector(forward, 14)
-        this.spawnShockExplosion(impactPos, targets, player.id)
-        soundManager.play('flash')
-        if (onAnnouncement) onAnnouncement('⚡ SOVA: ¡DESCARGA DE FLECHA ELÉCTRICA!')
-      } else if (key === 'Q') {
-        // --- Q: DRON DE EXPLORACIÓN / ONDA SONAR ---
-        const dronePos = pos.clone().addScaledVector(forward, 10)
-        this.spawnReconPulse(dronePos, targets, player.team)
-        soundManager.play('recon')
-        if (onAnnouncement) onAnnouncement('📡 SOVA: ¡SONAR DE RECONOCIMIENTO!')
-      } else if (key === 'E') {
-        // --- E: FLECHA RADAR (RECON BOLT) ---
-        const arrowLanding = pos.clone().addScaledVector(forward, 18)
-        this.spawnReconPulse(arrowLanding, targets, player.team)
-        soundManager.play('recon')
-        if (onAnnouncement) onAnnouncement('🎯 SOVA: ¡FLECHA RECONOCEDORA CLAVADA!')
-      } else if (key === 'X') {
-        // --- X: FURIA DEL CAZADOR (HUNTER\'S FURY BEAM) ---
-        this.spawnBeam(pos, forward, targets, player.id)
-        soundManager.play('ult_activate')
-        if (onAnnouncement) onAnnouncement('🏹 SOVA: ¡FURIA DEL CAZADOR (RAYO DRAGÓN)!')
-      }
-    }
-
-    // ==========================================
-    // 4. SAGE (MURO DE CRISTAL & CURACIÓN)
-    // ==========================================
-    else if (agent === 'sage') {
-      if (key === 'C') {
-        // --- C: MURO DE CRISTALES DE JADE (BARRIER WALL) ---
-        this.spawnCrystalWall(pos.clone().addScaledVector(forward, 4), forward, 20.0)
-        soundManager.play('buy')
-        if (onAnnouncement) onAnnouncement('🛡️ SAGE: ¡MURO DE BARRERA DE CRISTAL!')
-      } else if (key === 'Q') {
-        // --- Q: ORBE DE RALENTIZACIÓN / HIELO (SLOW ORB) ---
-        const orbLanding = pos.clone().addScaledVector(forward, 12)
-        this.spawnIceSlowField(orbLanding, 5.0, 8.0)
-        soundManager.play('flash')
-        if (onAnnouncement) onAnnouncement('❄️ SAGE: ¡CAMPO DE HIELO CRIOGÉNICO!')
-      } else if (key === 'E') {
-        // --- E: ORBE DE CURACIÓN RESTAURADORA (HEALING ORB) ---
-        player.health = Math.min(player.maxHealth || 100, (player.health || 0) + 50)
-        this.spawnHealingAura(player)
-        soundManager.play('buy')
-        if (onAnnouncement) onAnnouncement('💚 SAGE: ¡AURA DE REGENERACIÓN (+50 HP)!')
-      } else if (key === 'X') {
-        // --- X: RESURRECCIÓN / SOBRECARGA SANADORA ---
-        player.health = 100
-        player.armor = 50
-        this.spawnHealingAura(player, 0x38bdf8)
-        soundManager.play('ult_activate')
-        if (onAnnouncement) onAnnouncement('🌟 SAGE: ¡RESURRECCIÓN RADIANITA COMPLETA!')
-      }
-    }
-
-    // ==========================================
-    // 5. BRIMSTONE / REYNA / OMEN
-    // ==========================================
-    else if (agent === 'brimstone' || agent === 'reyna') {
-      if (key === 'C') {
-        // Humo orbital
-        this.spawnSmoke(pos.clone().addScaledVector(forward, 10), 5.5, 0x334155, 12.0)
-        soundManager.play('flash')
-        if (onAnnouncement) onAnnouncement('☁️ ¡HUMO TÁCTICO ORBITAL!')
-      } else if (key === 'Q') {
-        // Ojo de la Devoradora / Destello Cegador
-        const eyePos = pos.clone().addScaledVector(forward, 9).add(new THREE.Vector3(0, 1.5, 0))
-        this.spawnFlashOrb(eyePos, targets, player.id, 0xa855f7)
-        soundManager.play('flash')
-        if (onAnnouncement) onAnnouncement('👁️ ¡ORBE DE MIRADA CEGADORA!')
-      } else if (key === 'E') {
-        // Fuego / Estimulante de Combate
-        this.spawnHealingAura(player, 0xf59e0b)
-        soundManager.play('buy')
-        if (onAnnouncement) onAnnouncement('⚡ ¡ESTIMULANTE DE COMBATE VELOZ!')
-      } else if (key === 'X') {
-        // Rayo Orbital Satelital
-        const laserPos = pos.clone().addScaledVector(forward, 12)
-        this.spawnOrbitalLaser(laserPos, targets, player.id)
-        soundManager.play('ult_activate')
-        if (onAnnouncement) onAnnouncement('🛰️ BRIMSTONE: ¡GOLPE ORBITAL DEVASTADOR!')
-      }
+    if (key === 'C') {
+      // ====================================================
+      // 1. [C] NUBE DE HUMO TÁCTICA (SMOKE GRENADE) - MANTENIDA
+      // ====================================================
+      const forward = new THREE.Vector3(0, 0, -1).applyEuler(this.camera.rotation)
+      const targetPos = new THREE.Vector3(player.pos.x, player.pos.y, player.pos.z).addScaledVector(forward, 7)
+      this.spawnSmoke(targetPos, 4.5, 0x64748b, 7.5)
+      soundManager.play('flash')
+      if (onAnnouncement) onAnnouncement('☁️ ¡NUBE DE HUMO TÁCTICA DESPLEGADA!')
+    } else if (key === 'Q') {
+      // ====================================================
+      // 2. [Q] CONSTRUIR RAMPA / ESCALERA 1V1 (RAMP BUILD)
+      // ====================================================
+      this.spawnRamp(player)
+      soundManager.play('buy')
+      if (onAnnouncement) onAnnouncement('🪜 ¡RAMPA 1v1 CONSTRUIDA (HIGH GROUND)!')
+    } else if (key === 'E') {
+      // ====================================================
+      // 3. [E] GANCHO DE AGARRE / IMPULSO AÉREO (GRAPPLER)
+      // ====================================================
+      this.castGrappleHook(player)
+      if (onAnnouncement) onAnnouncement('⚡ ¡GANCHO DE AGARRE / IMPULSO AÉREO!')
+    } else if (key === 'X') {
+      // ====================================================
+      // 4. [X] LANZADOR / PLATAFORMA DE SALTO + ESCUDO
+      // ====================================================
+      this.spawnLaunchPad(player)
+      if (onAnnouncement) onAnnouncement('🚀 ¡PLATAFORMA DE SALTO + 50 ESCUDO ACTIVADO!')
     }
   }
 
-  // ==========================================
-  // 3D VFX SPAWNERS & GEOMETRY
-  // ==========================================
-
-  // 1. DENSE VOLUMETRIC SMOKE WITH SWIRLING MESHES
+  // ====================================================
+  // 1. [C] SMOKE GRENADE (Nube de humo táctica)
+  // ====================================================
   spawnSmoke(pos, radius = 4.5, color = 0x64748b, duration = 8.0) {
     const smokeGroup = new THREE.Group()
 
@@ -241,7 +106,7 @@ export class AbilitySystem3D {
     smokeGroup.add(ringMesh)
 
     smokeGroup.position.set(pos.x, 0, pos.z)
-    smokeGroup.scale.set(0.1, 0.1, 0.1) // Start small for pop-in expansion animation
+    smokeGroup.scale.set(0.1, 0.1, 0.1)
     this.scene.add(smokeGroup)
 
     this.smokes.push({
@@ -254,11 +119,245 @@ export class AbilitySystem3D {
     })
   }
 
-  // 2. UPDRAFT AIR VORTEX (CYLINDER CONE + GROUND SHOCKWAVE)
+  // ====================================================
+  // 2. [Q] 1V1.LOL RAMP BUILD (Escalera sólida 3D)
+  // ====================================================
+  spawnRamp(player) {
+    const rampGroup = new THREE.Group()
+    const numSteps = 8
+    const rampWidth = 3.6
+    const rampLength = 5.2
+    const rampHeight = 3.2
+    const stepDepth = (rampLength / numSteps) * 1.05
+    const stepHeight = rampHeight / numSteps
+
+    const woodCanvas = document.createElement('canvas')
+    woodCanvas.width = 256
+    woodCanvas.height = 256
+    const ctx = woodCanvas.getContext('2d')
+    ctx.fillStyle = '#78350f'
+    ctx.fillRect(0, 0, 256, 256)
+    ctx.fillStyle = '#92400e'
+    for (let y = 0; y < 256; y += 32) {
+      ctx.fillRect(0, y + 2, 256, 28)
+    }
+    ctx.strokeStyle = '#f59e0b'
+    ctx.lineWidth = 4
+    ctx.strokeRect(4, 4, 248, 248)
+    const woodTex = new THREE.CanvasTexture(woodCanvas)
+    woodTex.wrapS = THREE.RepeatWrapping
+    woodTex.wrapT = THREE.RepeatWrapping
+
+    const plankMat = new THREE.MeshStandardMaterial({
+      map: woodTex,
+      roughness: 0.65,
+      metalness: 0.2
+    })
+    const edgeMat = new THREE.MeshBasicMaterial({ color: 0x00f3ff })
+
+    const yaw = (this.playerController ? this.playerController.yaw : player.yaw) || 0
+    const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw)
+
+    const startY = Math.max(0, (player.pos.y || 1.7) - (this.playerController ? this.playerController.currentEyeHeight : 1.7))
+    const startX = player.pos.x + forward.x * 1.2
+    const startZ = player.pos.z + forward.z * 1.2
+
+    const colliders = []
+
+    for (let i = 0; i < numSteps; i++) {
+      const curH = stepHeight * (i + 1)
+      const distAlong = (i + 0.5) * (rampLength / numSteps)
+      const sx = startX + forward.x * distAlong
+      const sz = startZ + forward.z * distAlong
+      const sy = startY + curH / 2
+
+      const stepGeo = new THREE.BoxGeometry(rampWidth, curH, stepDepth)
+      const stepMesh = new THREE.Mesh(stepGeo, plankMat)
+      stepMesh.position.set(sx, sy, sz)
+      stepMesh.rotation.y = yaw
+      stepMesh.castShadow = true
+      stepMesh.receiveShadow = true
+      rampGroup.add(stepMesh)
+      colliders.push(stepMesh)
+
+      // Glowing cyan neon edge
+      const edgeGeo = new THREE.BoxGeometry(rampWidth * 0.98, 0.03, 0.06)
+      const edge = new THREE.Mesh(edgeGeo, edgeMat)
+      edge.position.set(sx, startY + curH + 0.01, sz + (stepDepth / 2) * 0.9)
+      edge.rotation.y = yaw
+      rampGroup.add(edge)
+    }
+
+    // Top landing platform (0.9m extension)
+    const topX = startX + forward.x * (rampLength + 0.45)
+    const topZ = startZ + forward.z * (rampLength + 0.45)
+    const topGeo = new THREE.BoxGeometry(rampWidth, 0.25, 0.9)
+    const topMesh = new THREE.Mesh(topGeo, plankMat)
+    topMesh.position.set(topX, startY + rampHeight - 0.125, topZ)
+    topMesh.rotation.y = yaw
+    topMesh.castShadow = true
+    topMesh.receiveShadow = true
+    rampGroup.add(topMesh)
+    colliders.push(topMesh)
+
+    this.scene.add(rampGroup)
+
+    // Register colliders with playerController, scene, and meshColliders
+    colliders.forEach(c => {
+      if (this.meshColliders && !this.meshColliders.includes(c)) this.meshColliders.push(c)
+      if (this.playerController) this.playerController.addMeshCollider(c)
+    })
+
+    this.ramps.push({
+      group: rampGroup,
+      colliders,
+      life: 30.0,
+      maxLife: 30.0
+    })
+
+    // Brief holographic pop-in effect
+    this.spawnHoloBuildBox(new THREE.Vector3(startX + forward.x * 2.5, startY + 1.5, startZ + forward.z * 2.5), rampWidth, rampHeight, rampLength, yaw)
+  }
+
+  spawnHoloBuildBox(pos, w, h, d, yaw) {
+    const boxGeo = new THREE.BoxGeometry(w, h, d)
+    const boxMat = new THREE.MeshBasicMaterial({ color: 0x00f3ff, wireframe: true, transparent: true, opacity: 0.85 })
+    const box = new THREE.Mesh(boxGeo, boxMat)
+    box.position.copy(pos)
+    box.rotation.y = yaw
+    this.scene.add(box)
+    setTimeout(() => {
+      this.scene.remove(box)
+      boxGeo.dispose()
+      boxMat.dispose()
+    }, 180)
+  }
+
+  // ====================================================
+  // 3. [E] 1V1.LOL GRAPPLING HOOK (Gancho acrobático)
+  // ====================================================
+  castGrappleHook(player) {
+    const forward = new THREE.Vector3(0, 0, -1).applyEuler(this.camera.rotation)
+    const headPos = this.camera.position.clone()
+    const raycaster = new THREE.Raycaster(headPos, forward, 0.2, 45.0)
+
+    let hitPoint = null
+    const validTargets = (this.meshColliders || []).filter(m => m && m.isMesh)
+    const hits = raycaster.intersectObjects(validTargets, false)
+
+    if (hits.length > 0) {
+      hitPoint = hits[0].point
+    }
+
+    if (hitPoint) {
+      // 1. Render 3D glowing energy tether cable
+      const dist = headPos.distanceTo(hitPoint)
+      const cableGeo = new THREE.CylinderGeometry(0.04, 0.04, dist, 8)
+      cableGeo.rotateX(Math.PI / 2)
+      const cableMat = new THREE.MeshBasicMaterial({ color: 0x00f3ff, transparent: true, opacity: 0.95 })
+      const cableMesh = new THREE.Mesh(cableGeo, cableMat)
+      const midPoint = new THREE.Vector3().addVectors(headPos, hitPoint).multiplyScalar(0.5)
+      cableMesh.position.copy(midPoint)
+      cableMesh.lookAt(hitPoint)
+      this.scene.add(cableMesh)
+
+      this.grappleCables.push({
+        mesh: cableMesh,
+        life: 0.35,
+        maxLife: 0.35
+      })
+
+      // 2. Apply fast momentum pull impulse toward target surface
+      const pullDir = new THREE.Vector3().subVectors(hitPoint, headPos).normalize()
+      const speed = 23.0
+      const impX = pullDir.x * speed
+      const impY = Math.max(7.5, pullDir.y * speed + 5.0)
+      const impZ = pullDir.z * speed
+
+      if (this.playerController) {
+        this.playerController.applyImpulse(impX, impY, impZ)
+      } else {
+        player.pos.x += pullDir.x * 12.0
+        player.pos.z += pullDir.z * 12.0
+      }
+      soundManager.play('dash')
+    } else {
+      // Free Air Rocket Impulse Dash
+      const speed = 18.0
+      if (this.playerController) {
+        this.playerController.applyImpulse(forward.x * speed, 8.5, forward.z * speed)
+      }
+      soundManager.play('dash')
+    }
+
+    // Velocity trail streaks
+    this.spawnDashTrail(headPos, headPos.clone().addScaledVector(forward, 10), forward)
+  }
+
+  // ====================================================
+  // 4. [X] 1V1.LOL LAUNCH PAD & SHIELD (Plataforma + Escudo)
+  // ====================================================
+  spawnLaunchPad(player) {
+    const pos = new THREE.Vector3(player.pos.x, 0, player.pos.z)
+    const footY = Math.max(0, (player.pos.y || 1.7) - (this.playerController ? this.playerController.currentEyeHeight : 1.7))
+    pos.y = footY
+
+    const padGroup = new THREE.Group()
+
+    // Outer Octagonal Steel Rim
+    const rimGeo = new THREE.CylinderGeometry(1.5, 1.6, 0.12, 16)
+    const rimMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.3, metalness: 0.8 })
+    const rim = new THREE.Mesh(rimGeo, rimMat)
+    rim.position.y = 0.06
+    padGroup.add(rim)
+
+    // Inner Glowing Cyan/Gold Kinetic Trampoline Core
+    const coreGeo = new THREE.CylinderGeometry(1.25, 1.25, 0.14, 16)
+    const coreMat = new THREE.MeshBasicMaterial({ color: 0x00f3ff })
+    const core = new THREE.Mesh(coreGeo, coreMat)
+    core.position.y = 0.08
+    padGroup.add(core)
+
+    // Energy Arrow Glyph Ring
+    const ringGeo = new THREE.RingGeometry(0.4, 0.9, 24)
+    ringGeo.rotateX(-Math.PI / 2)
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide })
+    const ring = new THREE.Mesh(ringGeo, ringMat)
+    ring.position.y = 0.16
+    padGroup.add(ring)
+
+    padGroup.position.set(pos.x, pos.y, pos.z)
+    this.scene.add(padGroup)
+
+    this.launchPads.push({
+      group: padGroup,
+      pos: pos.clone(),
+      radius: 2.0,
+      life: 25.0,
+      maxLife: 25.0
+    })
+
+    // 1. Immediately launch casting player sky-high
+    if (this.playerController) {
+      this.playerController.applyImpulse(0, 18.0, 0)
+    }
+
+    // 2. Grant +50 Shield Overcharge
+    player.armor = Math.min(player.maxArmor || 50, (player.armor || 0) + 50)
+
+    // 3. Spawns visual vertical cyclone & shockwave ring
+    this.spawnUpdraftVortex(pos)
+    this.spawnHealingAura(player, 0x00f3ff)
+    soundManager.play('ult_activate')
+  }
+
+  // ====================================================
+  // VFX PARTICLES & SENSORY HELPERS
+  // ====================================================
+
   spawnUpdraftVortex(pos) {
     const vortexGroup = new THREE.Group()
 
-    // Swirling air cone
     const coneGeo = new THREE.ConeGeometry(2.4, 5.0, 16, 1, true)
     const coneMat = new THREE.MeshBasicMaterial({
       color: 0x38bdf8,
@@ -271,7 +370,6 @@ export class AbilitySystem3D {
     coneMesh.position.y = 2.5
     vortexGroup.add(coneMesh)
 
-    // Ground Wind Blast Ring
     const ringGeo = new THREE.RingGeometry(0.5, 3.2, 24)
     const ringMat = new THREE.MeshBasicMaterial({
       color: 0x06b6d4,
@@ -296,16 +394,15 @@ export class AbilitySystem3D {
     })
   }
 
-  // 3. SUPERSONIC DASH WIND TRAIL & TUNNEL RINGS
   spawnDashTrail(startPos, endPos, dir) {
     const trailGroup = new THREE.Group()
     const dist = startPos.distanceTo(endPos)
-    const ringCount = 5
+    const ringCount = 6
 
-    for (let i = 0; i <= ringCount; i++) {
-      const frac = i / ringCount
-      const ringPos = startPos.clone().lerp(endPos, frac)
-      const ringGeo = new THREE.TorusGeometry(0.8 + frac * 0.4, 0.05, 8, 20)
+    for (let i = 0; i < ringCount; i++) {
+      const t = (i + 1) / ringCount
+      const ringPos = new THREE.Vector3().lerpVectors(startPos, endPos, t)
+      const ringGeo = new THREE.TorusGeometry(0.65 + (1 - t) * 0.4, 0.04, 8, 16)
       const ringMat = new THREE.MeshBasicMaterial({
         color: 0x00f3ff,
         transparent: true,
@@ -313,445 +410,122 @@ export class AbilitySystem3D {
       })
       const ring = new THREE.Mesh(ringGeo, ringMat)
       ring.position.copy(ringPos)
-      ring.position.y = 1.2
-      ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir)
+      ring.lookAt(ringPos.clone().add(dir))
       trailGroup.add(ring)
     }
 
-    // Central speed laser beam
-    const lineGeo = new THREE.CylinderGeometry(0.12, 0.12, dist, 8)
-    const lineMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.9 })
-    const lineMesh = new THREE.Mesh(lineGeo, lineMat)
-    const midPoint = startPos.clone().lerp(endPos, 0.5)
-    lineMesh.position.copy(midPoint)
-    lineMesh.position.y = 1.2
-    lineMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir)
-    trailGroup.add(lineMesh)
-
     this.scene.add(trailGroup)
-    this.dashTrails.push({ group: trailGroup, life: 0.45 })
-  }
-
-  // 4. BLADE STORM ORBITING KUNAI DAGGER SYSTEM (5 GLOWING KNIVES)
-  activateBladeStorm(player) {
-    this.clearUltKnives()
-    this.hasUltKnivesActive = true
-
-    const knifeCount = 5
-    for (let i = 0; i < knifeCount; i++) {
-      const knifeGroup = new THREE.Group()
-
-      // Dagger Blade
-      const bladeGeo = new THREE.ConeGeometry(0.09, 0.6, 5)
-      const bladeMat = new THREE.MeshStandardMaterial({
-        color: 0x00f3ff,
-        emissive: 0x0284c7,
-        emissiveIntensity: 0.8,
-        metalness: 0.9,
-        roughness: 0.2
-      })
-      const blade = new THREE.Mesh(bladeGeo, bladeMat)
-      blade.rotation.x = Math.PI / 2
-      knifeGroup.add(blade)
-
-      // Dagger Handle / Ring
-      const hiltGeo = new THREE.TorusGeometry(0.06, 0.02, 6, 12)
-      const hiltMat = new THREE.MeshBasicMaterial({ color: 0xffffff })
-      const hilt = new THREE.Mesh(hiltGeo, hiltMat)
-      hilt.position.z = 0.35
-      knifeGroup.add(hilt)
-
-      this.scene.add(knifeGroup)
-      this.activeUltKnives.push({
-        group: knifeGroup,
-        offsetAngle: (i - 2) * 0.38, // Semi-circle spread
-        orbitRadius: 1.1,
-        heightOffset: 1.2,
-        player
-      })
-    }
-  }
-
-  fireUltDagger(pos, dir, targets, ownerId) {
-    if (this.activeUltKnives.length === 0) return
-    const knifeObj = this.activeUltKnives.pop()
-    if (!knifeObj) return
-
-    soundManager.play('slash')
-
-    // Animate dagger flying at high speed
-    const projectileMesh = knifeObj.group
-    projectileMesh.position.copy(pos).add(new THREE.Vector3(0, 1.2, 0))
-    projectileMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), dir)
-
-    this.projectiles.push({
-      mesh: projectileMesh,
-      pos: projectileMesh.position.clone(),
-      vel: dir.clone().multiplyScalar(48.0), // 48 m/s bullet speed
-      life: 2.0,
-      damage: 75,
-      ownerId,
-      targets
-    })
-
-    if (this.activeUltKnives.length === 0) {
-      this.hasUltKnivesActive = false
-    }
-  }
-
-  clearUltKnives() {
-    this.activeUltKnives.forEach(k => {
-      this.scene.remove(k.group)
-    })
-    this.activeUltKnives = []
-    this.hasUltKnivesActive = false
-  }
-
-  // 5. BLINDING FLASH ORB (3D SPHERE EXPLOSION)
-  spawnFlashOrb(pos, targets, ownerId, color = 0xffe600) {
-    const flashGroup = new THREE.Group()
-
-    const orbGeo = new THREE.SphereGeometry(0.7, 16, 16)
-    const orbMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1.0 })
-    const orb = new THREE.Mesh(orbGeo, orbMat)
-    flashGroup.add(orb)
-
-    const ringGeo = new THREE.RingGeometry(0.2, 2.5, 24)
-    const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, transparent: true, opacity: 0.9 })
-    const ring = new THREE.Mesh(ringGeo, ringMat)
-    flashGroup.add(ring)
-
-    flashGroup.position.copy(pos)
-    this.scene.add(flashGroup)
-
-    this.flashOrbs.push({ group: flashGroup, orb, ring, scale: 0.2, life: 0.5 })
-
-    // Blind nearby targets in LOS
-    targets.forEach(t => {
-      if (t.id !== ownerId && t.alive) {
-        const d = Math.hypot(t.pos.x - pos.x, t.pos.z - pos.z)
-        if (d < 16.0) {
-          t.blindAlpha = 1.0
-        }
-      }
+    this.dashTrails.push({
+      group: trailGroup,
+      life: 0.45,
+      maxLife: 0.45
     })
   }
 
-  // 6. FIRE ZONE (HOT HANDS MOLOTOV)
-  spawnFireZone(pos, radius = 4.2, duration = 6.0) {
-    const fireGroup = new THREE.Group()
-
-    // Boiling Lava Ground Disc
-    const discGeo = new THREE.CylinderGeometry(radius, radius, 0.15, 24)
-    const discMat = new THREE.MeshBasicMaterial({ color: 0xf97316, transparent: true, opacity: 0.75 })
-    const disc = new THREE.Mesh(discGeo, discMat)
-    disc.position.y = 0.08
-    fireGroup.add(disc)
-
-    // Inner Hot Core
-    const coreGeo = new THREE.CylinderGeometry(radius * 0.6, radius * 0.6, 0.2, 20)
-    const coreMat = new THREE.MeshBasicMaterial({ color: 0xfef08a, transparent: true, opacity: 0.9 })
-    const core = new THREE.Mesh(coreGeo, coreMat)
-    core.position.y = 0.12
-    fireGroup.add(core)
-
-    // Rising Fire Embers Particles
-    const emberCount = 30
-    const emberGeo = new THREE.BufferGeometry()
-    const emberPos = new Float32Array(emberCount * 3)
-    for (let i = 0; i < emberCount; i++) {
-      const ang = Math.random() * Math.PI * 2
-      const r = Math.random() * radius * 0.8
-      emberPos[i * 3] = Math.cos(ang) * r
-      emberPos[i * 3 + 1] = Math.random() * 2.5
-      emberPos[i * 3 + 2] = Math.sin(ang) * r
-    }
-    emberGeo.setAttribute('position', new THREE.BufferAttribute(emberPos, 3))
-    const emberMat = new THREE.PointsMaterial({ color: 0xffedd5, size: 0.2, transparent: true, opacity: 0.8 })
-    const embers = new THREE.Points(emberGeo, emberMat)
-    fireGroup.add(embers)
-
-    fireGroup.position.set(pos.x, 0, pos.z)
-    this.scene.add(fireGroup)
-
-    this.fires.push({ group: fireGroup, embers, pos, radius, life: duration })
-  }
-
-  // 7. BLAZING WALL OF FIRE (PHOENIX BLAZE)
-  spawnFireWall(pos, dir, duration = 7.0) {
-    const wallGroup = new THREE.Group()
-    const right = new THREE.Vector3(dir.z, 0, -dir.x).normalize()
-
-    for (let i = -3; i <= 3; i++) {
-      const pillarGeo = new THREE.CylinderGeometry(0.6, 0.8, 4.0, 12)
-      const pillarMat = new THREE.MeshBasicMaterial({ color: 0xf97316, transparent: true, opacity: 0.8 })
-      const pillar = new THREE.Mesh(pillarGeo, pillarMat)
-      pillar.position.copy(pos).addScaledVector(right, i * 1.3)
-      pillar.position.y = 2.0
-      wallGroup.add(pillar)
-    }
-
-    this.scene.add(wallGroup)
-    this.walls.push({ group: wallGroup, life: duration })
-  }
-
-  // 8. SAGE SOLID JADE CRYSTAL WALL (BARRIER)
-  spawnCrystalWall(pos, dir, duration = 20.0) {
-    const wallGroup = new THREE.Group()
-    const right = new THREE.Vector3(dir.z, 0, -dir.x).normalize()
-
-    for (let i = -1.5; i <= 1.5; i++) {
-      const geo = new THREE.BoxGeometry(1.5, 3.6, 1.5)
-      const mat = new THREE.MeshStandardMaterial({
-        color: 0x10b981,
-        emissive: 0x047857,
-        emissiveIntensity: 0.3,
-        roughness: 0.2,
-        metalness: 0.5,
-        transparent: true,
-        opacity: 0.92
-      })
-      const pillar = new THREE.Mesh(geo, mat)
-      pillar.position.copy(pos).addScaledVector(right, i * 1.6)
-      pillar.position.y = 1.8
-      pillar.castShadow = true
-      pillar.receiveShadow = true
-      wallGroup.add(pillar)
-    }
-
-    this.scene.add(wallGroup)
-    this.walls.push({ group: wallGroup, life: duration })
-  }
-
-  // 9. ICE CRIOGENIC SLOW FIELD (SAGE SLOW ORB)
-  spawnIceSlowField(pos, radius = 5.0, duration = 8.0) {
-    const iceGroup = new THREE.Group()
-
-    const iceDiscGeo = new THREE.CylinderGeometry(radius, radius, 0.1, 24)
-    const iceDiscMat = new THREE.MeshStandardMaterial({
-      color: 0x38bdf8,
-      emissive: 0x0284c7,
-      emissiveIntensity: 0.4,
-      transparent: true,
-      opacity: 0.65,
-      roughness: 0.1
-    })
-    const iceDisc = new THREE.Mesh(iceDiscGeo, iceDiscMat)
-    iceDisc.position.y = 0.06
-    iceGroup.add(iceDisc)
-
-    iceGroup.position.set(pos.x, 0, pos.z)
-    this.scene.add(iceGroup)
-
-    this.fires.push({ group: iceGroup, pos, radius, life: duration, isSlowField: true })
-  }
-
-  // 10. HEALING AURA LIGHT SPIRAL (SAGE HEAL)
   spawnHealingAura(player, color = 0x10b981) {
     const auraGroup = new THREE.Group()
 
-    for (let i = 0; i < 3; i++) {
-      const ringGeo = new THREE.TorusGeometry(0.7 + i * 0.15, 0.03, 8, 20)
-      const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8 })
-      const ring = new THREE.Mesh(ringGeo, ringMat)
-      ring.rotation.x = Math.PI / 2
-      ring.position.y = 0.3 + i * 0.5
-      auraGroup.add(ring)
-    }
+    const beamGeo = new THREE.CylinderGeometry(0.95, 0.95, 2.2, 16, 1, true)
+    const beamMat = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.55,
+      side: THREE.DoubleSide
+    })
+    const beam = new THREE.Mesh(beamGeo, beamMat)
+    beam.position.y = 1.1
+    auraGroup.add(beam)
 
     this.scene.add(auraGroup)
-    this.healingAuras.push({ group: auraGroup, player, life: 1.8 })
-  }
-
-  // 11. PHOENIX RISING FIRE AURA
-  spawnPhoenixAura(player) {
-    const auraGroup = new THREE.Group()
-
-    const ringGeo = new THREE.RingGeometry(0.4, 1.8, 24)
-    const ringMat = new THREE.MeshBasicMaterial({ color: 0xf97316, side: THREE.DoubleSide, transparent: true, opacity: 0.9 })
-    const ring = new THREE.Mesh(ringGeo, ringMat)
-    ring.rotation.x = -Math.PI / 2
-    ring.position.y = 0.08
-    auraGroup.add(ring)
-
-    this.scene.add(auraGroup)
-    this.healingAuras.push({ group: auraGroup, player, life: 3.0 })
-  }
-
-  // 12. SHOCK EXPLOSION BURST
-  spawnShockExplosion(pos, targets, ownerId) {
-    const shockGroup = new THREE.Group()
-
-    const sphereGeo = new THREE.SphereGeometry(3.0, 16, 16)
-    const sphereMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.8, wireframe: true })
-    const sphere = new THREE.Mesh(sphereGeo, sphereMat)
-    sphere.position.y = 1.0
-    shockGroup.add(sphere)
-
-    shockGroup.position.set(pos.x, 0, pos.z)
-    this.scene.add(shockGroup)
-
-    this.flashOrbs.push({ group: shockGroup, scale: 0.3, life: 0.4 })
-
-    targets.forEach(t => {
-      if (t.id !== ownerId && t.alive) {
-        const d = Math.hypot(t.pos.x - pos.x, t.pos.z - pos.z)
-        if (d < 5.0) {
-          DamageSystem.applyDamage(t, 65, false, false, 'shock')
-        }
-      }
+    this.healingAuras.push({
+      group: auraGroup,
+      player,
+      life: 0.8,
+      maxLife: 0.8
     })
   }
 
-  // 13. RECON SONAR RADAR PULSE
-  spawnReconPulse(pos, targets, team) {
-    const geo = new THREE.RingGeometry(0.5, 0.8, 32)
-    const mat = new THREE.MeshBasicMaterial({ color: 0x00f3ff, side: THREE.DoubleSide, transparent: true, opacity: 1.0 })
-    const mesh = new THREE.Mesh(geo, mat)
-    mesh.rotation.x = -Math.PI / 2
-    mesh.position.set(pos.x, 0.25, pos.z)
-    this.scene.add(mesh)
-    this.sonarPulses.push({ mesh, radius: 0.5, maxRadius: 26.0, life: 3.5 })
-
-    targets.forEach(t => {
-      if (t.alive && t.team !== team) {
-        const d = Math.hypot(t.pos.x - pos.x, t.pos.z - pos.z)
-        if (d < 26.0) {
-          t.revealed = true
-          setTimeout(() => { t.revealed = false }, 3500)
-        }
-      }
-    })
-  }
-
-  // 14. SOVA PIERCING DRAGON ENERGY BEAM
-  spawnBeam(origin, dir, targets, ownerId) {
-    const beamGroup = new THREE.Group()
-
-    const coreGeo = new THREE.CylinderGeometry(1.6, 1.6, 70, 24)
-    const coreMat = new THREE.MeshBasicMaterial({ color: 0x0284c7, transparent: true, opacity: 0.85 })
-    const core = new THREE.Mesh(coreGeo, coreMat)
-    beamGroup.add(core)
-
-    const outerGeo = new THREE.CylinderGeometry(2.4, 2.4, 70, 16)
-    const outerMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.45, wireframe: true })
-    const outer = new THREE.Mesh(outerGeo, outerMat)
-    beamGroup.add(outer)
-
-    beamGroup.position.copy(origin).addScaledVector(dir, 35)
-    beamGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir)
-    this.scene.add(beamGroup)
-    this.beams.push({ group: beamGroup, life: 0.7 })
-
-    targets.forEach(t => {
-      if (t.alive && t.id !== ownerId) {
-        DamageSystem.applyDamage(t, 90, false, false, 'beam')
-      }
-    })
-  }
-
-  // 15. BRIMSTONE GIANT ORBITAL STRIKE
-  spawnOrbitalLaser(pos, targets, ownerId) {
-    const laserGroup = new THREE.Group()
-
-    const geo = new THREE.CylinderGeometry(4.5, 4.5, 90, 24)
-    const mat = new THREE.MeshBasicMaterial({ color: 0xea580c, transparent: true, opacity: 0.8 })
-    const laser = new THREE.Mesh(geo, mat)
-    laser.position.set(pos.x, 45, pos.z)
-    laserGroup.add(laser)
-
-    const ringGeo = new THREE.RingGeometry(1.0, 5.2, 32)
-    const ringMat = new THREE.MeshBasicMaterial({ color: 0xfacc15, side: THREE.DoubleSide, transparent: true, opacity: 0.9 })
-    const ring = new THREE.Mesh(ringGeo, ringMat)
-    ring.rotation.x = -Math.PI / 2
-    ring.position.set(pos.x, 0.15, pos.z)
-    laserGroup.add(ring)
-
-    this.scene.add(laserGroup)
-    this.beams.push({ group: laserGroup, life: 3.5 })
-
-    targets.forEach(t => {
-      if (t.alive && t.id !== ownerId) {
-        const d = Math.hypot(t.pos.x - pos.x, t.pos.z - pos.z)
-        if (d < 5.5) DamageSystem.applyDamage(t, 140, false, false, 'orbital')
-      }
-    })
-  }
-
-  // ==========================================
-  // TICK & ANIMATION GAME LOOP
-  // ==========================================
+  // --- FRAME UPDATE ---
   update(dt, player, targets = []) {
-    // 1. Update Orbiting Blade Storm Knives around player
-    if (this.hasUltKnivesActive && this.activeUltKnives.length > 0 && player) {
-      const yaw = player.yaw || 0
-      const pitch = player.pitch || 0
-      const headPos = new THREE.Vector3(player.pos.x, player.pos.y + 1.3, player.pos.z)
-
-      this.activeUltKnives.forEach((k, idx) => {
-        const angle = yaw + k.offsetAngle
-        const rad = k.orbitRadius
-        const hoverBob = Math.sin(Date.now() * 0.005 + idx) * 0.06
-
-        k.group.position.set(
-          headPos.x + Math.sin(angle) * rad,
-          headPos.y + hoverBob,
-          headPos.z + Math.cos(angle) * rad
-        )
-        k.group.rotation.y = angle + Math.PI / 2
-        k.group.rotation.x = pitch
-      })
+    // 1. Update Ramps (Auto-cleanup & collider cleanup)
+    for (let i = this.ramps.length - 1; i >= 0; i--) {
+      const r = this.ramps[i]
+      r.life -= dt
+      if (r.life <= 0) {
+        if (r.colliders) {
+          r.colliders.forEach(c => {
+            const idx = this.meshColliders.indexOf(c)
+            if (idx !== -1) this.meshColliders.splice(idx, 1)
+            if (this.playerController) this.playerController.removeMeshCollider(c)
+          })
+        }
+        this.scene.remove(r.group)
+        this.ramps.splice(i, 1)
+      }
     }
 
-    // 2. Update Flying Projectiles (Thrown Ult Knives)
-    for (let i = this.projectiles.length - 1; i >= 0; i--) {
-      const p = this.projectiles[i]
-      p.life -= dt
-      p.pos.addScaledVector(p.vel, dt)
-      p.mesh.position.copy(p.pos)
+    // 2. Update Grapple Cables
+    for (let i = this.grappleCables.length - 1; i >= 0; i--) {
+      const g = this.grappleCables[i]
+      g.life -= dt
+      if (g.mesh && g.mesh.material) {
+        g.mesh.material.opacity = Math.max(0, g.life / g.maxLife)
+      }
+      if (g.life <= 0) {
+        this.scene.remove(g.mesh)
+        if (g.mesh.geometry) g.mesh.geometry.dispose()
+        if (g.mesh.material) g.mesh.material.dispose()
+        this.grappleCables.splice(i, 1)
+      }
+    }
 
-      // Hit check against targets
-      if (p.targets) {
-        for (const t of p.targets) {
-          if (t.alive && t.id !== p.ownerId) {
-            const dist = p.pos.distanceTo(new THREE.Vector3(t.pos.x, t.pos.y + 1.0, t.pos.z))
-            if (dist < 1.2) {
-              DamageSystem.applyDamage(t, p.damage, false, false, 'knife')
-              soundManager.play('hit')
-              p.life = 0
-              break
-            }
+    // 3. Update Launch Pads & Trampoline Triggering
+    for (let i = this.launchPads.length - 1; i >= 0; i--) {
+      const pad = this.launchPads[i]
+      pad.life -= dt
+
+      if (pad.group) {
+        pad.group.rotation.y += dt * 1.5
+      }
+
+      // Check if local player steps on launch pad
+      if (player && this.playerController) {
+        const d = Math.hypot(player.pos.x - pad.pos.x, player.pos.z - pad.pos.z)
+        const curFeetY = Math.max(0, (player.pos.y || 1.7) - this.playerController.currentEyeHeight)
+        if (d <= pad.radius && Math.abs(curFeetY - pad.pos.y) < 0.6) {
+          if (this.playerController.velocity.y <= 0.1) {
+            this.playerController.applyImpulse(0, 18.0, 0)
+            soundManager.play('ult_activate')
           }
         }
       }
 
-      if (p.life <= 0) {
-        this.scene.remove(p.mesh)
-        this.projectiles.splice(i, 1)
+      if (pad.life <= 0) {
+        this.scene.remove(pad.group)
+        this.launchPads.splice(i, 1)
       }
     }
 
-    // 3. Update Smokes
+    // 4. Update Smokes
     for (let i = this.smokes.length - 1; i >= 0; i--) {
       const s = this.smokes[i]
       s.life -= dt
-
-      // Pop-in expansion animation
       if (s.currentScale < s.targetScale) {
-        s.currentScale = Math.min(s.targetScale, s.currentScale + dt * 4.0)
+        s.currentScale = Math.min(s.targetScale, s.currentScale + dt * 4.5)
         s.group.scale.set(s.currentScale, s.currentScale, s.currentScale)
       }
-      if (s.ringMesh) {
-        s.ringMesh.rotation.z += dt * 0.5
+      if (s.ringMesh) s.ringMesh.rotation.z += dt * 0.4
+      if (s.life < 1.5) {
+        const fade = s.life / 1.5
+        s.group.scale.set(s.targetScale * fade, s.targetScale * fade, s.targetScale * fade)
       }
-
       if (s.life <= 0) {
         this.scene.remove(s.group)
         this.smokes.splice(i, 1)
       }
     }
 
-    // 4. Update Updraft Vortices
+    // 5. Update Updrafts & Trails
     for (let i = this.updraftVortices.length - 1; i >= 0; i--) {
       const u = this.updraftVortices[i]
       u.life -= dt
@@ -767,7 +541,6 @@ export class AbilitySystem3D {
       }
     }
 
-    // 5. Update Dash Trails
     for (let i = this.dashTrails.length - 1; i >= 0; i--) {
       const d = this.dashTrails[i]
       d.life -= dt
@@ -777,87 +550,6 @@ export class AbilitySystem3D {
       }
     }
 
-    // 6. Update Flash Orbs & Shockwaves
-    for (let i = this.flashOrbs.length - 1; i >= 0; i--) {
-      const o = this.flashOrbs[i]
-      o.life -= dt
-      o.scale += dt * 8.0
-      o.group.scale.set(o.scale, o.scale, o.scale)
-      if (o.life <= 0) {
-        this.scene.remove(o.group)
-        this.flashOrbs.splice(i, 1)
-      }
-    }
-
-    // 7. Update Fire & Ice Slow Zones
-    for (let i = this.fires.length - 1; i >= 0; i--) {
-      const f = this.fires[i]
-      f.life -= dt
-      if (f.embers && f.embers.geometry && f.embers.geometry.attributes.position) {
-        const posAttr = f.embers.geometry.attributes.position
-        for (let j = 0; j < posAttr.count; j++) {
-          let y = posAttr.getY(j) + dt * 1.5
-          if (y > 3.0) y = 0.1
-          posAttr.setY(j, y)
-        }
-        posAttr.needsUpdate = true
-      }
-
-      // Check damage / slow on local player
-      if (player) {
-        const dist = Math.hypot(player.pos.x - f.pos.x, player.pos.z - f.pos.z)
-        if (dist < f.radius) {
-          if (f.isSlowField) {
-            player.isSlowed = true
-          } else if (player.agentId === 'phoenix') {
-            player.health = Math.min(player.maxHealth || 100, player.health + 12 * dt)
-          } else {
-            DamageSystem.applyDamage(player, 35 * dt, false, false, 'fire')
-          }
-        }
-      }
-
-      if (f.life <= 0) {
-        this.scene.remove(f.group)
-        this.fires.splice(i, 1)
-      }
-    }
-
-    // 8. Update Solid Walls
-    for (let i = this.walls.length - 1; i >= 0; i--) {
-      const w = this.walls[i]
-      w.life -= dt
-      if (w.life <= 0) {
-        this.scene.remove(w.group)
-        this.walls.splice(i, 1)
-      }
-    }
-
-    // 9. Update Sonar Pulses
-    for (let i = this.sonarPulses.length - 1; i >= 0; i--) {
-      const p = this.sonarPulses[i]
-      p.life -= dt
-      p.radius += 10.0 * dt
-      p.mesh.scale.set(p.radius, p.radius, p.radius)
-      p.mesh.material.opacity = p.life / 3.5
-      if (p.life <= 0) {
-        this.scene.remove(p.mesh)
-        p.mesh.geometry.dispose()
-        this.sonarPulses.splice(i, 1)
-      }
-    }
-
-    // 10. Update Beams
-    for (let i = this.beams.length - 1; i >= 0; i--) {
-      const b = this.beams[i]
-      b.life -= dt
-      if (b.life <= 0) {
-        this.scene.remove(b.group || b.mesh)
-        this.beams.splice(i, 1)
-      }
-    }
-
-    // 11. Update Healing & Phoenix Auras
     for (let i = this.healingAuras.length - 1; i >= 0; i--) {
       const a = this.healingAuras[i]
       a.life -= dt
@@ -876,79 +568,19 @@ export class AbilitySystem3D {
   castRemote(caster, key, pos, dir, targets = []) {
     const origin = new THREE.Vector3(pos.x, pos.y, pos.z)
     const forward = new THREE.Vector3(dir.x, dir.y, dir.z).normalize()
-    const agent = caster.agentId || 'jett'
 
-    if (agent === 'jett' || agent === 'gladiator' || !['phoenix', 'sova', 'sage', 'brimstone', 'reyna'].includes(agent)) {
-      if (key === 'C') {
-        this.spawnSmoke(origin.clone().addScaledVector(forward, 7), 4.5, 0x64748b, 7.0)
-        soundManager.play('flash')
-      } else if (key === 'Q') {
-        this.spawnUpdraftVortex(origin)
-        soundManager.play('dash')
-      } else if (key === 'E') {
-        const startPos = origin.clone()
-        const targetPos = origin.clone().addScaledVector(forward, 14.0)
-        this.spawnDashTrail(startPos, targetPos, forward)
-        soundManager.play('dash')
-      } else if (key === 'X') {
-        this.activateBladeStorm(caster)
-        soundManager.play('ult_activate')
-      }
-    } else if (agent === 'phoenix') {
-      if (key === 'C') {
-        this.spawnFireWall(origin.clone().addScaledVector(forward, 4), forward, 8.0)
-        soundManager.play('flash')
-      } else if (key === 'Q') {
-        const flashPos = origin.clone().addScaledVector(forward, 8).add(new THREE.Vector3(0, 1.2, 0))
-        this.spawnFlashOrb(flashPos, targets, caster.id)
-        soundManager.play('flash')
-      } else if (key === 'E') {
-        const fireLanding = origin.clone().addScaledVector(forward, 11)
-        fireLanding.y = 0.2
-        this.spawnFireZone(fireLanding, 4.2, 7.0)
-        soundManager.play('flash')
-      } else if (key === 'X') {
-        this.spawnPhoenixAura(caster)
-        soundManager.play('ult_activate')
-      }
-    } else if (agent === 'sova') {
-      if (key === 'C') {
-        const impactPos = origin.clone().addScaledVector(forward, 14)
-        this.spawnShockExplosion(impactPos, targets, caster.id)
-        soundManager.play('flash')
-      } else if (key === 'Q' || key === 'E') {
-        const arrowLanding = origin.clone().addScaledVector(forward, 18)
-        this.spawnReconPulse(arrowLanding, targets, caster.team)
-        soundManager.play('recon')
-      } else if (key === 'X') {
-        this.spawnBeam(origin, forward, targets, caster.id)
-        soundManager.play('ult_activate')
-      }
-    } else if (agent === 'sage') {
-      if (key === 'C') {
-        this.spawnCrystalWall(origin.clone().addScaledVector(forward, 4), forward, 20.0)
-        soundManager.play('buy')
-      } else if (key === 'Q') {
-        const orbLanding = origin.clone().addScaledVector(forward, 12)
-        this.spawnIceSlowField(orbLanding, 5.0, 8.0)
-        soundManager.play('flash')
-      } else if (key === 'E' || key === 'X') {
-        this.spawnHealingAura(caster)
-        soundManager.play('buy')
-      }
-    } else if (agent === 'brimstone' || agent === 'reyna') {
-      if (key === 'C') {
-        this.spawnSmoke(origin.clone().addScaledVector(forward, 10), 5.5, 0x334155, 12.0)
-        soundManager.play('flash')
-      } else if (key === 'Q') {
-        const eyePos = origin.clone().addScaledVector(forward, 9).add(new THREE.Vector3(0, 1.5, 0))
-        this.spawnFlashOrb(eyePos, targets, caster.id, 0xa855f7)
-        soundManager.play('flash')
-      } else if (key === 'X') {
-        const laserPos = origin.clone().addScaledVector(forward, 12)
-        this.spawnOrbitalLaser(laserPos, targets, caster.id)
-        soundManager.play('ult_activate')
-      }
+    if (key === 'C') {
+      this.spawnSmoke(origin.clone().addScaledVector(forward, 7), 4.5, 0x64748b, 7.5)
+      soundManager.play('flash')
+    } else if (key === 'Q') {
+      this.spawnRamp(caster)
+      soundManager.play('buy')
+    } else if (key === 'E') {
+      this.spawnDashTrail(origin, origin.clone().addScaledVector(forward, 10), forward)
+      soundManager.play('dash')
+    } else if (key === 'X') {
+      this.spawnLaunchPad(caster)
+      soundManager.play('ult_activate')
     }
   }
 }

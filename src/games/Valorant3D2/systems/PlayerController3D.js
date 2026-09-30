@@ -30,12 +30,30 @@ export class PlayerController3D {
     this.mouseSensitivity = 0.0022
     this.gunRecoil = 0
     this.walkBobTimer = 0
+    this.impulseVelocity = new THREE.Vector3()
 
     this.colliders = []
     this.meshColliders = []
     this.currentFloorY = 0
     this.maxStepHeight = 0.75
     this.groundRaycaster = new THREE.Raycaster()
+  }
+
+  applyImpulse(vx, vy, vz) {
+    this.impulseVelocity.set(vx, 0, vz)
+    this.velocity.y = vy
+    this.onGround = false
+  }
+
+  addMeshCollider(mesh) {
+    if (mesh && !this.meshColliders.includes(mesh)) {
+      this.meshColliders.push(mesh)
+    }
+  }
+
+  removeMeshCollider(mesh) {
+    const idx = this.meshColliders.indexOf(mesh)
+    if (idx !== -1) this.meshColliders.splice(idx, 1)
   }
 
   setColliders(colliders) {
@@ -124,6 +142,16 @@ export class PlayerController3D {
     } else {
       this.velocity.x = 0
       this.velocity.z = 0
+    }
+
+    // Apply active momentum impulse (e.g. Grappling Hook / Impulse / Launch Pad)
+    if (this.impulseVelocity.lengthSq() > 0.01) {
+      this.velocity.x += this.impulseVelocity.x
+      this.velocity.z += this.impulseVelocity.z
+      this.impulseVelocity.x *= Math.max(0, 1 - 4.5 * dt)
+      this.impulseVelocity.z *= Math.max(0, 1 - 4.5 * dt)
+    } else {
+      this.impulseVelocity.set(0, 0, 0)
     }
 
     // 3. Jump and Gravity

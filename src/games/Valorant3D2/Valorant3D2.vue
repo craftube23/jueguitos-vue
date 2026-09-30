@@ -392,6 +392,8 @@ function initThreeJS() {
   weaponSystem = new WeaponSystem3D(scene, camera)
   weaponSystem.setMeshColliders(MAP_3D.meshColliders)
   abilitySystem = new AbilitySystem3D(scene, camera)
+  abilitySystem.setPlayerController(playerController)
+  abilitySystem.setMeshColliders(MAP_3D.meshColliders)
   botAI = new BotAI3D(scene)
   botAI.setMeshColliders(MAP_3D.meshColliders)
   botAI.setColliders(MAP_3D.wallsAABB)
@@ -448,6 +450,9 @@ function rebuildMap3D(mapId) {
   }
   if (weaponSystem) {
     weaponSystem.setMeshColliders(arenaData.meshColliders)
+  }
+  if (abilitySystem) {
+    abilitySystem.setMeshColliders(arenaData.meshColliders)
   }
   if (botAI) {
     botAI.setMeshColliders(arenaData.meshColliders)
@@ -1646,8 +1651,16 @@ function onKeyDown(e) {
     return
   }
 
+  if (e.code === 'KeyR') reloadWeapon3D(player)
+  if (e.code === 'KeyV') isThirdPerson.value = !isThirdPerson.value
+  if (e.code === 'KeyC') castAbility('C')
+  if (e.code === 'KeyQ') castAbility('Q')
+  if (e.code === 'KeyE') castAbility('E')
+  if (e.code === 'KeyX') castAbility('X')
+}
+
 function castAbility(slot) {
-  if (player.isDead || match.phase === 'BUY_PHASE') return
+  if (!player.alive || match.phase === 'BUY_PHASE') return
   if (slot === 'X' && (player.ultPoints < player.requiredUltPoints && !infiniteAbilities.value)) return
 
   abilitySystem.cast(player, slot, players.value, (msg) => match.announcement = msg)
@@ -1665,14 +1678,6 @@ function castAbility(slot) {
       casterId: player.id
     })
   }
-}
-
-  if (e.code === 'KeyR') reloadWeapon3D(player)
-  if (e.code === 'KeyV') isThirdPerson.value = !isThirdPerson.value
-  if (e.code === 'KeyC') castAbility('C')
-  if (e.code === 'KeyQ') castAbility('Q')
-  if (e.code === 'KeyE') castAbility('E')
-  if (e.code === 'KeyX') castAbility('X')
 }
 
 function onKeyUp(e) {
@@ -2276,50 +2281,50 @@ function buyItem(item) {
         </div>
       </div>
 
-      <!-- TACTICAL ABILITIES TAB (UNIVERSAL KIT) -->
+      <!-- TACTICAL ABILITIES TAB (1V1.LOL KIT) -->
       <div v-if="activeTab === 'abilities'" class="tab-content agents-grid">
-        <div class="agent-card">
-          <div class="agent-card-header" style="border-color: #38bdf8;">
-            <span class="agent-avatar">⚡</span>
-            <div>
-              <h4>Dash de Impulso</h4>
-              <span class="agent-role">Tecla [E] · Movilidad</span>
-            </div>
-          </div>
-          <p class="agent-desc">Impúlsate 12 metros hacia adelante a gran velocidad en la dirección donde miras. Ideal para esquivar ráfagas de disparos o reposicionarte.</p>
-        </div>
-
-        <div class="agent-card">
-          <div class="agent-card-header" style="border-color: #a855f7;">
-            <span class="agent-avatar">💨</span>
-            <div>
-              <h4>Super Salto Vertical</h4>
-              <span class="agent-role">Tecla [Q] · Altura</span>
-            </div>
-          </div>
-          <p class="agent-desc">Propúlsate hacia arriba instantáneamente para subir a plataformas altas, pasarelas y sorprender a tus rivales desde el aire.</p>
-        </div>
-
         <div class="agent-card">
           <div class="agent-card-header" style="border-color: #64748b;">
             <span class="agent-avatar">☁️</span>
             <div>
-              <h4>Granada de Humo</h4>
-              <span class="agent-role">Tecla [C] · Cobertura</span>
+              <h4>Nube de Humo Táctica</h4>
+              <span class="agent-role">Tecla [C] · Cobertura y Despiste</span>
             </div>
           </div>
-          <p class="agent-desc">Despliega una cortina esférica de humo que bloquea por completo la visión enemiga durante 5 segundos para cruzar zonas peligrosas.</p>
+          <p class="agent-desc">Lanza una granada táctica que genera una densa nube esférica de humo de 8 metros de diámetro, bloqueando completamente la línea de visión del rival durante 8 segundos.</p>
+        </div>
+
+        <div class="agent-card">
+          <div class="agent-card-header" style="border-color: #00f3ff;">
+            <span class="agent-avatar">🪜</span>
+            <div>
+              <h4>Construir Rampa 1v1</h4>
+              <span class="agent-role">Tecla [Q] · Construcción / High Ground</span>
+            </div>
+          </div>
+          <p class="agent-desc">Construye instantáneamente una rampa/escalera de combate sólida y transitable frente a ti. ¡Sube por ella para ganar la altura y disparar desde arriba como en 1v1.LOL!</p>
+        </div>
+
+        <div class="agent-card">
+          <div class="agent-card-header" style="border-color: #38bdf8;">
+            <span class="agent-avatar">⚡</span>
+            <div>
+              <h4>Gancho de Agarre / Impulso</h4>
+              <span class="agent-role">Tecla [E] · Movilidad y Enganche</span>
+            </div>
+          </div>
+          <p class="agent-desc">Dispara un cable de energía a toda velocidad que se aferra a muros y plataformas para impulsarte velozmente hacia ellos (o te da un impulso aéreo si apuntas al cielo).</p>
         </div>
 
         <div class="agent-card">
           <div class="agent-card-header" style="border-color: #f59e0b;">
-            <span class="agent-avatar">🌪️</span>
+            <span class="agent-avatar">🚀</span>
             <div>
-              <h4>Sobretensión Definitiva</h4>
-              <span class="agent-role">Tecla [X] · Modo Máximo</span>
+              <h4>Plataforma de Salto + Súper Escudo</h4>
+              <span class="agent-role">Tecla [X] · Lanzador +50 Armadura</span>
             </div>
           </div>
-          <p class="agent-desc">Sobrecarga tus sistemas de combate con máxima adrenalina para dominar el duelo 1v1.</p>
+          <p class="agent-desc">Despliega una plataforma cinética bajo tus pies que te catapulta por los aires para hacer jugadas aéreas, y te restaura instantáneamente +50 puntos de escudo táctico.</p>
         </div>
       </div>
 
@@ -2748,12 +2753,12 @@ function buyItem(item) {
         </div>
 
         <div class="hud-abilities">
-          <div class="ability-slot"><span class="key-badge">C</span><span class="ab-icon">☁️</span></div>
-          <div class="ability-slot"><span class="key-badge">Q</span><span class="ab-icon">✨</span></div>
-          <div class="ability-slot"><span class="key-badge">E</span><span class="ab-icon">⚡</span></div>
-          <div class="ability-slot ult-slot" :class="{ ready: player.ultPoints >= player.requiredUltPoints }">
+          <div class="ability-slot" title="[C] Nube de Humo Táctica"><span class="key-badge">C</span><span class="ab-icon">☁️</span></div>
+          <div class="ability-slot" title="[Q] Construir Rampa 1v1 (High Ground)"><span class="key-badge">Q</span><span class="ab-icon">🪜</span></div>
+          <div class="ability-slot" title="[E] Gancho de Agarre / Impulso"><span class="key-badge">E</span><span class="ab-icon">⚡</span></div>
+          <div class="ability-slot ult-slot" :class="{ ready: player.ultPoints >= player.requiredUltPoints }" title="[X] Plataforma de Salto + Súper Escudo (+50)">
             <span class="key-badge">X</span>
-            <span class="ab-icon">🌪️</span>
+            <span class="ab-icon">🚀</span>
           </div>
         </div>
 
