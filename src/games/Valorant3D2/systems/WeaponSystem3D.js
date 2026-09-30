@@ -7,17 +7,17 @@ const WEAPON_MODELS = {
   m4a1: {
     path: '/models/armas/m4_-_fps_weapon_animations_pack_v.1.glb',
     scale: [0.01, 0.01, 0.01],
-    rotation: [0, 0, 0],
+    rotation: [0, Math.PI, 0],
     hideBodyMesh: false,
-    hipPos: [0.01, -1.45, -0.25],
-    adsPos: [-0.038, -1.39, -0.16],
-    muzzlePos: [0.0, 1.45, -0.80],
+    hipPos: [0.0, -1.53, -0.10],
+    adsPos: [0.06, -1.48, -0.04],
+    muzzlePos: [0.06, 1.48, -0.85],
     animMap: {
       draw: 'Draw',
       idle: 'Draw',
       shoot: 'Fire',
       reload: 'Reload',
-      inspect: 'Draw'
+      inspect: 'Holster'
     }
   },
   ak74u: {
@@ -189,15 +189,13 @@ export class WeaponSystem3D {
               const matName = child.material?.name?.toLowerCase() || ''
 
               if (
-                (config.hideBodyMesh && (
+                config.hideBodyMesh && (
                   meshName.includes('body') ||
                   meshName.includes('sleeve') ||
                   child.name === 'Object_57' ||
-                  child.name === 'Object_12'
-                )) ||
-                meshName.includes('hand_mesh_hand') ||
-                matName === 'hand_d' ||
-                matName === 'sleeve_st6_generalist'
+                  child.name === 'Object_12' ||
+                  matName === 'sleeve_st6_generalist'
+                )
               ) {
                 child.visible = false
                 return
