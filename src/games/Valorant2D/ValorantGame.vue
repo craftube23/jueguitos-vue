@@ -434,11 +434,14 @@ const isMap3DLoaded = ref(false)
 
 function initThreeScene() {
   if (!threeCanvasRef.value) return
-  if (threeRenderer) return
+  if (threeRenderer) {
+    threeRenderer.setSize(960, 500)
+    return
+  }
 
   threeScene = new THREE.Scene()
-  threeScene.background = new THREE.Color(0x0c1017)
-  threeScene.fog = new THREE.FogExp2(0x0c1017, 0.0006)
+  threeScene.background = new THREE.Color(0x0a0f18)
+  threeScene.fog = new THREE.FogExp2(0x0a0f18, 0.0005)
 
   threeCamera = new THREE.PerspectiveCamera(70, 960 / 500, 0.1, 4000)
 
@@ -450,23 +453,23 @@ function initThreeScene() {
   threeRenderer.setSize(960, 500)
   threeRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   threeRenderer.toneMapping = THREE.ACESFilmicToneMapping
-  threeRenderer.toneMappingExposure = 1.25
+  threeRenderer.toneMappingExposure = 1.3
   threeRenderer.shadowMap.enabled = true
   threeRenderer.shadowMap.type = THREE.PCFSoftShadowMap
 
   // Cyber tactical Lighting
-  const ambientLight = new THREE.AmbientLight(0xffffff, 2.0)
+  const ambientLight = new THREE.AmbientLight(0xffffff, 2.2)
   threeScene.add(ambientLight)
 
-  const hemiLight = new THREE.HemisphereLight(0xffffff, 0x666677, 1.2)
+  const hemiLight = new THREE.HemisphereLight(0xffffff, 0x475569, 1.4)
   threeScene.add(hemiLight)
 
-  const dirLight = new THREE.DirectionalLight(0xffeedd, 2.8)
+  const dirLight = new THREE.DirectionalLight(0xfff0dd, 2.8)
   dirLight.position.set(600, 1200, 500)
   dirLight.castShadow = true
   threeScene.add(dirLight)
 
-  const centerLight = new THREE.PointLight(0xffffff, 4.0, 1600)
+  const centerLight = new THREE.PointLight(0x38bdf8, 4.5, 1800)
   centerLight.position.set(17 * CELL_SIZE, 280, 9 * CELL_SIZE)
   threeScene.add(centerLight)
 
@@ -495,12 +498,59 @@ function initThreeScene() {
   siteBMesh.position.set(17 * CELL_SIZE, 2, 14.5 * CELL_SIZE)
   threeScene.add(siteBMesh)
 
-  // Load 3D Arena GLB Map
+  // 1. Procedural 3D Arena Floor & Grid
+  mapColliders = []
+  const floorGeo = new THREE.PlaneGeometry(MAP_COLS * CELL_SIZE, MAP_ROWS * CELL_SIZE, 34, 18)
+  const floorMat = new THREE.MeshStandardMaterial({
+    color: 0x0f172a,
+    roughness: 0.8,
+    metalness: 0.2
+  })
+  const floorMesh = new THREE.Mesh(floorGeo, floorMat)
+  floorMesh.rotation.x = -Math.PI / 2
+  floorMesh.position.set((MAP_COLS * CELL_SIZE) / 2, 0, (MAP_ROWS * CELL_SIZE) / 2)
+  floorMesh.receiveShadow = true
+  threeScene.add(floorMesh)
+  mapColliders.push(floorMesh)
+
+  const gridHelper = new THREE.GridHelper(MAP_COLS * CELL_SIZE, MAP_COLS, 0x38bdf8, 0x1e293b)
+  gridHelper.position.set((MAP_COLS * CELL_SIZE) / 2, 0.4, (MAP_ROWS * CELL_SIZE) / 2)
+  threeScene.add(gridHelper)
+
+  // 2. Procedural Solid 3D Walls from WORLD_GRID
+  const wallGeo = new THREE.BoxGeometry(CELL_SIZE, 110, CELL_SIZE)
+  const outerWallMat = new THREE.MeshStandardMaterial({
+    color: 0x1e293b,
+    roughness: 0.6,
+    metalness: 0.3
+  })
+  const innerWallMat = new THREE.MeshStandardMaterial({
+    color: 0x334155,
+    roughness: 0.5,
+    metalness: 0.2
+  })
+
+  for (let r = 0; r < MAP_ROWS; r++) {
+    for (let c = 0; c < MAP_COLS; c++) {
+      const tile = WORLD_GRID[r][c]
+      if (tile === 1 || tile === 4) {
+        const wallMesh = new THREE.Mesh(wallGeo, tile === 1 ? outerWallMat : innerWallMat)
+        wallMesh.position.set(c * CELL_SIZE + CELL_SIZE / 2, 55, r * CELL_SIZE + CELL_SIZE / 2)
+        wallMesh.castShadow = true
+        wallMesh.receiveShadow = true
+        threeScene.add(wallMesh)
+        mapColliders.push(wallMesh)
+      }
+    }
+  }
+
+  isMap3DLoaded.value = true
+
+  // 3. Load 3D Arena GLB Map if available
   const gltfLoader = new GLTFLoader()
   gltfLoader.load(
     '/models/mapa.glb',
     (gltf) => {
-      mapColliders = []
       map3DModel = gltf.scene
       map3DModel.traverse((child) => {
         if (child.isMesh) {
@@ -527,15 +577,13 @@ function initThreeScene() {
       const center = scaledBbox.getCenter(new THREE.Vector3())
       map3DModel.position.x = (targetSizeX / 2) - center.x
       map3DModel.position.z = (targetSizeZ / 2) - center.z
-      // Align interior walkable floor directly to Y = 0
       map3DModel.position.y = -(scaledBbox.min.y + 1.05 * scale)
 
       threeScene.add(map3DModel)
-      isMap3DLoaded.value = true
     },
     undefined,
     (err) => {
-      console.warn('GLB map error:', err)
+      console.warn('GLB map fallback:', err)
     }
   )
 }
@@ -802,13 +850,19 @@ const aliveEnemies = computed(() => {
 function startPracticeMatch() {
   appState.value = 'playing'
   initAudio()
-  initMatch(true)
+  setTimeout(() => {
+    initThreeScene()
+    initMatch(true)
+  }, 20)
 }
 
 function startMultiplayerMatch() {
   appState.value = 'playing'
   initAudio()
-  initMatch(false)
+  setTimeout(() => {
+    initThreeScene()
+    initMatch(false)
+  }, 20)
 }
 
 function initMatch(spawnPracticeBots = true) {
@@ -1122,17 +1176,35 @@ function handleKeyUp(e) {
   if (k === '4') keys['4'] = false
 }
 
+let lastMouseX = null
+let lastMouseY = null
+
 function handleMouseMove(e) {
-  if (player.isDead) return // Cannot look around while dead
-  if (isBuyMenuOpen.value || isPauseMenuOpen.value) return // Allow free cursor navigation in menus
-  if (document.pointerLockElement === canvasRef.value || (canvasRef.value && isMouseDown)) {
-    player.angle += e.movementX * 0.0032
-    player.pitch = Math.max(-0.75, Math.min(0.75, (player.pitch || 0) - e.movementY * 0.0032))
+  if (player.isDead) return
+  if (isBuyMenuOpen.value || isPauseMenuOpen.value) return
+
+  let deltaX = e.movementX
+  let deltaY = e.movementY
+
+  if (deltaX === undefined || deltaX === null || (deltaX === 0 && !document.pointerLockElement)) {
+    if (lastMouseX !== null) deltaX = e.clientX - lastMouseX
+    else deltaX = 0
+  }
+  if (deltaY === undefined || deltaY === null || (deltaY === 0 && !document.pointerLockElement)) {
+    if (lastMouseY !== null) deltaY = e.clientY - lastMouseY
+    else deltaY = 0
+  }
+  lastMouseX = e.clientX
+  lastMouseY = e.clientY
+
+  if (document.pointerLockElement || isMouseDown) {
+    player.angle += deltaX * 0.0035
+    player.pitch = Math.max(-0.75, Math.min(0.75, (player.pitch || 0) - deltaY * 0.0035))
   }
 }
 
 function handleMouseDown(e) {
-  if (isBuyMenuOpen.value || isPauseMenuOpen.value) return // Allow clicking menu options without shooting
+  if (isBuyMenuOpen.value || isPauseMenuOpen.value) return
   if (player.isDead) {
     if (e.button === 0) nextSpectateTarget()
     else if (e.button === 2) prevSpectateTarget()
@@ -1140,15 +1212,23 @@ function handleMouseDown(e) {
   }
   if (e.button === 0) {
     isMouseDown = true
-    if (document.pointerLockElement !== canvasRef.value && canvasRef.value && appState.value === 'playing') {
-      canvasRef.value.requestPointerLock()
+    lastMouseX = e.clientX
+    lastMouseY = e.clientY
+    if (canvasRef.value && document.pointerLockElement !== canvasRef.value && appState.value === 'playing') {
+      try {
+        canvasRef.value.requestPointerLock()
+      } catch (err) {}
     }
     shootWeapon()
   }
 }
 
 function handleMouseUp(e) {
-  if (e.button === 0) isMouseDown = false
+  if (e.button === 0) {
+    isMouseDown = false
+    lastMouseX = null
+    lastMouseY = null
+  }
 }
 
 function skipBuyPhase() {
@@ -1313,7 +1393,13 @@ function shootWeapon() {
     const damageDealt = (wep.damage || 35) * 1.5
 
     if (closestHit.isRemote) {
-      closestHit.hp = Math.max(0, (closestHit.hp ?? 100) - damageDealt)
+      if (closestHit.shield && closestHit.shield > 0) {
+        const sDmg = Math.min(closestHit.shield, damageDealt * 0.66)
+        closestHit.shield -= sDmg
+        closestHit.hp = Math.max(0, (closestHit.hp ?? 100) - (damageDealt - sDmg))
+      } else {
+        closestHit.hp = Math.max(0, (closestHit.hp ?? 100) - damageDealt)
+      }
       hitParticles.push({ x: closestHit.x ?? 0, y: closestHit.y ?? 0, timer: 12 })
       if (socket && currentRoom.value) {
         socket.emit('game_event', {
@@ -1334,7 +1420,13 @@ function shootWeapon() {
         player.ultPoints = Math.min(player.maxUltPoints, player.ultPoints + 1)
       }
     } else {
-      closestHit.hp -= damageDealt
+      if (closestHit.shield && closestHit.shield > 0) {
+        const sDmg = Math.min(closestHit.shield, damageDealt * 0.66)
+        closestHit.shield -= sDmg
+        closestHit.hp -= (damageDealt - sDmg)
+      } else {
+        closestHit.hp -= damageDealt
+      }
       hitParticles.push({ x: closestHit.x, y: closestHit.y, timer: 12 })
 
       if (closestHit.hp <= 0) {
@@ -1763,7 +1855,13 @@ function updateBotsFPS() {
           const damage = (wep.damage || 30) * (isHeadshot ? 2.5 : 1.0)
 
           if (bestTarget.isPlayer) {
-            player.hp -= damage
+            if (player.shield > 0) {
+              const sDmg = Math.min(player.shield, damage * 0.66)
+              player.shield -= sDmg
+              player.hp -= (damage - sDmg)
+            } else {
+              player.hp -= damage
+            }
             playSound('hurt')
             if (player.hp <= 0) {
               player.isDead = true
@@ -1772,7 +1870,13 @@ function updateBotsFPS() {
               isSpectating.value = true
             }
           } else {
-            bestTarget.entity.hp -= damage
+            if (bestTarget.entity.shield && bestTarget.entity.shield > 0) {
+              const sDmg = Math.min(bestTarget.entity.shield, damage * 0.66)
+              bestTarget.entity.shield -= sDmg
+              bestTarget.entity.hp -= (damage - sDmg)
+            } else {
+              bestTarget.entity.hp -= damage
+            }
             if (bestTarget.entity.hp <= 0) {
               bestTarget.entity.isDead = true
               bestTarget.entity.hp = 0
