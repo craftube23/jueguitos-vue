@@ -2,8 +2,9 @@
 import { ref, reactive, onMounted, onUnmounted, computed, watch } from 'vue'
 import { io } from 'socket.io-client'
 import * as THREE from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { AGENTS, WEAPONS, MAP_DATA } from './shared/gameData.js'
+import { AGENTS, WEAPONS } from './shared/gameData.js'
+import { MAPS } from './shared/mapsData.js'
+import { NetworkSystem2D } from './shared/NetworkSystem2D.js'
 
 // --- SOUND ENGINE (Web Audio API - DOOM & Tactical Edition) ---
 let audioCtx = null
@@ -179,11 +180,11 @@ function playSound(type) {
   }
 }
 
-import { NetworkSystem2D } from './shared/NetworkSystem2D.js'
-
 // --- STATE MANAGEMENT ---
 const appState = ref('mode_select') // 'mode_select' | 'agent_select' | 'mp_lobby_browser' | 'mp_room_lobby' | 'playing'
 const gameMode = ref('practice') // 'practice' | 'multiplayer'
+const selectedMapId = ref('bind')
+const currentMapData = computed(() => MAPS.find(m => m.id === selectedMapId.value) || MAPS[0])
 
 // Network & Multiplayer
 const network = new NetworkSystem2D()
@@ -205,33 +206,77 @@ function savePlayerName() {
   localStorage.setItem('val2d_player_name', playerName.value)
 }
 
+function onMatchStarted(room) {
+  currentRoom.value = room
+  if (room.mapId) {
+    selectedMapId.value = room.mapId
+  }
+  const myId = myMultiplayerPlayer.value?.id || socket?.id || network.myPlayer?.id
+  const me = room.players?.find(p => p.id === myId)
+  if (me) {
+    myMultiplayerPlayer.value = me
+    selectedAgent.value = me.agentId || selectedAgent.value
+    selectedSide.value = me.team || selectedSide.value
+    player.team = me.team || selectedSide.value
+  } else if (selectedSide.value) {
+    player.team = selectedSide.value
+  }
+
+  // Initialize remotePlayers map with all other players in the room
+  if (room.players && Array.isArray(room.players)) {
+    room.players.forEach(p => {
+      if (p.id !== myId) {
+        remotePlayers[p.id] = {
+          ...(remotePlayers[p.id] || {}),
+          id: p.id,
+          name: p.name,
+          team: p.team,
+          agentId: p.agentId,
+          hp: p.hp ?? 100,
+          shield: p.shield ?? 50,
+          x: p.x,
+          y: p.y,
+          isDead: false,
+          lastUpdate: Date.now()
+        }
+      }
+    })
+  }
+
+  startMultiplayerMatch()
+}
+
 function initMultiplayerNetwork() {
   // Wire NetworkSystem2D (PeerJS + BroadcastChannel WebRTC)
   network.on('connect', () => { isSocketConnected.value = true })
   network.on('rooms_list', (rooms) => { roomsList.value = rooms })
 
-  network.on('room_joined', ({ room, player }) => {
+  network.on('room_joined', ({ room, player: pl }) => {
     currentRoom.value = room
-    myMultiplayerPlayer.value = player
-    selectedAgent.value = player.agentId || 'jett'
-    selectedSide.value = player.team
+    if (room.mapId) selectedMapId.value = room.mapId
+    myMultiplayerPlayer.value = pl
+    selectedAgent.value = pl.agentId || 'jett'
+    selectedSide.value = pl.team
+    player.team = pl.team
     appState.value = 'mp_room_lobby'
     mpErrorMessage.value = ''
   })
 
   network.on('room_updated', (room) => {
     currentRoom.value = room
-    const me = room.players.find(p => p.id === (myMultiplayerPlayer.value?.id || network.myPlayer?.id))
+    if (room.mapId) selectedMapId.value = room.mapId
+    const myId = myMultiplayerPlayer.value?.id || network.myPlayer?.id || socket?.id
+    const me = room.players.find(p => p.id === myId)
     if (me) {
       myMultiplayerPlayer.value = me
       selectedAgent.value = me.agentId
       selectedSide.value = me.team
+      player.team = me.team
     }
   })
 
   network.on('match_started', (room) => {
-    currentRoom.value = room
-    startMultiplayerMatch()
+    onMatchStarted(room)
   })
 
   network.on('player_moved', (data) => {
@@ -267,19 +312,29 @@ function initMultiplayerNetwork() {
       socket.on('rooms_list', (rooms) => {
         if (rooms && rooms.length > 0) roomsList.value = rooms
       })
-      socket.on('room_joined', ({ room, player }) => {
+      socket.on('room_joined', ({ room, player: pl }) => {
         currentRoom.value = room
-        myMultiplayerPlayer.value = player
-        selectedAgent.value = player.agentId || 'jett'
-        selectedSide.value = player.team
+        if (room.mapId) selectedMapId.value = room.mapId
+        myMultiplayerPlayer.value = pl
+        selectedAgent.value = pl.agentId || 'jett'
+        selectedSide.value = pl.team
+        player.team = pl.team
         appState.value = 'mp_room_lobby'
       })
       socket.on('room_updated', (room) => {
         currentRoom.value = room
+        if (room.mapId) selectedMapId.value = room.mapId
+        const myId = myMultiplayerPlayer.value?.id || socket?.id || network.myPlayer?.id
+        const me = room.players?.find(p => p.id === myId)
+        if (me) {
+          myMultiplayerPlayer.value = me
+          selectedAgent.value = me.agentId
+          selectedSide.value = me.team
+          player.team = me.team
+        }
       })
       socket.on('match_started', (room) => {
-        currentRoom.value = room
-        startMultiplayerMatch()
+        onMatchStarted(room)
       })
       socket.on('player_moved', (data) => {
         remotePlayers[data.id] = {
@@ -310,15 +365,28 @@ function selectMode(mode) {
   }
 }
 
+function selectMapPractice(mapId) {
+  selectedMapId.value = mapId
+}
+
+function selectMapMp(mapId) {
+  selectedMapId.value = mapId
+  network.selectMap(mapId)
+  if (socket && socket.connected && currentRoom.value) {
+    socket.emit('select_map', { roomId: currentRoom.value.id, mapId })
+  }
+}
+
 function createRoom() {
   savePlayerName()
   const rName = newRoomName.value || `Sala de ${playerName.value}`
-  network.createRoom(rName, playerName.value, selectedSide.value)
+  network.createRoom(rName, playerName.value, selectedSide.value, selectedMapId.value)
   if (socket && socket.connected) {
     socket.emit('create_room', {
       roomName: rName,
       playerName: playerName.value,
-      team: selectedSide.value
+      team: selectedSide.value,
+      mapId: selectedMapId.value
     })
   }
   newRoomName.value = ''
@@ -408,7 +476,7 @@ function handleRemoteGameEvent(event) {
     playSound('spike_defused')
     endRound('defenders', 'SPIKE DESACTIVADA')
   } else if (event.type === 'damage_player') {
-    const myId = myMultiplayerPlayer.value?.id || network.myPlayer?.id
+    const myId = myMultiplayerPlayer.value?.id || socket?.id || network.myPlayer?.id
     if (myId && event.targetId === myId) {
       if (player.shield > 0) {
         const sDmg = Math.min(player.shield, event.damage * 0.66)
@@ -424,6 +492,43 @@ function handleRemoteGameEvent(event) {
         addKillFeed(event.killerName || 'Rival', playerName.value, event.weapon || 'Arma', true, false)
         isSpectating.value = true
       }
+      // Broadcast immediate player sync with updated HP/shield/death
+      if (gameMode.value === 'multiplayer' && currentRoom.value) {
+        const syncPayload = {
+          x: player.x,
+          y: player.y,
+          angle: player.angle,
+          pitch: player.pitch || 0,
+          hp: player.hp,
+          shield: player.shield,
+          weapon: player.weapon,
+          agentId: selectedAgent.value,
+          team: player.team,
+          name: playerName.value,
+          isDead: player.isDead,
+          floorY: player.currentFloorY || 0
+        }
+        network.sendPlayerSync(syncPayload)
+        if (socket && socket.connected) {
+          socket.emit('player_sync', {
+            roomId: currentRoom.value.id,
+            data: syncPayload
+          })
+        }
+      }
+    } else if (remotePlayers[event.targetId]) {
+      const rp = remotePlayers[event.targetId]
+      if (rp.shield && rp.shield > 0) {
+        const sDmg = Math.min(rp.shield, event.damage * 0.66)
+        rp.shield -= sDmg
+        rp.hp = Math.max(0, (rp.hp ?? 100) - (event.damage - sDmg))
+      } else {
+        rp.hp = Math.max(0, (rp.hp ?? 100) - event.damage)
+      }
+      if (rp.hp <= 0) {
+        rp.isDead = true
+        rp.hp = 0
+      }
     }
   }
 }
@@ -432,28 +537,6 @@ function handleRemoteGameEvent(event) {
 const CELL_SIZE = 64
 const MAP_COLS = 34
 const MAP_ROWS = 18
-
-// 0: empty, 1: boundary wall, 4: orange walls/pillar/dividers, 5: Site A plant zone, 6: Site B plant zone
-const WORLD_GRID = [
-  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,5,5,5,5,5,5,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,5,5,5,5,5,5,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,4,4,4,0,5,5,5,5,5,5,0,4,4,4,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,4,4,4,0,0,0,0,0,4,4,4,4,0,0,0,0,0,4,4,4,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,4,4,4,0,0,0,0,0,4,4,4,4,0,0,0,0,0,4,4,4,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,4,4,4,0,6,6,6,6,6,6,0,4,4,4,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,6,6,6,6,6,6,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,6,6,6,6,6,6,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
-]
 
 // --- ASSET MANAGEMENT ---
 const customSprites = reactive({})
@@ -496,10 +579,11 @@ let ctx = null
 let animFrameId = null
 let roundTimerInterval = null
 
-// Three.js 3D WebGL GLB Map Renderer
+// Three.js 3D WebGL Map Renderer
 let threeRenderer = null
 let threeScene = null
 let threeCamera = null
+let threeMapGroup = null
 let map3DModel = null
 let mapColliders = []
 const downRaycaster = new THREE.Raycaster()
@@ -511,13 +595,11 @@ function initThreeScene() {
   if (!threeCanvasRef.value) return
   if (threeRenderer) {
     threeRenderer.setSize(960, 500)
+    build3DMapGeometry()
     return
   }
 
   threeScene = new THREE.Scene()
-  threeScene.background = new THREE.Color(0x0a0f18)
-  threeScene.fog = new THREE.FogExp2(0x0a0f18, 0.0005)
-
   threeCamera = new THREE.PerspectiveCamera(70, 960 / 500, 0.1, 4000)
 
   threeRenderer = new THREE.WebGLRenderer({
@@ -532,52 +614,60 @@ function initThreeScene() {
   threeRenderer.shadowMap.enabled = true
   threeRenderer.shadowMap.type = THREE.PCFSoftShadowMap
 
-  // Cyber tactical Lighting
-  const ambientLight = new THREE.AmbientLight(0xffffff, 2.2)
-  threeScene.add(ambientLight)
+  build3DMapGeometry()
+}
+
+function build3DMapGeometry() {
+  if (!threeScene) return
+
+  if (threeMapGroup) {
+    threeScene.remove(threeMapGroup)
+    threeMapGroup.traverse((child) => {
+      if (child.geometry) child.geometry.dispose()
+      if (child.material) {
+        if (Array.isArray(child.material)) child.material.forEach(m => m.dispose())
+        else child.material.dispose()
+      }
+    })
+  }
+
+  threeMapGroup = new THREE.Group()
+  mapColliders = []
+
+  const theme = currentMapData.value.theme || {
+    floorColor: 0x0f172a,
+    gridColor: 0x38bdf8,
+    gridSub: 0x1e293b,
+    wallOuter: 0x1e293b,
+    wallInner: 0x334155,
+    fogColor: 0x0a0f18,
+    ambient: 0xffffff,
+    sunLight: 0xfff0dd
+  }
+
+  threeScene.background = new THREE.Color(theme.fogColor || 0x0a0f18)
+  threeScene.fog = new THREE.FogExp2(theme.fogColor || 0x0a0f18, 0.0005)
+
+  // Tactical Lighting according to map theme
+  const ambientLight = new THREE.AmbientLight(theme.ambient || 0xffffff, 2.2)
+  threeMapGroup.add(ambientLight)
 
   const hemiLight = new THREE.HemisphereLight(0xffffff, 0x475569, 1.4)
-  threeScene.add(hemiLight)
+  threeMapGroup.add(hemiLight)
 
-  const dirLight = new THREE.DirectionalLight(0xfff0dd, 2.8)
+  const dirLight = new THREE.DirectionalLight(theme.sunLight || 0xfff0dd, 2.8)
   dirLight.position.set(600, 1200, 500)
   dirLight.castShadow = true
-  threeScene.add(dirLight)
+  threeMapGroup.add(dirLight)
 
-  const centerLight = new THREE.PointLight(0x38bdf8, 4.5, 1800)
+  const centerLight = new THREE.PointLight(theme.gridColor || 0x38bdf8, 4.5, 1800)
   centerLight.position.set(17 * CELL_SIZE, 280, 9 * CELL_SIZE)
-  threeScene.add(centerLight)
-
-  // Point lights at Site A and Site B
-  const siteALight = new THREE.PointLight(0x00e5ff, 6.0, 900)
-  siteALight.position.set(17 * CELL_SIZE, 75, 3.5 * CELL_SIZE)
-  threeScene.add(siteALight)
-
-  const siteBLight = new THREE.PointLight(0xffaa00, 6.0, 900)
-  siteBLight.position.set(17 * CELL_SIZE, 75, 14.5 * CELL_SIZE)
-  threeScene.add(siteBLight)
-
-  // Plant Site A Ground Hologram Ring (Green/Cyan)
-  const siteAGeom = new THREE.RingGeometry(20, 160, 32)
-  const siteAMat = new THREE.MeshBasicMaterial({ color: 0x00ff88, side: THREE.DoubleSide, transparent: true, opacity: 0.45 })
-  const siteAMesh = new THREE.Mesh(siteAGeom, siteAMat)
-  siteAMesh.rotation.x = -Math.PI / 2
-  siteAMesh.position.set(17 * CELL_SIZE, 2, 3.5 * CELL_SIZE)
-  threeScene.add(siteAMesh)
-
-  // Plant Site B Ground Hologram Ring (Green/Amber)
-  const siteBGeom = new THREE.RingGeometry(20, 160, 32)
-  const siteBMat = new THREE.MeshBasicMaterial({ color: 0x00ff88, side: THREE.DoubleSide, transparent: true, opacity: 0.45 })
-  const siteBMesh = new THREE.Mesh(siteBGeom, siteBMat)
-  siteBMesh.rotation.x = -Math.PI / 2
-  siteBMesh.position.set(17 * CELL_SIZE, 2, 14.5 * CELL_SIZE)
-  threeScene.add(siteBMesh)
+  threeMapGroup.add(centerLight)
 
   // 1. Procedural 3D Arena Floor & Grid
-  mapColliders = []
   const floorGeo = new THREE.PlaneGeometry(MAP_COLS * CELL_SIZE, MAP_ROWS * CELL_SIZE, 34, 18)
   const floorMat = new THREE.MeshStandardMaterial({
-    color: 0x0f172a,
+    color: theme.floorColor || 0x0f172a,
     roughness: 0.8,
     metalness: 0.2
   })
@@ -585,82 +675,61 @@ function initThreeScene() {
   floorMesh.rotation.x = -Math.PI / 2
   floorMesh.position.set((MAP_COLS * CELL_SIZE) / 2, 0, (MAP_ROWS * CELL_SIZE) / 2)
   floorMesh.receiveShadow = true
-  threeScene.add(floorMesh)
+  threeMapGroup.add(floorMesh)
   mapColliders.push(floorMesh)
 
-  const gridHelper = new THREE.GridHelper(MAP_COLS * CELL_SIZE, MAP_COLS, 0x38bdf8, 0x1e293b)
+  const gridHelper = new THREE.GridHelper(MAP_COLS * CELL_SIZE, MAP_COLS, theme.gridColor || 0x38bdf8, theme.gridSub || 0x1e293b)
   gridHelper.position.set((MAP_COLS * CELL_SIZE) / 2, 0.4, (MAP_ROWS * CELL_SIZE) / 2)
-  threeScene.add(gridHelper)
+  threeMapGroup.add(gridHelper)
 
-  // 2. Procedural Solid 3D Walls from WORLD_GRID
+  // 2. Hologram Rings at Plant Sites
+  const sites = currentMapData.value.sites || [
+    { id: 'A', name: 'SITE A', col: 24, row: 3.5, color: 0x00e5ff },
+    { id: 'B', name: 'SITE B', col: 24, row: 14.5, color: 0xffaa00 }
+  ]
+  sites.forEach((st) => {
+    const siteGeom = new THREE.RingGeometry(20, 160, 32)
+    const siteMat = new THREE.MeshBasicMaterial({ color: st.color || 0x00ff88, side: THREE.DoubleSide, transparent: true, opacity: 0.45 })
+    const siteMesh = new THREE.Mesh(siteGeom, siteMat)
+    siteMesh.rotation.x = -Math.PI / 2
+    siteMesh.position.set(st.col * CELL_SIZE, 2, st.row * CELL_SIZE)
+    threeMapGroup.add(siteMesh)
+
+    const sLight = new THREE.PointLight(st.color || 0x00ff88, 5.0, 800)
+    sLight.position.set(st.col * CELL_SIZE, 65, st.row * CELL_SIZE)
+    threeMapGroup.add(sLight)
+  })
+
+  // 3. Procedural Solid 3D Walls from active map grid
   const wallGeo = new THREE.BoxGeometry(CELL_SIZE, 110, CELL_SIZE)
   const outerWallMat = new THREE.MeshStandardMaterial({
-    color: 0x1e293b,
+    color: theme.wallOuter || 0x1e293b,
     roughness: 0.6,
     metalness: 0.3
   })
   const innerWallMat = new THREE.MeshStandardMaterial({
-    color: 0x334155,
+    color: theme.wallInner || 0x334155,
     roughness: 0.5,
     metalness: 0.2
   })
 
+  const grid = currentMapData.value.grid
   for (let r = 0; r < MAP_ROWS; r++) {
     for (let c = 0; c < MAP_COLS; c++) {
-      const tile = WORLD_GRID[r][c]
+      const tile = grid[r] ? grid[r][c] : 0
       if (tile === 1 || tile === 4) {
         const wallMesh = new THREE.Mesh(wallGeo, tile === 1 ? outerWallMat : innerWallMat)
         wallMesh.position.set(c * CELL_SIZE + CELL_SIZE / 2, 55, r * CELL_SIZE + CELL_SIZE / 2)
         wallMesh.castShadow = true
         wallMesh.receiveShadow = true
-        threeScene.add(wallMesh)
+        threeMapGroup.add(wallMesh)
         mapColliders.push(wallMesh)
       }
     }
   }
 
+  threeScene.add(threeMapGroup)
   isMap3DLoaded.value = true
-
-  // 3. Load 3D Arena GLB Map if available
-  const gltfLoader = new GLTFLoader()
-  gltfLoader.load(
-    '/models/mapa.glb',
-    (gltf) => {
-      map3DModel = gltf.scene
-      map3DModel.traverse((child) => {
-        if (child.isMesh) {
-          child.castShadow = true
-          child.receiveShadow = true
-          if (child.material) {
-            child.material.side = THREE.DoubleSide
-            child.material.roughness = 0.5
-            child.material.metalness = 0.1
-          }
-          mapColliders.push(child)
-        }
-      })
-
-      // Scale and fit map to match arena dimensions
-      const bbox = new THREE.Box3().setFromObject(map3DModel)
-      const size = bbox.getSize(new THREE.Vector3())
-      const targetSizeX = MAP_COLS * CELL_SIZE
-      const targetSizeZ = MAP_ROWS * CELL_SIZE
-      const scale = Math.max(targetSizeX / (size.x || 1), targetSizeZ / (size.z || 1)) * 1.15
-      map3DModel.scale.set(scale, scale, scale)
-
-      const scaledBbox = new THREE.Box3().setFromObject(map3DModel)
-      const center = scaledBbox.getCenter(new THREE.Vector3())
-      map3DModel.position.x = (targetSizeX / 2) - center.x
-      map3DModel.position.z = (targetSizeZ / 2) - center.z
-      map3DModel.position.y = -(scaledBbox.min.y + 1.05 * scale)
-
-      threeScene.add(map3DModel)
-    },
-    undefined,
-    (err) => {
-      console.warn('GLB map fallback:', err)
-    }
-  )
 }
 
 const selectedAgent = ref('jett')
@@ -841,8 +910,9 @@ const aliveAlliesList = computed(() => {
   if (gameMode.value === 'practice') {
     return bots.filter(b => b.team === player.team && !b.isDead)
   } else if (currentRoom.value) {
+    const myId = myMultiplayerPlayer.value?.id || socket?.id || network.myPlayer?.id
     const list = []
-    currentRoom.value.players.filter(p => p.team === player.team && p.id !== socket?.id).forEach(p => {
+    currentRoom.value.players.filter(p => p.team === player.team && p.id !== myId).forEach(p => {
       const rp = remotePlayers[p.id]
       if (!rp?.isDead && (rp?.hp ?? 100) > 0) {
         list.push({
@@ -895,7 +965,8 @@ const aliveAllies = computed(() => {
       list.push({ name: b.name + ' (' + (AGENTS[b.agentKey]?.name || '') + ')', bot: b, hp: b.hp, x: b.x, y: b.y })
     })
   } else if (currentRoom.value) {
-    currentRoom.value.players.filter(p => p.id !== socket?.id && p.team === player.team).forEach(p => {
+    const myId = myMultiplayerPlayer.value?.id || socket?.id || network.myPlayer?.id
+    currentRoom.value.players.filter(p => p.id !== myId && p.team === player.team).forEach(p => {
       const rp = remotePlayers[p.id]
       if (!rp?.isDead && (rp?.hp ?? 100) > 0) {
         list.push({ name: p.name + ' (' + (AGENTS[p.agentId]?.name || '') + ')', hp: rp?.hp ?? 100, x: rp?.x ?? p.x, y: rp?.y ?? p.y })
@@ -990,13 +1061,15 @@ function startRound(spawnPracticeBots = true) {
   spectatorIndex.value = 0
 
   if (player.team === 'attackers') {
-    player.x = 4.0 * CELL_SIZE
-    player.y = 5.5 * CELL_SIZE
-    player.angle = 0
+    const sp = currentMapData.value.spawnAttackers || { x: 3.5, y: 9.0, angle: 0 }
+    player.x = sp.x * CELL_SIZE
+    player.y = sp.y * CELL_SIZE
+    player.angle = sp.angle ?? 0
   } else {
-    player.x = 30.0 * CELL_SIZE
-    player.y = 5.5 * CELL_SIZE
-    player.angle = Math.PI
+    const sp = currentMapData.value.spawnDefenders || { x: 30.5, y: 9.0, angle: Math.PI }
+    player.x = sp.x * CELL_SIZE
+    player.y = sp.y * CELL_SIZE
+    player.angle = sp.angle ?? Math.PI
   }
 
   smokeZones.length = 0
@@ -1014,27 +1087,32 @@ function startRound(spawnPracticeBots = true) {
 
 function spawnPracticeBotTeam() {
   const agentKeys = Object.keys(AGENTS)
-  const targetSite = Math.random() > 0.5 ? 'A' : 'B'
+  const availableSites = currentMapData.value.sites?.map(s => s.id) || ['A', 'B']
+  const targetSite = availableSites[Math.floor(Math.random() * availableSites.length)]
+
+  const spAtk = currentMapData.value.spawnAttackers || { x: 3.5, y: 9.0, angle: 0 }
+  const spDef = currentMapData.value.spawnDefenders || { x: 30.5, y: 9.0, angle: Math.PI }
 
   const allyOffsets = [
-    { x: 3.5, y: 4.2 },
-    { x: 3.5, y: 6.8 },
-    { x: 3.5, y: 11.2 },
-    { x: 3.5, y: 13.5 }
+    { x: 0, y: -2.0 },
+    { x: 0, y: 2.0 },
+    { x: -1.0, y: -3.5 },
+    { x: -1.0, y: 3.5 }
   ]
 
   // 4 Allies
   for (let i = 0; i < 4; i++) {
     const k = agentKeys[(i + 2) % agentKeys.length]
-    const pos = allyOffsets[i]
+    const off = allyOffsets[i]
+    const baseSp = player.team === 'attackers' ? spAtk : spDef
     bots.push({
       id: 'ally_' + i,
       name: 'Bot_Aliado_' + (i + 1),
       team: player.team,
       agentKey: k,
-      x: player.team === 'attackers' ? (pos.x * CELL_SIZE) : ((34 - pos.x) * CELL_SIZE),
-      y: pos.y * CELL_SIZE,
-      angle: player.team === 'attackers' ? 0 : Math.PI,
+      x: (baseSp.x + off.x) * CELL_SIZE,
+      y: (baseSp.y + off.y) * CELL_SIZE,
+      angle: baseSp.angle ?? 0,
       radius: 20,
       speed: 2.3,
       hp: 100,
@@ -1043,7 +1121,7 @@ function spawnPracticeBotTeam() {
       weapon: i === 0 ? 'vandal' : (i === 1 ? 'phantom' : (i === 2 ? 'spectre' : 'guardian')),
       isDead: false,
       hasSpike: player.team === 'attackers' && i === 0,
-      strategy: player.team === 'attackers' ? (targetSite === 'A' ? 'attack_A' : 'attack_B') : (i < 2 ? 'defend_A' : (i === 2 ? 'defend_Mid' : 'defend_B')),
+      strategy: player.team === 'attackers' ? `attack_${targetSite}` : (i < 2 ? 'defend_A' : (i === 2 ? 'defend_Mid' : 'defend_B')),
       state: 'patrol', // 'patrol' | 'combat' | 'planting' | 'defusing' | 'cover'
       target: null,
       lastKnownPos: null,
@@ -1057,26 +1135,27 @@ function spawnPracticeBotTeam() {
   }
 
   const enemyOffsets = [
-    { x: 3.5, y: 4.2 },
-    { x: 3.5, y: 6.8 },
-    { x: 2.5, y: 9.0 },
-    { x: 3.5, y: 11.2 },
-    { x: 3.5, y: 13.5 }
+    { x: 0, y: -2.0 },
+    { x: 0, y: 2.0 },
+    { x: 0, y: 0 },
+    { x: 1.0, y: -3.5 },
+    { x: 1.0, y: 3.5 }
   ]
 
   // 5 Enemies
   const enemyTeam = player.team === 'attackers' ? 'defenders' : 'attackers'
+  const enemySp = enemyTeam === 'attackers' ? spAtk : spDef
   for (let i = 0; i < 5; i++) {
     const k = agentKeys[(i + 6) % agentKeys.length]
-    const pos = enemyOffsets[i]
+    const off = enemyOffsets[i]
     bots.push({
       id: 'enemy_' + i,
       name: 'Rival_' + (i + 1),
       team: enemyTeam,
       agentKey: k,
-      x: enemyTeam === 'attackers' ? (pos.x * CELL_SIZE) : ((34 - pos.x) * CELL_SIZE),
-      y: pos.y * CELL_SIZE,
-      angle: enemyTeam === 'attackers' ? 0 : Math.PI,
+      x: (enemySp.x + off.x) * CELL_SIZE,
+      y: (enemySp.y + off.y) * CELL_SIZE,
+      angle: enemySp.angle ?? 0,
       radius: 20,
       speed: 2.2,
       hp: 100,
@@ -1085,7 +1164,7 @@ function spawnPracticeBotTeam() {
       weapon: i === 0 ? 'operator' : (i === 1 ? 'vandal' : (i === 2 ? 'phantom' : 'sheriff')),
       isDead: false,
       hasSpike: enemyTeam === 'attackers' && i === 0,
-      strategy: enemyTeam === 'attackers' ? (targetSite === 'A' ? 'attack_A' : 'attack_B') : (i < 2 ? 'defend_A' : (i === 2 ? 'defend_Mid' : 'defend_B')),
+      strategy: enemyTeam === 'attackers' ? `attack_${targetSite}` : (i < 2 ? 'defend_A' : (i === 2 ? 'defend_Mid' : 'defend_B')),
       state: 'patrol',
       target: null,
       lastKnownPos: null,
@@ -1141,6 +1220,7 @@ function checkEliminations() {
   } else if (currentRoom.value) {
     const mpEnemies = currentRoom.value.players.filter(p => p.team !== player.team)
     const mpAllies = currentRoom.value.players.filter(p => p.team === player.team)
+    const myId = myMultiplayerPlayer.value?.id || socket?.id || network.myPlayer?.id
 
     // Only check eliminations if there are actual players on both teams
     if (mpEnemies.length > 0) {
@@ -1150,7 +1230,7 @@ function checkEliminations() {
       })
 
       const aliveAlliesList = mpAllies.filter(p => {
-        if (p.id === socket?.id) return !player.isDead
+        if (p.id === myId) return !player.isDead
         const rp = remotePlayers[p.id]
         return !rp?.isDead && (rp?.hp ?? 100) > 0
       })
@@ -1446,8 +1526,12 @@ function shootWeapon() {
 
   // Also check multiplayer remote opponents
   if (gameMode.value === 'multiplayer') {
+    const myId = myMultiplayerPlayer.value?.id || socket?.id || network.myPlayer?.id
     for (const [id, rP] of Object.entries(remotePlayers)) {
-      if (rP.isDead || rP.team === player.team || (rP.hp ?? 100) <= 0) continue
+      if (id === myId) continue
+      const targetTeam = rP.team || currentRoom.value?.players?.find(p => p.id === id)?.team
+      if (rP.isDead || (targetTeam && targetTeam === player.team) || (rP.hp !== undefined && rP.hp <= 0)) continue
+
       const dx = (rP.x ?? 0) - player.x
       const dy = (rP.y ?? 0) - player.y
       const dist = Math.hypot(dx, dy)
@@ -1457,7 +1541,7 @@ function shootWeapon() {
       if (Math.abs(angleToRemote) < 0.18 && dist < maxHitDist && dist < minDistance) {
         if (hasLineOfSight(player.x, player.y, rP.x ?? 0, rP.y ?? 0)) {
           minDistance = dist
-          closestHit = { ...rP, id, isRemote: true }
+          closestHit = { ...rP, id, team: targetTeam, isRemote: true }
         }
       }
     }
@@ -1494,7 +1578,7 @@ function shootWeapon() {
       }
       if (closestHit.hp <= 0) {
         closestHit.isDead = true
-        addKillFeed('Tú', closestHit.name || 'Rival', wep.name, true, true)
+        addKillFeed(playerName.value, closestHit.name || 'Rival', wep.name, true, true)
         player.credits += 200
         player.ultPoints = Math.min(player.maxUltPoints, player.ultPoints + 1)
       }
@@ -1803,7 +1887,8 @@ function updateFPS() {
 
 function isSolidTile(col, row) {
   if (row <= 0 || row >= MAP_ROWS - 1 || col <= 0 || col >= MAP_COLS - 1) return true
-  const tile = (WORLD_GRID[row] && WORLD_GRID[row][col]) ?? 1
+  const grid = currentMapData.value.grid
+  const tile = (grid[row] && grid[row][col]) ?? 1
   return tile === 1 || tile === 4
 }
 
@@ -1822,9 +1907,10 @@ function checkCollision(x, y, radius = 16) {
 function handleSpikeActionsFPS() {
   const currentCellX = Math.floor(player.x / CELL_SIZE)
   const currentCellY = Math.floor(player.y / CELL_SIZE)
-  const cellType = (WORLD_GRID[currentCellY] && WORLD_GRID[currentCellY][currentCellX]) || 0
+  const grid = currentMapData.value.grid
+  const cellType = (grid[currentCellY] && grid[currentCellY][currentCellX]) || 0
 
-  const inSite = cellType === 5 || cellType === 6
+  const inSite = cellType === 5 || cellType === 6 || cellType === 7
 
   if (keys['4']) {
     if (player.team === 'attackers' && !spike.planted && inSite) {
@@ -1834,14 +1920,14 @@ function handleSpikeActionsFPS() {
         spike.planted = true
         spike.x = player.x
         spike.y = player.y
-        spike.site = cellType === 5 ? 'A' : 'B'
+        spike.site = cellType === 5 ? 'A' : (cellType === 6 ? 'B' : 'C')
         spike.timer = 45
         player.isPlanting = false
         player.actionProgress = 0
         playSound('spike_plant')
 
         if (gameMode.value === 'multiplayer' && currentRoom.value) {
-          const plantEvt = { type: 'spike_plant', x: player.x, y: player.y, site: cellType === 5 ? 'A' : 'B' }
+          const plantEvt = { type: 'spike_plant', x: player.x, y: player.y, site: spike.site }
           network.sendGameEvent(plantEvt)
           if (socket && socket.connected) {
             socket.emit('game_event', { roomId: currentRoom.value.id, event: plantEvt })
@@ -1893,8 +1979,10 @@ function hasLineOfSight(x1, y1, x2, y2) {
 }
 
 function updateBotsFPS() {
-  const siteAPos = { x: 17.0 * CELL_SIZE, y: 3.5 * CELL_SIZE }
-  const siteBPos = { x: 17.0 * CELL_SIZE, y: 14.5 * CELL_SIZE }
+  const stA = currentMapData.value.sites?.find(s => s.id === 'A')
+  const stB = currentMapData.value.sites?.find(s => s.id === 'B')
+  const siteAPos = { x: (stA?.col ?? 24) * CELL_SIZE, y: (stA?.row ?? 3.5) * CELL_SIZE }
+  const siteBPos = { x: (stB?.col ?? 24) * CELL_SIZE, y: (stB?.row ?? 14.5) * CELL_SIZE }
   const midPos = { x: 17.0 * CELL_SIZE, y: 9.0 * CELL_SIZE }
 
   for (const bot of bots) {
@@ -2458,21 +2546,43 @@ function renderMinimapRadar() {
   ctx.strokeRect(radarX, radarY, radarSize, radarSize)
 
   const scale = radarSize / (MAP_COLS * CELL_SIZE)
+  const grid = currentMapData.value.grid
 
-  // Draw Plant Sites A and B on Radar (Green Zones)
-  ctx.fillStyle = 'rgba(0, 255, 136, 0.35)'
-  ctx.fillRect(radarX + 14 * CELL_SIZE * scale, radarY + 2 * CELL_SIZE * scale, 6 * CELL_SIZE * scale, 4 * CELL_SIZE * scale)
-  ctx.fillRect(radarX + 14 * CELL_SIZE * scale, radarY + 13 * CELL_SIZE * scale, 6 * CELL_SIZE * scale, 4 * CELL_SIZE * scale)
+  // Draw Walls & Obstacles on Radar
+  for (let r = 0; r < MAP_ROWS; r++) {
+    for (let c = 0; c < MAP_COLS; c++) {
+      const tile = grid[r] ? grid[r][c] : 0
+      if (tile === 1) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.12)'
+        ctx.fillRect(radarX + c * CELL_SIZE * scale, radarY + r * CELL_SIZE * scale, CELL_SIZE * scale, CELL_SIZE * scale)
+      } else if (tile === 4) {
+        ctx.fillStyle = 'rgba(245, 158, 11, 0.65)'
+        ctx.fillRect(radarX + c * CELL_SIZE * scale, radarY + r * CELL_SIZE * scale, CELL_SIZE * scale, CELL_SIZE * scale)
+      }
+    }
+  }
 
-  ctx.fillStyle = '#00ff88'
-  ctx.font = 'bold 8px sans-serif'
-  ctx.textAlign = 'center'
-  ctx.fillText('SITE A', radarX + 17 * CELL_SIZE * scale, radarY + 4 * CELL_SIZE * scale)
-  ctx.fillText('SITE B', radarX + 17 * CELL_SIZE * scale, radarY + 15 * CELL_SIZE * scale)
+  // Draw Plant Sites on Radar (Green / Cyan / Amber Zones)
+  const sites = currentMapData.value.sites || []
+  sites.forEach((st) => {
+    const sw = (st.w || 6) * CELL_SIZE * scale
+    const sh = (st.h || 4) * CELL_SIZE * scale
+    const sx = radarX + (st.col - (st.w || 6) / 2) * CELL_SIZE * scale
+    const sy = radarY + (st.row - (st.h || 4) / 2) * CELL_SIZE * scale
+    ctx.fillStyle = 'rgba(0, 255, 136, 0.35)'
+    ctx.fillRect(sx, sy, sw, sh)
 
-  // Draw Central Orange Pillar
-  ctx.fillStyle = '#ff8800'
-  ctx.fillRect(radarX + 15 * CELL_SIZE * scale, radarY + 8 * CELL_SIZE * scale, 4 * CELL_SIZE * scale, 2 * CELL_SIZE * scale)
+    ctx.fillStyle = '#00ff88'
+    ctx.font = 'bold 8px sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText(st.name, sx + sw / 2, sy + sh / 2 + 3)
+  })
+
+  // Draw Map Name on Radar top-left
+  ctx.fillStyle = '#94a3b8'
+  ctx.font = 'bold 8px monospace'
+  ctx.textAlign = 'left'
+  ctx.fillText(currentMapData.value.name, radarX + 4, radarY + 9)
 
   const isSpectatingDead = player.isDead && currentSpectatedAlly.value
   const observer = isSpectatingDead ? currentSpectatedAlly.value : player
@@ -2652,6 +2762,27 @@ function renderMinimapRadar() {
           </div>
         </div>
 
+        <!-- MAP SELECTOR IN LOBBY -->
+        <div class="section-title flex-between">
+          <span>MAPA TÁCTICO:</span>
+          <span class="active-map-badge">{{ currentMapData.icon }} {{ currentMapData.name }} · {{ currentMapData.badge }}</span>
+        </div>
+        <div class="maps-grid-cards lobby-maps" v-if="myMultiplayerPlayer?.isHost">
+          <div
+            v-for="mp in MAPS"
+            :key="mp.id"
+            class="map-select-card mini"
+            :class="{ selected: selectedMapId === mp.id }"
+            @click="selectMapMp(mp.id)"
+          >
+            <div class="map-card-header">
+              <span class="map-icon">{{ mp.icon }}</span>
+              <span class="map-name">{{ mp.name }}</span>
+            </div>
+            <span class="map-badge">{{ mp.badge }}</span>
+          </div>
+        </div>
+
         <!-- 19 AGENT SELECTOR IN LOBBY -->
         <div class="section-title">ELIGE TU AGENTE (19 DISPONIBLES):</div>
         <div class="agent-grid-19">
@@ -2703,16 +2834,16 @@ function renderMinimapRadar() {
       </div>
     </div>
 
-    <!-- AGENT SELECTOR (PRACTICE MODE) -->
+    <!-- AGENT & MAP SELECTOR (PRACTICE MODE) -->
     <div v-if="appState === 'agent_select'" class="modal-overlay">
-      <div class="modal-content">
+      <div class="modal-content agent-map-select-modal">
         <div class="browser-header">
           <button class="btn-back-mode" @click="appState = 'mode_select'">← CAMBIAR MODO</button>
           <span class="modal-badge">VALORANT DOOM · MODO PRÁCTICA</span>
           <div style="width: 100px;"></div>
         </div>
-        <h2>SELECCIONA TU AGENTE & BANDO</h2>
-        <p class="subtitle">19 agentes con perspectiva en primera persona, físicas de disparo y habilidades tácticas.</p>
+        <h2>SELECCIONA TU AGENTE, MAPA & BANDO</h2>
+        <p class="subtitle">Combate táctico en primera persona. Elige tu mapa de despliegue y tus habilidades.</p>
 
         <div class="side-selector">
           <button class="side-btn" :class="{ active: selectedSide === 'attackers' }" @click="selectedSide = 'attackers'">
@@ -2721,6 +2852,25 @@ function renderMinimapRadar() {
           <button class="side-btn" :class="{ active: selectedSide === 'defenders' }" @click="selectedSide = 'defenders'">
             🛡️ DEFENSORES (Desactivar Spike)
           </button>
+        </div>
+
+        <!-- MAP SELECTOR CARDS -->
+        <div class="section-title">ELIGE EL MAPA DE COMBATE ({{ MAPS.length }} DISPONIBLES):</div>
+        <div class="maps-grid-cards">
+          <div
+            v-for="mp in MAPS"
+            :key="mp.id"
+            class="map-select-card"
+            :class="{ selected: selectedMapId === mp.id }"
+            @click="selectMapPractice(mp.id)"
+          >
+            <div class="map-card-header">
+              <span class="map-icon">{{ mp.icon }}</span>
+              <span class="map-name">{{ mp.name }}</span>
+            </div>
+            <span class="map-badge">{{ mp.badge }}</span>
+            <p class="map-sub">{{ mp.subtitle }}</p>
+          </div>
         </div>
 
         <div class="section-title">AGENTES DISPONIBLES (19):</div>
@@ -2752,7 +2902,7 @@ function renderMinimapRadar() {
         </div>
 
         <button class="btn-play-match" @click="startPracticeMatch">
-          ENTRAR AL COMBATE DOOM FPS
+          ENTRAR AL COMBATE DOOM FPS · {{ currentMapData.name }}
         </button>
       </div>
     </div>
@@ -3561,5 +3711,107 @@ function renderMinimapRadar() {
   font-size: 0.75rem;
   font-weight: 800;
   color: #ffffff;
+}
+
+/* MAP SELECTOR CARDS & MODAL */
+.map-selector-container {
+  margin-bottom: 12px;
+  text-align: left;
+}
+
+.agent-map-select-modal {
+  max-width: 860px;
+}
+
+.maps-grid-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.maps-grid-cards.mini-grid {
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.map-select-card {
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 255, 255, 0.04);
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 8px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  text-align: left;
+  user-select: none;
+}
+
+.map-select-card:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.3);
+  transform: translateY(-2px);
+}
+
+.map-select-card.selected {
+  border-color: #00e5ff;
+  background: rgba(0, 229, 255, 0.12);
+  box-shadow: 0 0 12px rgba(0, 229, 255, 0.3);
+}
+
+.map-select-card.mini {
+  padding: 6px;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.map-card-thumb {
+  font-size: 1.5rem;
+  margin-bottom: 4px;
+}
+
+.map-select-card.mini .map-card-thumb {
+  font-size: 1.2rem;
+  margin-bottom: 0;
+}
+
+.map-card-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.map-card-title {
+  font-size: 0.85rem;
+  font-weight: 900;
+  color: #fff;
+  letter-spacing: 0.5px;
+}
+
+.map-select-card.selected .map-card-title {
+  color: #00e5ff;
+}
+
+.map-card-desc {
+  font-size: 0.68rem;
+  color: #8c9ba5;
+  margin-top: 2px;
+}
+
+.active-map-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: #00e5ff;
+  color: #000;
+  font-size: 0.6rem;
+  font-weight: 900;
+  padding: 1px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.5px;
 }
 </style>

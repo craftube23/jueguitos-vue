@@ -84,7 +84,7 @@ export class NetworkSystem2D {
   }
 
   // --- CREATE ROOM (HOST) ---
-  createRoom(roomName, playerName, team = 'attackers') {
+  createRoom(roomName, playerName, team = 'attackers', mapId = 'bind') {
     if (this.peer) {
       try { this.peer.destroy() } catch (e) {}
     }
@@ -115,6 +115,7 @@ export class NetworkSystem2D {
       id: roomId,
       name: roomName || `Sala de ${hostPlayer.name}`,
       status: 'lobby',
+      mapId: mapId || 'bind',
       hostId: hostPlayer.id,
       players: [hostPlayer],
       matchState: {
@@ -427,6 +428,18 @@ export class NetworkSystem2D {
       }
     } else if (this.hostConn && this.hostConn.open) {
       this.hostConn.send({ type: 'LOCK_AGENT', playerId: this.myPlayer.id })
+    }
+  }
+
+  selectMap(mapId) {
+    if (!this.currentRoom || !this.myPlayer) return
+    this.currentRoom.mapId = mapId
+    if (this.isHost) {
+      this.broadcastToPeers('ROOM_UPDATED', this.currentRoom)
+      this.emitInternal('room_updated', this.currentRoom)
+      if (this.bc) {
+        this.bc.postMessage({ type: 'BC_ROOM_UPDATED', room: this.currentRoom })
+      }
     }
   }
 

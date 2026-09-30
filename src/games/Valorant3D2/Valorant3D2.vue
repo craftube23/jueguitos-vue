@@ -642,7 +642,13 @@ function updateGame3D(dt) {
       pitch: player.pitch,
       health: player.health,
       armor: player.armor,
-      weapon: player.weapon
+      weapon: player.weapon,
+      alive: player.alive,
+      team: player.team,
+      agentId: player.agentId,
+      name: player.name,
+      crouching: player.crouching,
+      onGround: player.onGround
     })
   }
 }
@@ -1096,6 +1102,7 @@ function resetRound(fullReset = false) {
 
 function setup3DBots() {
   const previousPlayers = [...players.value]
+  const remotePlayers = previousPlayers.filter(p => p.isRemotePlayer && p.id !== player.id)
   players.value = [player]
   const botAgents = ['sova', 'phoenix', 'reyna', 'sage', 'chamber', 'omen']
 
@@ -1122,9 +1129,52 @@ function setup3DBots() {
     return
   }
 
-  // If online multiplayer without bots or bots disabled
-  if (isOnline.value && (!customSettings.enableBots || customSettings.enemyBotCount === 0)) {
-    return
+  // If online multiplayer: preserve and reset existing remote players
+  if (isOnline.value) {
+    if (remotePlayers.length > 0) {
+      remotePlayers.forEach(rp => {
+        rp.alive = true
+        rp.health = 100
+        rp.armor = 50
+        const isAtk = rp.team === 'attackers'
+        const spawnSlots = isAtk ? MAP_3D.spawnAtkSlots : MAP_3D.spawnDefSlots
+        const slot = spawnSlots[0] || { x: isAtk ? -24 : 24, y: 1.7, z: 0 }
+        rp.pos.x = slot.x
+        rp.pos.y = slot.y
+        rp.pos.z = slot.z
+        players.value.push(rp)
+      })
+    } else if (roomPlayerList.value && roomPlayerList.value.length > 0) {
+      let atkSlotIdx = 0
+      let defSlotIdx = 0
+      roomPlayerList.value.forEach(p => {
+        if (p.id !== player.id) {
+          const isAtk = p.team === 'attackers'
+          const slot = isAtk
+            ? MAP_3D.spawnAtkSlots[(atkSlotIdx++) % MAP_3D.spawnAtkSlots.length]
+            : MAP_3D.spawnDefSlots[(defSlotIdx++) % MAP_3D.spawnDefSlots.length]
+          players.value.push({
+            id: p.id,
+            name: p.name || 'Operador',
+            team: p.team || (player.team === 'attackers' ? 'defenders' : 'attackers'),
+            agentId: p.agentId || 'jett',
+            pos: { x: slot.x, y: slot.y, z: slot.z },
+            yaw: isAtk ? Math.PI / 2 : -Math.PI / 2,
+            pitch: 0,
+            radius: 0.6,
+            health: 100,
+            armor: 50,
+            alive: true,
+            weapon: p.weapon || 'ak74u',
+            isRemotePlayer: true
+          })
+        }
+      })
+    }
+
+    if (!customSettings.enableBots || customSettings.enemyBotCount === 0) {
+      return
+    }
   }
 
   // If bots are disabled in custom match
@@ -1336,6 +1386,18 @@ function triggerFire() {
     if (killed) handlePlayerKilled3D(target, player.id, wep.name, isHeadshot)
     if (isOnline.value) networkSystem.sendHit(roomCode.value, target.id, dmg, wep.name, isHeadshot, player.name)
   }, isAiming.value)
+
+  if (isOnline.value && networkSystem && networkSystem.connected && camera) {
+    const dir = new THREE.Vector3(0, 0, -1).applyEuler(camera.rotation)
+    const origin = new THREE.Vector3(player.pos.x, player.pos.y, player.pos.z)
+    const end = origin.clone().add(dir.multiplyScalar(wep.range || 80))
+    networkSystem.sendGameEvent(roomCode.value, {
+      type: 'shoot',
+      sound: wep.sound || 'vandal',
+      start: { x: origin.x, y: origin.y, z: origin.z },
+      end: { x: end.x, y: end.y, z: end.z }
+    })
+  }
 }
 
 function onMouseDown(e) {
@@ -1467,20 +1529,25 @@ function setupNetworkListeners() {
   networkSystem.on('player_moved', (data) => {
     if (!isOnline.value || data.id === player.id) return
     let target = players.value.find(p => p.id === data.id)
+    const roomPlayerData = roomPlayerList.value?.find(p => p.id === data.id)
+    const resolvedTeam = data.team || roomPlayerData?.team || (player.team === 'attackers' ? 'defenders' : 'attackers')
+
     if (!target) {
       target = {
         id: data.id,
-        name: data.name || 'Operador',
-        team: data.team || 'defenders',
-        agentId: data.agentId || 'phoenix',
+        name: data.name || roomPlayerData?.name || 'Operador',
+        team: resolvedTeam,
+        agentId: data.agentId || roomPlayerData?.agentId || 'jett',
         pos: { x: data.x || 0, y: data.y || 1.7, z: data.z || 0 },
         yaw: data.yaw || 0,
         pitch: data.pitch || 0,
         radius: 0.6,
-        health: data.health || 100,
-        armor: data.armor || 50,
+        health: data.health !== undefined ? data.health : 100,
+        armor: data.armor !== undefined ? data.armor : 50,
         alive: data.alive !== false,
-        weapon: data.weapon || 'vandal',
+        weapon: data.weapon || 'ak74u',
+        crouching: !!data.crouching,
+        onGround: data.onGround !== false,
         isRemotePlayer: true
       }
       players.value.push(target)
@@ -1490,9 +1557,14 @@ function setupNetworkListeners() {
       target.pos.z = data.z
       target.yaw = data.yaw
       target.pitch = data.pitch
-      target.health = data.health
-      target.armor = data.armor
-      target.weapon = data.weapon
+      target.health = data.health !== undefined ? data.health : target.health
+      target.armor = data.armor !== undefined ? data.armor : target.armor
+      target.weapon = data.weapon || target.weapon
+      if (data.team) target.team = data.team
+      if (data.name) target.name = data.name
+      if (data.agentId) target.agentId = data.agentId
+      if (data.crouching !== undefined) target.crouching = data.crouching
+      if (data.onGround !== undefined) target.onGround = data.onGround
       if (data.alive !== undefined) target.alive = data.alive
     }
   })
@@ -1519,8 +1591,11 @@ function setupNetworkListeners() {
     } else {
       const target = players.value.find(p => p.id === targetId)
       if (target) {
-        DamageSystem.applyDamage(target, damage, headshot, false, 'bullet')
+        const res = DamageSystem.applyDamage(target, damage, headshot, false, 'bullet')
         soundManager.play(headshot ? 'headshot' : 'hit')
+        if (res.killed) {
+          handlePlayerKilled3D(target, shooterId, weapon, headshot)
+        }
       }
     }
   })

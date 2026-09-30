@@ -46,7 +46,7 @@ io.on('connection', (socket) => {
   socket.emit('rooms_list', getPublicRooms())
 
   // Crear sala
-  socket.on('create_room', ({ roomName, playerName, team }) => {
+  socket.on('create_room', ({ roomName, playerName, team, mapId }) => {
     const roomId = generateRoomCode()
     const playerTeam = team === 'defenders' ? 'defenders' : 'attackers'
     
@@ -70,6 +70,7 @@ io.on('connection', (socket) => {
       id: roomId,
       name: roomName || `Sala de ${hostPlayer.name}`,
       status: 'lobby', // 'lobby' | 'in_game'
+      mapId: mapId || 'bind',
       hostId: socket.id,
       players: [hostPlayer],
       matchState: {
@@ -88,7 +89,19 @@ io.on('connection', (socket) => {
 
     socket.emit('room_joined', { room: newRoom, player: hostPlayer })
     io.emit('rooms_list', getPublicRooms())
-    console.log(`[Room] Creada sala ${roomId} por ${hostPlayer.name}`)
+    console.log(`[Room] Creada sala ${roomId} (${newRoom.mapId}) por ${hostPlayer.name}`)
+  })
+
+  // Seleccionar Mapa (Solo Host)
+  socket.on('select_map', ({ roomId, mapId }) => {
+    const room = rooms.get(roomId)
+    if (!room) return
+    const player = room.players.find(p => p.id === socket.id)
+    if (player && player.isHost) {
+      room.mapId = mapId
+      io.to(roomId).emit('room_updated', room)
+      console.log(`[Room] Mapa cambiado a ${mapId} en sala ${roomId}`)
+    }
   })
 
   // Unirse a sala
