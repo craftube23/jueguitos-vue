@@ -94,6 +94,21 @@ const infiniteAmmo = ref(false)
 const infiniteAbilities = ref(false)
 const godMode = ref(false)
 
+// Cooldown System for 1v1.LOL Abilities
+const abilityCooldowns = reactive({
+  C: 0,
+  Q: 0,
+  E: 0,
+  X: 0
+})
+
+const ABILITY_MAX_COOLDOWNS = {
+  C: 10.0, // Smoke Grenade: 10s cooldown
+  Q: 1.6,  // Ramp Build: 1.6s cooldown (prevents building flood)
+  E: 6.0,  // Grapple Hook: 6s cooldown
+  X: 25.0  // Launch Pad + Shield: 25s cooldown
+}
+
 // Settings
 const settings = reactive({
   volume: 0.6,
@@ -764,7 +779,12 @@ function updateGame3D(dt) {
     triggerFire()
   }
 
-  // Update Abilities
+  // Update Abilities & Cooldowns
+  if (abilityCooldowns.C > 0) abilityCooldowns.C = Math.max(0, abilityCooldowns.C - dt)
+  if (abilityCooldowns.Q > 0) abilityCooldowns.Q = Math.max(0, abilityCooldowns.Q - dt)
+  if (abilityCooldowns.E > 0) abilityCooldowns.E = Math.max(0, abilityCooldowns.E - dt)
+  if (abilityCooldowns.X > 0) abilityCooldowns.X = Math.max(0, abilityCooldowns.X - dt)
+
   abilitySystem.update(dt, player, players.value)
 
   // Update Bots AI (Hunter Team Deathmatch mode)
@@ -1296,6 +1316,11 @@ function resetRound(fullReset = false) {
     abilitySystem.clearRoundStructures()
   }
 
+  abilityCooldowns.C = 0
+  abilityCooldowns.Q = 0
+  abilityCooldowns.E = 0
+  abilityCooldowns.X = 0
+
   if (weaponSystem && weaponSystem.gunGroup) {
     weaponSystem.gunGroup.visible = true
     if (player.weapon) {
@@ -1758,10 +1783,25 @@ function onKeyDown(e) {
 
 function castAbility(slot) {
   if (!player.alive || match.phase === 'BUY_PHASE') return
-  if (slot === 'X' && (player.ultPoints < player.requiredUltPoints && !infiniteAbilities.value)) return
+
+  if (!infiniteAbilities.value) {
+    if (abilityCooldowns[slot] > 0) {
+      showEconomyNotification(`⏳ HABILIDAD [${slot}] EN ENFRIAMIENTO (${abilityCooldowns[slot].toFixed(1)}s)`)
+      soundManager.play('deny')
+      return
+    }
+    if (slot === 'X' && player.ultPoints < player.requiredUltPoints && abilityCooldowns.X > 0) {
+      soundManager.play('deny')
+      return
+    }
+  }
 
   abilitySystem.cast(player, slot, players.value, (msg) => match.announcement = msg)
-  if (slot === 'X' && !infiniteAbilities.value) player.ultPoints = 0
+
+  if (!infiniteAbilities.value) {
+    abilityCooldowns[slot] = ABILITY_MAX_COOLDOWNS[slot] || 5.0
+    if (slot === 'X') player.ultPoints = 0
+  }
 
   if (isOnline.value && networkSystem && networkSystem.connected && camera) {
     const dir = new THREE.Vector3(0, 0, -1).applyEuler(camera.rotation)
@@ -2917,12 +2957,33 @@ function buyItem(item) {
         </div>
 
         <div class="hud-abilities">
-          <div class="ability-slot" title="[C] Nube de Humo Táctica"><span class="key-badge">C</span><span class="ab-icon">☁️</span></div>
-          <div class="ability-slot" title="[Q] Construir Rampa 1v1 (High Ground)"><span class="key-badge">Q</span><span class="ab-icon">🪜</span></div>
-          <div class="ability-slot" title="[E] Gancho de Agarre / Impulso"><span class="key-badge">E</span><span class="ab-icon">⚡</span></div>
-          <div class="ability-slot ult-slot" :class="{ ready: player.ultPoints >= player.requiredUltPoints }" title="[X] Plataforma de Salto + Súper Escudo (+50)">
+          <div class="ability-slot" :class="{ 'on-cooldown': abilityCooldowns.C > 0 }" title="[C] Nube de Humo Táctica (10s)">
+            <span class="key-badge">C</span>
+            <span class="ab-icon">☁️</span>
+            <div v-if="abilityCooldowns.C > 0" class="cooldown-overlay">
+              <span class="cd-timer">{{ Math.ceil(abilityCooldowns.C) }}s</span>
+            </div>
+          </div>
+          <div class="ability-slot" :class="{ 'on-cooldown': abilityCooldowns.Q > 0 }" title="[Q] Construir Rampa 1v1 (1.6s)">
+            <span class="key-badge">Q</span>
+            <span class="ab-icon">🪜</span>
+            <div v-if="abilityCooldowns.Q > 0" class="cooldown-overlay">
+              <span class="cd-timer">{{ abilityCooldowns.Q >= 1 ? Math.ceil(abilityCooldowns.Q) : abilityCooldowns.Q.toFixed(1) }}s</span>
+            </div>
+          </div>
+          <div class="ability-slot" :class="{ 'on-cooldown': abilityCooldowns.E > 0 }" title="[E] Gancho de Agarre / Impulso (6s)">
+            <span class="key-badge">E</span>
+            <span class="ab-icon">⚡</span>
+            <div v-if="abilityCooldowns.E > 0" class="cooldown-overlay">
+              <span class="cd-timer">{{ Math.ceil(abilityCooldowns.E) }}s</span>
+            </div>
+          </div>
+          <div class="ability-slot ult-slot" :class="{ ready: (player.ultPoints >= player.requiredUltPoints || infiniteAbilities) && abilityCooldowns.X <= 0, 'on-cooldown': abilityCooldowns.X > 0 }" title="[X] Plataforma de Salto + Súper Escudo (+50)">
             <span class="key-badge">X</span>
             <span class="ab-icon">🚀</span>
+            <div v-if="abilityCooldowns.X > 0" class="cooldown-overlay">
+              <span class="cd-timer">{{ Math.ceil(abilityCooldowns.X) }}s</span>
+            </div>
           </div>
         </div>
 
@@ -3524,6 +3585,31 @@ function buyItem(item) {
   align-items: center;
   justify-content: center;
   font-size: 1.4rem;
+}
+
+.ability-slot.on-cooldown {
+  opacity: 0.65;
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.cooldown-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.85);
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+  backdrop-filter: blur(2px);
+}
+
+.cd-timer {
+  font-size: 0.85rem;
+  font-weight: 900;
+  color: #f87171;
+  text-shadow: 0 0 6px rgba(239, 68, 68, 0.8);
+  letter-spacing: -0.5px;
 }
 
 .key-badge {
