@@ -231,6 +231,10 @@ export class NetworkSystem {
           p.isReady = true
           this.broadcastRoomUpdate()
         }
+      } else if (payload.type === 'PLAYER_LEFT') {
+        this.currentRoom.players = this.currentRoom.players.filter(p => p.id !== payload.playerId)
+        this.broadcastRoomUpdate()
+        this.emitInternal('player_left', { id: payload.playerId, name: payload.playerName, isHost: payload.isHost })
       }
     }
 
@@ -239,6 +243,15 @@ export class NetworkSystem {
       this.currentRoom = payload.room
       if (this.joinRetryInterval) clearInterval(this.joinRetryInterval)
       this.emitInternal('room_updated', payload.room)
+    } else if (payload.type === 'KICK_PLAYER') {
+      if (this.myPlayer && payload.targetPlayerId === this.myPlayer.id) {
+        this.leaveRoom(false)
+        this.emitInternal('kicked_from_room', { reason: 'Has sido expulsado de la sala por el anfitrión.' })
+      } else {
+        this.emitInternal('player_kicked', { id: payload.targetPlayerId })
+      }
+    } else if (payload.type === 'PLAYER_LEFT' && !this.isHost) {
+      this.emitInternal('player_left', { id: payload.playerId, name: payload.playerName, isHost: payload.isHost })
     } else if (payload.type === 'START_MATCH') {
       this.currentRoom = payload.room || this.currentRoom
       this.currentRoom.status = 'in_game'
@@ -566,7 +579,29 @@ export class NetworkSystem {
     this.emitInternal('chat_received', chat)
   }
 
-  leaveRoom() {
+  kickPlayer(roomId, targetPlayerId) {
+    if (!this.isHost || !this.currentRoom) return
+    const cleanRoom = (roomId || this.currentRoom.id).trim().toUpperCase()
+    this.currentRoom.players = this.currentRoom.players.filter(p => p.id !== targetPlayerId)
+    this.publishMessage(`valo3d/room/${cleanRoom}/actions`, {
+      type: 'KICK_PLAYER',
+      roomId: cleanRoom,
+      targetPlayerId
+    })
+    this.broadcastRoomUpdate()
+  }
+
+  leaveRoom(notify = true) {
+    if (notify && this.currentRoom && this.myPlayer) {
+      const cleanRoom = this.currentRoom.id.trim().toUpperCase()
+      this.publishMessage(`valo3d/room/${cleanRoom}/actions`, {
+        type: 'PLAYER_LEFT',
+        roomId: cleanRoom,
+        playerId: this.myPlayer.id,
+        playerName: this.myPlayer.name,
+        isHost: this.isHost
+      })
+    }
     if (this.heartbeatInterval) clearInterval(this.heartbeatInterval)
     if (this.joinRetryInterval) clearInterval(this.joinRetryInterval)
     if (this.currentRoom && this.currentRoom.id) {

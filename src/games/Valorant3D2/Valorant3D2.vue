@@ -1972,6 +1972,54 @@ function setupNetworkListeners() {
     lobbyChatMessages.value.push(msg)
     chatMessages.value.push(msg)
   })
+
+  networkSystem.on('kicked_from_room', (data) => {
+    if (document.pointerLockElement) document.exitPointerLock()
+    isPointerLocked.value = false
+    isOnline.value = false
+    gameMode.value = 'MENU'
+    roomCode.value = ''
+    roomPlayerList.value = []
+    showEconomyNotification(data?.reason || '⚠️ Has sido expulsado de la sala por el anfitrión.')
+  })
+
+  networkSystem.on('player_left', (data) => {
+    if (data && data.id) {
+      roomPlayerList.value = roomPlayerList.value.filter(p => p.id !== data.id)
+      players.value = players.value.filter(p => p.id !== data.id)
+      const mesh = playerMeshes.get(data.id)
+      if (mesh) {
+        scene.remove(mesh)
+        playerMeshes.delete(data.id)
+      }
+      showEconomyNotification(`🚪 ${data.name || 'Un jugador'} salió de la sala.`)
+    }
+  })
+
+  networkSystem.on('player_kicked', (data) => {
+    if (data && data.id) {
+      roomPlayerList.value = roomPlayerList.value.filter(p => p.id !== data.id)
+      players.value = players.value.filter(p => p.id !== data.id)
+      const mesh = playerMeshes.get(data.id)
+      if (mesh) {
+        scene.remove(mesh)
+        playerMeshes.delete(data.id)
+      }
+    }
+  })
+}
+
+function kickPlayerFromRoom(targetId, targetName) {
+  if (!isHost.value || !targetId || targetId === player.id) return
+  networkSystem.kickPlayer(roomCode.value, targetId)
+  roomPlayerList.value = roomPlayerList.value.filter(p => p.id !== targetId)
+  players.value = players.value.filter(p => p.id !== targetId)
+  const mesh = playerMeshes.get(targetId)
+  if (mesh) {
+    scene.remove(mesh)
+    playerMeshes.delete(targetId)
+  }
+  showEconomyNotification(`🚫 ${targetName || 'Jugador'} ha sido expulsado de la sala.`)
 }
 
 function updateCustomLobbySetting(key, val) {
@@ -2032,9 +2080,12 @@ function sendLobbyChat() {
 }
 
 function leaveLobby() {
-  networkSystem.leaveRoom()
+  networkSystem.leaveRoom(true)
   isOnline.value = false
   gameMode.value = 'MENU'
+  roomCode.value = ''
+  roomPlayerList.value = []
+  showEconomyNotification('🚪 Has salido de la sala.')
 }
 
 function copyRoomCode() {
@@ -2553,6 +2604,14 @@ function buyItem(item) {
                 <span class="p-agent-name">{{ AGENTS[p.agentId]?.name || 'Jett' }}</span>
               </div>
               <span class="ready-dot" :class="{ locked: p.isLocked }">{{ p.isLocked ? 'LISTO' : 'ELIGE' }}</span>
+              <button 
+                v-if="isHost && p.id !== player.id" 
+                class="btn-kick-player" 
+                title="Expulsar jugador de la sala" 
+                @click.stop="kickPlayerFromRoom(p.id, p.name)"
+              >
+                ❌ Expulsar
+              </button>
             </div>
           </div>
         </div>
@@ -2580,6 +2639,14 @@ function buyItem(item) {
                 <span class="p-agent-name">{{ AGENTS[p.agentId]?.name || 'Reyna' }}</span>
               </div>
               <span class="ready-dot" :class="{ locked: p.isLocked }">{{ p.isLocked ? 'LISTO' : 'ELIGE' }}</span>
+              <button 
+                v-if="isHost && p.id !== player.id" 
+                class="btn-kick-player" 
+                title="Expulsar jugador de la sala" 
+                @click.stop="kickPlayerFromRoom(p.id, p.name)"
+              >
+                ❌ Expulsar
+              </button>
             </div>
           </div>
         </div>
@@ -3962,6 +4029,23 @@ function buyItem(item) {
 .p-agent-name { font-size: 0.75rem; color: #94a3b8; }
 .ready-dot { font-size: 0.7rem; font-weight: 800; background: rgba(239, 68, 68, 0.2); color: #ef4444; padding: 3px 8px; border-radius: 4px; }
 .ready-dot.locked { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+.btn-kick-player {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.6);
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-left: 4px;
+}
+.btn-kick-player:hover {
+  background: #ef4444;
+  color: #fff;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+}
 
 .lobby-agent-selection { margin-bottom: 16px; }
 .lobby-agent-selection h4 { font-size: 0.85rem; color: #94a3b8; margin-bottom: 8px; }
