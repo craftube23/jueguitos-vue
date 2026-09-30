@@ -204,6 +204,35 @@ function createConcreteTexture() {
   return texture
 }
 
+// 7. Metal Container Texture
+function createContainerTexture() {
+  const canvas = document.createElement('canvas')
+  canvas.width = 512
+  canvas.height = 512
+  const ctx = canvas.getContext('2d')
+
+  ctx.fillStyle = '#0f172a'
+  ctx.fillRect(0, 0, 512, 512)
+
+  const ribW = 32
+  for (let x = 0; x < 512; x += ribW) {
+    ctx.fillStyle = (Math.floor(x / ribW) % 2 === 0) ? '#1e293b' : '#334155'
+    ctx.fillRect(x, 0, ribW, 512)
+    ctx.strokeStyle = '#020617'
+    ctx.lineWidth = 2
+    ctx.strokeRect(x, 0, ribW, 512)
+  }
+
+  ctx.strokeStyle = '#f59e0b'
+  ctx.lineWidth = 8
+  ctx.strokeRect(16, 16, 480, 480)
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.wrapS = THREE.RepeatWrapping
+  texture.wrapT = THREE.RepeatWrapping
+  return texture
+}
+
 // 8. Glacier Ice Tile Texture (Cryodock-7)
 function createGlacierIceTileTexture() {
   const canvas = document.createElement('canvas')
