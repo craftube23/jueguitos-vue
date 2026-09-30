@@ -1260,6 +1260,10 @@ function resetRound(fullReset = false) {
   isSpectating.value = false
   spectateIndex.value = 0
 
+  if (abilitySystem) {
+    abilitySystem.clearRoundStructures()
+  }
+
   if (weaponSystem && weaponSystem.gunGroup) {
     weaponSystem.gunGroup.visible = true
     if (player.weapon) {
@@ -1423,6 +1427,10 @@ function endRound(winningTeam, message) {
   match.announcement = message
   if (winningTeam === 'attackers') match.scoreAtk++
   else match.scoreDef++
+
+  if (abilitySystem) {
+    abilitySystem.clearRoundStructures()
+  }
 
   // Economy Bonus for Round Result
   const won = player.team === winningTeam

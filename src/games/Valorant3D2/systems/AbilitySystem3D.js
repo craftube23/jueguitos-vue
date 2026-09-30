@@ -211,8 +211,10 @@ export class AbilitySystem3D {
     this.ramps.push({
       group: rampGroup,
       colliders,
-      life: 30.0,
-      maxLife: 30.0
+      plankMat,
+      edgeMat,
+      life: 12.0,
+      maxLife: 12.0
     })
 
     // Brief holographic pop-in effect
@@ -447,10 +449,22 @@ export class AbilitySystem3D {
 
   // --- FRAME UPDATE ---
   update(dt, player, targets = []) {
-    // 1. Update Ramps (Auto-cleanup & collider cleanup)
+    // 1. Update Ramps (Auto-cleanup, fadeout & collider cleanup)
     for (let i = this.ramps.length - 1; i >= 0; i--) {
       const r = this.ramps[i]
       r.life -= dt
+
+      // Visual warning fade / flash in the last 2 seconds
+      if (r.life < 2.0 && r.group) {
+        const fade = Math.max(0.1, r.life / 2.0)
+        r.group.traverse(child => {
+          if (child.isMesh && child.material) {
+            child.material.transparent = true
+            child.material.opacity = fade
+          }
+        })
+      }
+
       if (r.life <= 0) {
         if (r.colliders) {
           r.colliders.forEach(c => {
@@ -582,5 +596,55 @@ export class AbilitySystem3D {
       this.spawnLaunchPad(caster)
       soundManager.play('ult_activate')
     }
+  }
+
+  // Clear all built structures (ramps, launch pads, smokes) between rounds
+  clearRoundStructures() {
+    // 1. Clear and unregister all ramps
+    for (let i = this.ramps.length - 1; i >= 0; i--) {
+      const r = this.ramps[i]
+      if (r.colliders) {
+        r.colliders.forEach(c => {
+          const idx = this.meshColliders.indexOf(c)
+          if (idx !== -1) this.meshColliders.splice(idx, 1)
+          if (this.playerController) this.playerController.removeMeshCollider(c)
+        })
+      }
+      this.scene.remove(r.group)
+    }
+    this.ramps = []
+
+    // 2. Clear all launch pads
+    for (let i = this.launchPads.length - 1; i >= 0; i--) {
+      this.scene.remove(this.launchPads[i].group)
+    }
+    this.launchPads = []
+
+    // 3. Clear all smoke clouds
+    for (let i = this.smokes.length - 1; i >= 0; i--) {
+      this.scene.remove(this.smokes[i].group)
+    }
+    this.smokes = []
+
+    // 4. Clear all temporary VFX
+    for (let i = this.grappleCables.length - 1; i >= 0; i--) {
+      this.scene.remove(this.grappleCables[i].mesh)
+    }
+    this.grappleCables = []
+
+    for (let i = this.updraftVortices.length - 1; i >= 0; i--) {
+      this.scene.remove(this.updraftVortices[i].group)
+    }
+    this.updraftVortices = []
+
+    for (let i = this.dashTrails.length - 1; i >= 0; i--) {
+      this.scene.remove(this.dashTrails[i].group)
+    }
+    this.dashTrails = []
+
+    for (let i = this.healingAuras.length - 1; i >= 0; i--) {
+      this.scene.remove(this.healingAuras[i].group)
+    }
+    this.healingAuras = []
   }
 }
