@@ -256,4 +256,54 @@ export class AbilitySystem3D {
       }
     }
   }
+
+  castRemote(caster, key, pos, dir, targets = []) {
+    const origin = new THREE.Vector3(pos.x, pos.y, pos.z)
+    const forward = new THREE.Vector3(dir.x, dir.y, dir.z).normalize()
+    const agent = caster.agentId || 'gladiator'
+
+    if (agent === 'gladiator' || agent === 'jett' || agent === '1v1' || !['phoenix', 'sova', 'reyna', 'sage', 'chamber', 'brimstone'].includes(agent)) {
+      if (key === 'C') {
+        this.spawnSmoke(origin.clone().addScaledVector(forward, 8), 4.2, 0x64748b, 5.0)
+      } else if (key === 'E' || key === 'Q') {
+        soundManager.play('dash')
+      } else if (key === 'X') {
+        soundManager.play('ult_activate')
+      }
+    } else if (agent === 'phoenix') {
+      if (key === 'E') {
+        soundManager.play('flash')
+        const targetPos = origin.clone().addScaledVector(forward, 10)
+        targetPos.y = 0.2
+        this.spawnFire(targetPos, 4.0, 5.0)
+      } else if (key === 'Q') {
+        soundManager.play('flash')
+      } else if (key === 'C') {
+        this.spawnWall(origin.clone().addScaledVector(forward, 4), forward, 0xf97316, 6.0)
+      } else if (key === 'X') {
+        soundManager.play('ult_activate')
+      }
+    } else if (agent === 'sova') {
+      if (key === 'E') {
+        soundManager.play('recon')
+        const arrowLanding = origin.clone().addScaledVector(forward, 16)
+        this.spawnReconPulse(arrowLanding, targets, caster.team)
+      } else if (key === 'X') {
+        soundManager.play('ult_activate')
+        this.spawnBeam(origin, forward, targets, caster.id)
+      }
+    } else if (agent === 'sage') {
+      if (key === 'C') {
+        soundManager.play('buy')
+        this.spawnWall(origin.clone().addScaledVector(forward, 4), forward, 0x10b981, 25.0)
+      }
+    } else if (agent === 'brimstone') {
+      if (key === 'E' || key === 'C') {
+        this.spawnSmoke(origin.clone().addScaledVector(forward, 12), 5.5, 0x334155, 18.0)
+      } else if (key === 'X') {
+        soundManager.play('ult_activate')
+        this.spawnOrbitalLaser(origin.clone().addScaledVector(forward, 10), targets, caster.id)
+      }
+    }
+  }
 }

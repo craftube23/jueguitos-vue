@@ -94,12 +94,14 @@ export class PlayerController3D {
     let moveX = 0
     let moveZ = 0
 
-    if (keys['KeyW']) { moveX += forward.x; moveZ += forward.z }
-    if (keys['KeyS']) { moveX -= forward.x; moveZ -= forward.z }
-    if (keys['KeyA']) { moveX -= right.x; moveZ -= right.z }
-    if (keys['KeyD']) { moveX += right.x; moveZ += right.z }
+    if (!this.freezeMovement) {
+      if (keys['KeyW']) { moveX += forward.x; moveZ += forward.z }
+      if (keys['KeyS']) { moveX -= forward.x; moveZ -= forward.z }
+      if (keys['KeyA']) { moveX -= right.x; moveZ -= right.z }
+      if (keys['KeyD']) { moveX += right.x; moveZ += right.z }
+    }
 
-    this.isCrouching = !!keys['ControlLeft'] || !!keys['ControlRight'] || !!keys['KeyC'] || !!keys['KeyC_crouch']
+    this.isCrouching = !this.freezeMovement && (!!keys['ControlLeft'] || !!keys['ControlRight'] || !!keys['KeyC_crouch'])
     const isSilent = !!keys['ShiftLeft'] || !!keys['ShiftRight']
 
     let targetSpeed = this.walkSpeed
@@ -113,19 +115,19 @@ export class PlayerController3D {
     let moveDirX = 0
     let moveDirZ = 0
 
-    if (len > 0) {
+    if (len > 0 && !this.freezeMovement) {
       moveDirX = moveX / len
       moveDirZ = moveZ / len
       this.velocity.x = moveDirX * targetSpeed
       this.velocity.z = moveDirZ * targetSpeed
       this.walkBobTimer += dt * 10
     } else {
-      this.velocity.x *= 0.65
-      this.velocity.z *= 0.65
+      this.velocity.x = 0
+      this.velocity.z = 0
     }
 
     // 3. Jump and Gravity
-    if (keys['Space'] && this.onGround && !this.isCrouching) {
+    if (keys['Space'] && this.onGround && !this.isCrouching && !this.freezeMovement) {
       this.velocity.y = this.jumpForce
       this.onGround = false
     }

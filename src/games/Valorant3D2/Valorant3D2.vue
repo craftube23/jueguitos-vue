@@ -14,6 +14,25 @@ import { BotAI3D } from './systems/BotAI3D.js'
 import { NetworkSystem } from './systems/NetworkSystem.js'
 import { buildTacticalArena } from './systems/MapBuilder3D.js'
 
+// --- MAPS DATA (3D) ---
+const MAPS_3D = [
+  {
+    id: 'kasbah_temple',
+    name: 'TEMPLO CIBERNÉTICO KASBAH',
+    theme: 'desert_oasis',
+    desc: 'Oasis desértico futurista con arcos de arenisca dorada, santuario celestial y bóveda de obeliscos de radianita.',
+    icon: '🏜️'
+  },
+  {
+    id: 'sector_radian',
+    name: 'SECTOR RADIAN-9',
+    theme: 'cyber_tech',
+    desc: 'Complejo nocturno de alta tecnología con reactor de fusión, pasarelas elevadas y patio industrial.',
+    icon: '⚡'
+  }
+]
+const selectedMapId = ref('kasbah_temple')
+
 // --- GAME STATE ---
 const gameMode = ref('MENU') // 'MENU', 'AGENT_SELECT', 'IN_GAME', 'MULTIPLAYER_LOBBY', 'PRACTICE'
 const isOnline = ref(false)
@@ -35,6 +54,11 @@ function showEconomyNotification(msg) {
 }
 
 function toggleBuyMenu() {
+  if (match.phase !== 'BUY_PHASE' && gameMode.value !== 'PRACTICE') {
+    match.announcement = '🔒 LA TIENDA SOLO ESTÁ DISPONIBLE EN FASE DE COMPRA'
+    soundManager.play('deny')
+    return
+  }
   showBuyMenu.value = !showBuyMenu.value
   if (showBuyMenu.value) {
     if (document.pointerLockElement) {
@@ -337,21 +361,20 @@ function initThreeJS() {
   dirLight.shadow.normalBias = 0.04
   scene.add(dirLight)
 
-  // 4. Build Atmosphere & Procedural 2-Floor Tactical Arena (SECTOR RADIAN-9)
+  // 4. Build Atmosphere & Tactical Arena 3D
   buildAtmosphere()
-  const arenaData = buildTacticalArena(scene)
-  Object.assign(MAP_3D, arenaData)
+  rebuildMap3D(selectedMapId.value)
 
   // 5. Initialize Systems
   playerController = new PlayerController3D(camera, scene, container)
-  playerController.setMeshColliders(arenaData.meshColliders)
-  playerController.setColliders(arenaData.wallsAABB)
+  playerController.setMeshColliders(MAP_3D.meshColliders)
+  playerController.setColliders(MAP_3D.wallsAABB)
   weaponSystem = new WeaponSystem3D(scene, camera)
-  weaponSystem.setMeshColliders(arenaData.meshColliders)
+  weaponSystem.setMeshColliders(MAP_3D.meshColliders)
   abilitySystem = new AbilitySystem3D(scene, camera)
   botAI = new BotAI3D(scene)
-  botAI.setMeshColliders(arenaData.meshColliders)
-  botAI.setColliders(arenaData.wallsAABB)
+  botAI.setMeshColliders(MAP_3D.meshColliders)
+  botAI.setColliders(MAP_3D.wallsAABB)
 
   // Load 3D Military Character Model (eddy_militar_1.glb)
   const charLoader = new GLTFLoader()
@@ -392,17 +415,55 @@ function initThreeJS() {
   window.addEventListener('resize', onWindowResize)
 }
 
+function rebuildMap3D(mapId) {
+  if (!scene) return
+  selectedMapId.value = mapId
+  const arenaData = buildTacticalArena(scene, mapId)
+  Object.assign(MAP_3D, arenaData)
+
+  if (playerController) {
+    playerController.setMeshColliders(arenaData.meshColliders)
+    playerController.setColliders(arenaData.wallsAABB)
+  }
+  if (weaponSystem) {
+    weaponSystem.setMeshColliders(arenaData.meshColliders)
+  }
+  if (botAI) {
+    botAI.setMeshColliders(arenaData.meshColliders)
+    botAI.setColliders(arenaData.wallsAABB)
+  }
+}
+
+function selectLobbyMap(mapId) {
+  selectedMapId.value = mapId
+  updateCustomLobbySetting('mapId', mapId)
+  rebuildMap3D(mapId)
+}
+
 function buildAtmosphere() {
+  const isKasbah = (selectedMapId.value === 'kasbah_temple')
+
   // Atmospheric Sky Dome with Tactical Gradient
   const skyCanvas = document.createElement('canvas')
   skyCanvas.width = 512
   skyCanvas.height = 512
   const skyCtx = skyCanvas.getContext('2d')
   const grad = skyCtx.createLinearGradient(0, 0, 0, 512)
-  grad.addColorStop(0, '#040814')    // Deep zenith
-  grad.addColorStop(0.5, '#0b192e')  // Mid twilight
-  grad.addColorStop(0.85, '#1e3a5f') // Horizon glow
-  grad.addColorStop(1.0, '#38bdf8')  // Horizon accent line
+
+  if (isKasbah) {
+    // Warm Sunset Desert Sky
+    grad.addColorStop(0, '#1e1b4b')    // Deep indigo zenith
+    grad.addColorStop(0.4, '#581c87')  // Royal purple twilight
+    grad.addColorStop(0.75, '#c2410c') // Sunset amber
+    grad.addColorStop(1.0, '#fbbf24')  // Warm golden horizon
+  } else {
+    // Cyber Twilight Sky
+    grad.addColorStop(0, '#040814')    // Deep zenith
+    grad.addColorStop(0.5, '#0b192e')  // Mid twilight
+    grad.addColorStop(0.85, '#1e3a5f') // Horizon glow
+    grad.addColorStop(1.0, '#38bdf8')  // Horizon accent line
+  }
+
   skyCtx.fillStyle = grad
   skyCtx.fillRect(0, 0, 512, 512)
 
@@ -423,10 +484,10 @@ function buildAtmosphere() {
   }
   dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3))
   const dustMat = new THREE.PointsMaterial({
-    color: 0x38bdf8,
-    size: 0.12,
+    color: isKasbah ? 0xfbbf24 : 0x38bdf8,
+    size: 0.14,
     transparent: true,
-    opacity: 0.55,
+    opacity: 0.65,
     blending: THREE.AdditiveBlending
   })
   ambientDust = new THREE.Points(dustGeo, dustMat)
@@ -477,18 +538,24 @@ function gameLoop(now) {
 
 function updateGame3D(dt) {
   if (match.phase === 'BUY_PHASE') {
+    if (playerController) playerController.freezeMovement = true
+    if (MAP_3D.setBarriersActive) MAP_3D.setBarriersActive(true)
     match.timer -= dt
     if (match.timer <= 0) {
       match.phase = 'ROUND_ACTIVE'
       match.timer = 90
-      match.announcement = '¡DUELO INICIADO! ¡ELIMINA AL EQUIPO RIVAL!'
+      match.announcement = '¡DUELO INICIADO! ¡BARRERAS DESACTIVADAS!'
       soundManager.play('ult_activate')
+      if (playerController) playerController.freezeMovement = false
+      if (MAP_3D.setBarriersActive) MAP_3D.setBarriersActive(false)
       if (showBuyMenu.value) {
         showBuyMenu.value = false
         setTimeout(requestPointerLock, 60)
       }
     }
   } else if (match.phase === 'ROUND_ACTIVE') {
+    if (playerController) playerController.freezeMovement = false
+    if (MAP_3D.setBarriersActive) MAP_3D.setBarriersActive(false)
     match.timer -= dt
     if (match.timer <= 0) {
       const redAlive = players.value.filter(p => p.team === 'attackers' && p.alive).length
@@ -502,6 +569,7 @@ function updateGame3D(dt) {
       }
     }
   } else if (match.phase === 'ROUND_ENDED') {
+    if (playerController) playerController.freezeMovement = true
     match.timer -= dt
     if (match.timer <= 0) {
       match.round++
@@ -842,12 +910,19 @@ function updatePlayer3DMeshes() {
       nameSprite.scale.set(1.8, 0.5, 1.0)
       nameSprite.position.set(0, 2.22, 0)
       mesh.add(nameSprite)
+      mesh.userData.nameSprite = nameSprite
 
       scene.add(mesh)
       playerMeshes.set(p.id, mesh)
     }
 
     mesh.visible = p.alive && (!isLocal || isThirdPerson.value)
+
+    // Only show floating nameplate above teammates (allies), NEVER above enemies
+    const isAlly = (p.team === player.team)
+    if (mesh.userData.nameSprite) {
+      mesh.userData.nameSprite.visible = isAlly && !isLocal
+    }
 
     // Calculate real dynamic ground/airborne feet Y position
     const currentEyeH = isLocal ? (playerController ? playerController.currentEyeHeight : (p.crouching ? 1.1 : 1.7)) : (p.crouching ? 1.1 : 1.7)
@@ -1461,15 +1536,33 @@ function onKeyDown(e) {
     return
   }
 
+function castAbility(slot) {
+  if (player.isDead || match.phase === 'BUY_PHASE') return
+  if (slot === 'X' && (player.ultPoints < player.requiredUltPoints && !infiniteAbilities.value)) return
+
+  abilitySystem.cast(player, slot, players.value, (msg) => match.announcement = msg)
+  if (slot === 'X' && !infiniteAbilities.value) player.ultPoints = 0
+
+  if (isOnline.value && networkSystem && networkSystem.connected && camera) {
+    const dir = new THREE.Vector3(0, 0, -1).applyEuler(camera.rotation)
+    networkSystem.sendGameEvent(roomCode.value, {
+      type: 'ability_cast',
+      key: slot,
+      agentId: player.agentId,
+      pos: { x: player.pos.x, y: player.pos.y, z: player.pos.z },
+      dir: { x: dir.x, y: dir.y, z: dir.z },
+      team: player.team,
+      casterId: player.id
+    })
+  }
+}
+
   if (e.code === 'KeyR') reloadWeapon3D(player)
   if (e.code === 'KeyV') isThirdPerson.value = !isThirdPerson.value
-  if (e.code === 'KeyC') abilitySystem.cast(player, 'C', players.value, (msg) => match.announcement = msg)
-  if (e.code === 'KeyQ') abilitySystem.cast(player, 'Q', players.value, (msg) => match.announcement = msg)
-  if (e.code === 'KeyE') abilitySystem.cast(player, 'E', players.value, (msg) => match.announcement = msg)
-  if (e.code === 'KeyX' && (player.ultPoints >= player.requiredUltPoints || infiniteAbilities.value)) {
-    abilitySystem.cast(player, 'X', players.value, (msg) => match.announcement = msg)
-    if (!infiniteAbilities.value) player.ultPoints = 0
-  }
+  if (e.code === 'KeyC') castAbility('C')
+  if (e.code === 'KeyQ') castAbility('Q')
+  if (e.code === 'KeyE') castAbility('E')
+  if (e.code === 'KeyX') castAbility('X')
 }
 
 function onKeyUp(e) {
@@ -1491,6 +1584,9 @@ function setupNetworkListeners() {
       match.maxRounds = room.customConfig.maxRounds || 5
       infiniteAmmo.value = !!room.customConfig.infiniteAmmo
       infiniteAbilities.value = !!room.customConfig.infiniteAbilities
+      if (room.customConfig.mapId && room.customConfig.mapId !== selectedMapId.value) {
+        rebuildMap3D(room.customConfig.mapId)
+      }
     }
     player.id = p.id
     player.team = p.team
@@ -1504,6 +1600,9 @@ function setupNetworkListeners() {
       match.maxRounds = room.customConfig.maxRounds || 5
       infiniteAmmo.value = !!room.customConfig.infiniteAmmo
       infiniteAbilities.value = !!room.customConfig.infiniteAbilities
+      if (room.customConfig.mapId && room.customConfig.mapId !== selectedMapId.value) {
+        rebuildMap3D(room.customConfig.mapId)
+      }
     }
     const me = room.players.find(p => p.id === player.id)
     if (me) {
@@ -1520,6 +1619,9 @@ function setupNetworkListeners() {
       match.maxRounds = room.customConfig.maxRounds || 5
       infiniteAmmo.value = !!room.customConfig.infiniteAmmo
       infiniteAbilities.value = !!room.customConfig.infiniteAbilities
+      if (room.customConfig.mapId && room.customConfig.mapId !== selectedMapId.value) {
+        rebuildMap3D(room.customConfig.mapId)
+      }
     }
     setupOnlinePlayers(room)
     resetRound(true)
@@ -1608,6 +1710,15 @@ function setupNetworkListeners() {
         new THREE.Vector3(event.end.x, event.end.y, event.end.z)
       )
       soundManager.play(event.sound || 'vandal')
+    } else if (event.type === 'ability_cast') {
+      const dummyCaster = {
+        id: event.casterId,
+        agentId: event.agentId,
+        team: event.team,
+        pos: event.pos,
+        maxHealth: 100
+      }
+      abilitySystem.castRemote(dummyCaster, event.key, event.pos, event.dir, players.value)
     }
   })
 
@@ -2202,6 +2313,25 @@ function buyItem(item) {
         </div>
 
         <div class="lobby-config-grid">
+          <!-- Selector de Mapa Táctico 3D -->
+          <div class="lobby-config-item" style="grid-column: 1 / -1;">
+            <span class="cfg-title">🗺️ MAPA TÁCTICO 3D SELECCIONADO:</span>
+            <div class="cfg-buttons" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+              <button 
+                v-for="m in MAPS_3D" 
+                :key="'mp_map_' + m.id"
+                class="btn-cfg-opt"
+                :class="{ active: selectedMapId === m.id, 'is-guest': !isHost }"
+                :disabled="!isHost"
+                @click="selectLobbyMap(m.id)"
+                style="padding: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 800;"
+              >
+                <span>{{ m.icon }}</span>
+                <span>{{ m.name }}</span>
+              </button>
+            </div>
+          </div>
+
           <!-- Rondas para Ganar -->
           <div class="lobby-config-item">
             <span class="cfg-title">🏆 RONDAS PARA GANAR:</span>
