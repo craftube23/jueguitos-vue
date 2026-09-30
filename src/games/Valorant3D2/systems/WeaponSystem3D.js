@@ -10,8 +10,8 @@ const WEAPON_MODELS = {
     rotation: [0, Math.PI, 0],
     hideBodyMesh: false,
     hipPos: [0.04, -1.50, -0.18],
-    adsPos: [-0.015, -1.465, -0.12],
-    muzzlePos: [0.04, 1.48, -0.85],
+    adsPos: [-0.0535, -1.530, -0.16],
+    muzzlePos: [0.0, 1.530, -0.85],
     subclips: {
       draw: { fromClip: 'Draw', start: 0.0, end: 1.033 },
       idle: { fromClip: 'Draw', start: 0.95, end: 1.033 },
