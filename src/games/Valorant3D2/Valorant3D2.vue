@@ -612,7 +612,7 @@ function updateGame3D(dt) {
     }
 
     // Update Abilities
-    abilitySystem.update(dt, player)
+    abilitySystem.update(dt, player, players.value)
 
     // Update Bots AI & 3D Meshes while spectating
     players.value.forEach(bot => {
@@ -680,7 +680,7 @@ function updateGame3D(dt) {
   }
 
   // Update Abilities
-  abilitySystem.update(dt, player)
+  abilitySystem.update(dt, player, players.value)
 
   // Update Bots AI (Hunter Team Deathmatch mode)
   players.value.forEach(bot => {
@@ -1578,36 +1578,40 @@ function setupNetworkListeners() {
   networkSystem.on('room_joined', ({ room, player: p }) => {
     roomCode.value = room.id
     isHost.value = p.isHost
-    roomPlayerList.value = room.players || []
+    roomPlayerList.value = [...(room.players || [])]
     if (room.customConfig) {
       Object.assign(customSettings, room.customConfig)
       match.maxRounds = room.customConfig.maxRounds || 5
       infiniteAmmo.value = !!room.customConfig.infiniteAmmo
       infiniteAbilities.value = !!room.customConfig.infiniteAbilities
       if (room.customConfig.mapId && room.customConfig.mapId !== selectedMapId.value) {
+        selectedMapId.value = room.customConfig.mapId
         rebuildMap3D(room.customConfig.mapId)
       }
     }
     player.id = p.id
     player.team = p.team
+    if (p.name) player.name = p.name
     gameMode.value = 'MULTIPLAYER_LOBBY'
   })
 
   networkSystem.on('room_updated', (room) => {
-    roomPlayerList.value = room.players || []
+    roomPlayerList.value = [...(room.players || [])]
     if (room.customConfig) {
       Object.assign(customSettings, room.customConfig)
       match.maxRounds = room.customConfig.maxRounds || 5
       infiniteAmmo.value = !!room.customConfig.infiniteAmmo
       infiniteAbilities.value = !!room.customConfig.infiniteAbilities
       if (room.customConfig.mapId && room.customConfig.mapId !== selectedMapId.value) {
+        selectedMapId.value = room.customConfig.mapId
         rebuildMap3D(room.customConfig.mapId)
       }
     }
-    const me = room.players.find(p => p.id === player.id)
+    const me = room.players?.find(p => p.id === player.id)
     if (me) {
       player.team = me.team
-      isHost.value = me.isHost
+      player.name = me.name
+      isHost.value = !!me.isHost
     }
   })
 
@@ -2237,7 +2241,7 @@ function buyItem(item) {
       <div class="lobby-header">
         <div class="lobby-title-wrap">
           <span class="lobby-tag">LOBBY MULTIJUGADOR 3D</span>
-          <h2>SECTOR RADIAN-9 // PRE-PARTIDA</h2>
+          <h2>{{ (MAPS_3D.find(m => m.id === selectedMapId)?.name || 'MAPA TÁCTICO 3D').toUpperCase() }} // PRE-PARTIDA</h2>
         </div>
         <div class="lobby-code-box" @click="copyRoomCode">
           <span class="code-label">CÓDIGO DE SALA:</span>

@@ -14,6 +14,17 @@ export class NetworkSystem {
     this.knownPublicRooms = new Map()
     this.heartbeatInterval = null
     this.joinRetryInterval = null
+    this.peerIceConfig = {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' },
+        { urls: 'stun:stun.services.mozilla.com' },
+        { urls: 'stun:stun.cloudflare.com:3478' }
+      ]
+    }
 
     // BroadcastChannel local cross-tab mesh
     this.bc = null
@@ -40,7 +51,7 @@ export class NetworkSystem {
       // --- DISCOVERY & ANNOUNCEMENTS ---
       if (msg.type === 'BC_GET_ROOMS') {
         if (this.isHost && this.currentRoom && this.currentRoom.status === 'lobby') {
-          this.bc.postMessage({ type: 'BC_ANNOUNCE_ROOM', room: this.currentRoom })
+          this.bc.postMessage({ type: 'BC_ANNOUNCE_ROOM', room: this.cloneRoom() })
         }
       } else if (msg.type === 'BC_ANNOUNCE_ROOM') {
         if (msg.room && msg.room.id) {
@@ -52,20 +63,11 @@ export class NetworkSystem {
       // --- JOINING ROOM VIA BROADCAST CHANNEL ---
       else if (msg.type === 'BC_JOIN_REQ') {
         if (this.isHost && this.currentRoom && (this.currentRoom.id.toUpperCase() === (msg.roomId || '').toUpperCase())) {
-          const exists = this.currentRoom.players.find(p => p.id === msg.player.id)
-          if (!exists) {
-            this.currentRoom.players.push(msg.player)
-          } else {
-            // Update player state
-            Object.assign(exists, msg.player)
-          }
-
-          // Reply to client
-          this.bc.postMessage({
-            type: 'BC_ROOM_UPDATED',
-            room: this.currentRoom
-          })
-          this.emitInternal('room_updated', this.currentRoom)
+          this.addOrUpdatePlayerInHost(msg.player)
+          const roomClone = this.cloneRoom()
+          this.bc.postMessage({ type: 'BC_ROOM_UPDATED', room: roomClone })
+          this.broadcastToAll({ type: 'ROOM_UPDATE', room: roomClone })
+          this.emitInternal('room_updated', roomClone)
         }
       }
 
@@ -74,31 +76,36 @@ export class NetworkSystem {
         const p = this.currentRoom.players.find(x => x.id === msg.playerId)
         if (p) {
           p.team = msg.targetTeam
-          this.bc.postMessage({ type: 'BC_ROOM_UPDATED', room: this.currentRoom })
-          this.emitInternal('room_updated', this.currentRoom)
+          const roomClone = this.cloneRoom()
+          this.bc.postMessage({ type: 'BC_ROOM_UPDATED', room: roomClone })
+          this.broadcastToAll({ type: 'ROOM_UPDATE', room: roomClone })
+          this.emitInternal('room_updated', roomClone)
         }
       } else if (msg.type === 'BC_SELECT_AGENT' && this.isHost && this.currentRoom && (this.currentRoom.id.toUpperCase() === (msg.roomId || '').toUpperCase())) {
         const p = this.currentRoom.players.find(x => x.id === msg.playerId)
         if (p) {
           p.agentId = msg.agentId
-          this.bc.postMessage({ type: 'BC_ROOM_UPDATED', room: this.currentRoom })
-          this.emitInternal('room_updated', this.currentRoom)
+          const roomClone = this.cloneRoom()
+          this.bc.postMessage({ type: 'BC_ROOM_UPDATED', room: roomClone })
+          this.broadcastToAll({ type: 'ROOM_UPDATE', room: roomClone })
+          this.emitInternal('room_updated', roomClone)
         }
       } else if (msg.type === 'BC_LOCK_AGENT' && this.isHost && this.currentRoom && (this.currentRoom.id.toUpperCase() === (msg.roomId || '').toUpperCase())) {
         const p = this.currentRoom.players.find(x => x.id === msg.playerId)
         if (p) {
           p.isLocked = true
           p.isReady = true
-          this.bc.postMessage({ type: 'BC_ROOM_UPDATED', room: this.currentRoom })
-          this.emitInternal('room_updated', this.currentRoom)
+          const roomClone = this.cloneRoom()
+          this.bc.postMessage({ type: 'BC_ROOM_UPDATED', room: roomClone })
+          this.broadcastToAll({ type: 'ROOM_UPDATE', room: roomClone })
+          this.emitInternal('room_updated', roomClone)
         }
       } else if (msg.type === 'BC_ROOM_UPDATED' && this.currentRoom && (this.currentRoom.id.toUpperCase() === (msg.room.id || '').toUpperCase())) {
-        this.currentRoom = msg.room
-        this.emitInternal('room_updated', msg.room)
+        this.handleClientRoomUpdate(msg.room)
       } else if (msg.type === 'BC_START_MATCH' && this.currentRoom && (this.currentRoom.id.toUpperCase() === (msg.roomId || '').toUpperCase())) {
         this.currentRoom = msg.room || this.currentRoom
         this.currentRoom.status = 'in_game'
-        this.emitInternal('match_started', this.currentRoom)
+        this.emitInternal('match_started', this.cloneRoom())
       }
 
       // --- IN-GAME REAL-TIME SYNC ---
@@ -119,6 +126,28 @@ export class NetworkSystem {
 
     // Ask active hosts for available rooms
     this.bc.postMessage({ type: 'BC_GET_ROOMS' })
+  }
+
+  cloneRoom() {
+    if (!this.currentRoom) return null
+    return JSON.parse(JSON.stringify(this.currentRoom))
+  }
+
+  addOrUpdatePlayerInHost(newPlayer) {
+    if (!this.currentRoom || !newPlayer) return
+    let finalName = newPlayer.name || 'Operador'
+    const nameClash = this.currentRoom.players.some(p => p.id !== newPlayer.id && p.name.toLowerCase() === finalName.toLowerCase())
+    if (nameClash) {
+      finalName = `${finalName} 2`
+    }
+    newPlayer.name = finalName
+
+    const existingIdx = this.currentRoom.players.findIndex(p => p.id === newPlayer.id)
+    if (existingIdx === -1) {
+      this.currentRoom.players.push(newPlayer)
+    } else {
+      this.currentRoom.players[existingIdx] = { ...this.currentRoom.players[existingIdx], ...newPlayer }
+    }
   }
 
   on(event, cb) {
@@ -209,29 +238,24 @@ export class NetworkSystem {
     // Continuous Room Announcement and Sync Heartbeat (every 1s)
     this.heartbeatInterval = setInterval(() => {
       if (this.isHost && this.currentRoom && this.currentRoom.status === 'lobby') {
+        const roomClone = this.cloneRoom()
         if (this.bc) {
-          this.bc.postMessage({ type: 'BC_ANNOUNCE_ROOM', room: this.currentRoom })
-          this.bc.postMessage({ type: 'BC_ROOM_UPDATED', room: this.currentRoom })
+          this.bc.postMessage({ type: 'BC_ANNOUNCE_ROOM', room: roomClone })
+          this.bc.postMessage({ type: 'BC_ROOM_UPDATED', room: roomClone })
         }
-        this.broadcastToAll({ type: 'ROOM_UPDATE', room: this.currentRoom })
+        this.broadcastToAll({ type: 'ROOM_UPDATE', room: roomClone })
       }
     }, 1000)
 
     try {
       this.peer = new Peer(peerRoomId, {
         debug: 0,
-        config: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:global.stun.twilio.com:3478' }
-          ]
-        }
+        config: this.peerIceConfig
       })
 
       this.peer.on('open', () => {
         this.connected = true
-        this.emitInternal('room_joined', { room, player: hostPlayer })
+        this.emitInternal('room_joined', { room: this.cloneRoom(), player: hostPlayer })
       })
 
       this.peer.on('connection', (conn) => {
@@ -241,7 +265,7 @@ export class NetworkSystem {
           }
           // Send instant full room state to newly connected client
           try {
-            conn.send({ type: 'ROOM_UPDATE', room: this.currentRoom })
+            conn.send({ type: 'ROOM_UPDATE', room: this.cloneRoom() })
           } catch (e) {}
         }
 
@@ -257,74 +281,67 @@ export class NetworkSystem {
           this.connections = this.connections.filter(c => c !== conn)
           if (conn.playerId && this.currentRoom) {
             this.currentRoom.players = this.currentRoom.players.filter(p => p.id !== conn.playerId)
-            this.broadcastToAll({ type: 'ROOM_UPDATE', room: this.currentRoom })
-            this.emitInternal('room_updated', this.currentRoom)
+            const roomClone = this.cloneRoom()
+            this.broadcastToAll({ type: 'ROOM_UPDATE', room: roomClone })
+            this.emitInternal('room_updated', roomClone)
           }
         })
       })
 
       this.peer.on('error', (err) => {
         console.warn('PeerJS Host notice:', err)
-        this.emitInternal('room_joined', { room, player: hostPlayer })
+        this.emitInternal('room_joined', { room: this.cloneRoom(), player: hostPlayer })
       })
     } catch (e) {
       console.warn('Peer fallback error:', e)
     }
 
-    this.emitInternal('room_joined', { room, player: hostPlayer })
+    this.emitInternal('room_joined', { room: this.cloneRoom(), player: hostPlayer })
     return room
   }
 
   handleHostReceivedData(conn, msg) {
     if (!msg || !msg.type) return
 
-    if (msg.type === 'JOIN_REQ') {
-      conn.playerId = msg.player.id
-      if (!this.connections.includes(conn)) {
-        this.connections.push(conn)
+    if (msg.type === 'JOIN_REQ' || msg.type === 'CLIENT_HEARTBEAT') {
+      if (msg.player) {
+        conn.playerId = msg.player.id
+        this.addOrUpdatePlayerInHost(msg.player)
       }
 
-      // Check if duplicate name with host and differentiate
-      if (msg.player.name === this.myPlayer?.name) {
-        msg.player.name = 'Operador 2'
-      }
-
-      const exists = this.currentRoom.players.find(p => p.id === msg.player.id)
-      if (!exists) {
-        this.currentRoom.players.push(msg.player)
-      } else {
-        Object.assign(exists, msg.player)
-      }
-
+      const roomClone = this.cloneRoom()
       // Reply directly to client
       try {
-        conn.send({ type: 'ROOM_UPDATE', room: this.currentRoom })
+        conn.send({ type: 'ROOM_UPDATE', room: roomClone })
       } catch (e) {}
 
       // Broadcast updated room state to all peers and cross-tab
-      this.broadcastToAll({ type: 'ROOM_UPDATE', room: this.currentRoom })
-      this.emitInternal('room_updated', this.currentRoom)
+      this.broadcastToAll({ type: 'ROOM_UPDATE', room: roomClone })
+      this.emitInternal('room_updated', roomClone)
     } else if (msg.type === 'SWITCH_TEAM') {
       const p = this.currentRoom.players.find(x => x.id === msg.playerId)
       if (p) {
         p.team = msg.targetTeam
-        this.broadcastToAll({ type: 'ROOM_UPDATE', room: this.currentRoom })
-        this.emitInternal('room_updated', this.currentRoom)
+        const roomClone = this.cloneRoom()
+        this.broadcastToAll({ type: 'ROOM_UPDATE', room: roomClone })
+        this.emitInternal('room_updated', roomClone)
       }
     } else if (msg.type === 'SELECT_AGENT') {
       const p = this.currentRoom.players.find(x => x.id === msg.playerId)
       if (p) {
         p.agentId = msg.agentId
-        this.broadcastToAll({ type: 'ROOM_UPDATE', room: this.currentRoom })
-        this.emitInternal('room_updated', this.currentRoom)
+        const roomClone = this.cloneRoom()
+        this.broadcastToAll({ type: 'ROOM_UPDATE', room: roomClone })
+        this.emitInternal('room_updated', roomClone)
       }
     } else if (msg.type === 'LOCK_AGENT') {
       const p = this.currentRoom.players.find(x => x.id === msg.playerId)
       if (p) {
         p.isLocked = true
         p.isReady = true
-        this.broadcastToAll({ type: 'ROOM_UPDATE', room: this.currentRoom })
-        this.emitInternal('room_updated', this.currentRoom)
+        const roomClone = this.cloneRoom()
+        this.broadcastToAll({ type: 'ROOM_UPDATE', room: roomClone })
+        this.emitInternal('room_updated', roomClone)
       }
     } else if (msg.type === 'PLAYER_SYNC') {
       this.broadcastToAll(msg, conn)
@@ -409,13 +426,13 @@ export class NetworkSystem {
     this.myPlayer = joinPlayer
     this.connected = true
 
-    const sendJoinRequest = () => {
+    this.sendJoinRequest = () => {
       // 1. Cross-tab BroadcastChannel
       if (this.bc) {
         this.bc.postMessage({
           type: 'BC_JOIN_REQ',
           roomId: cleanCode,
-          player: joinPlayer
+          player: this.myPlayer
         })
       }
       // 2. PeerJS DataConnection
@@ -423,74 +440,89 @@ export class NetworkSystem {
         try {
           this.hostConn.send({
             type: 'JOIN_REQ',
-            player: joinPlayer
+            player: this.myPlayer,
+            roomId: cleanCode
           })
         } catch (e) {}
       }
     }
 
-    // Send immediately
-    sendJoinRequest()
-
-    // Retry sending join request every 800ms while waiting for room sync
+    // Continuous handshake & heartbeat retry loop (every 700ms)
     this.joinRetryInterval = setInterval(() => {
-      if (!this.isHost && this.currentRoom && this.currentRoom.players.length <= 1) {
-        sendJoinRequest()
+      if (!this.isHost && this.currentRoom && this.currentRoom.status === 'lobby') {
+        this.sendJoinRequest()
       }
-    }, 800)
+    }, 700)
 
     // PeerJS Network Connection Request
     try {
       this.peer = new Peer({
         debug: 0,
-        config: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:global.stun.twilio.com:3478' }
-          ]
-        }
+        config: this.peerIceConfig
       })
 
       this.peer.on('open', () => {
         this.hostConn = this.peer.connect(peerTargetId, { reliable: true })
 
-        this.hostConn.on('open', () => {
+        const onHostConnected = () => {
           this.connected = true
-          sendJoinRequest()
-        })
+          this.sendJoinRequest()
+        }
+
+        if (this.hostConn.open) onHostConnected()
+        else this.hostConn.on('open', onHostConnected)
 
         this.hostConn.on('data', (data) => {
           this.handleClientReceivedData(data)
         })
 
         this.hostConn.on('error', (err) => {
-          console.warn('Peer connection error (BC active):', err)
+          console.warn('Peer connection notice (BC active):', err)
         })
       })
 
       this.peer.on('error', (err) => {
-        console.warn('Peer client error (BC active):', err)
+        console.warn('Peer client notice (BC active):', err)
       })
     } catch (e) {
       console.warn('Peer connect error:', e)
     }
 
     // Enter lobby UI immediately
-    this.emitInternal('room_joined', { room: placeholderRoom, player: joinPlayer })
+    this.emitInternal('room_joined', { room: this.cloneRoom(), player: joinPlayer })
+  }
+
+  handleClientRoomUpdate(incomingRoom) {
+    if (!incomingRoom || !incomingRoom.players) return
+    const cloned = JSON.parse(JSON.stringify(incomingRoom))
+
+    // Ensure myPlayer is present in client-side room rendering
+    const hasMe = cloned.players.some(p => p.id === this.myPlayer?.id)
+    if (!hasMe && this.myPlayer) {
+      // Re-trigger join request immediately
+      if (this.sendJoinRequest) this.sendJoinRequest()
+      cloned.players.push(this.myPlayer)
+    } else if (hasMe && this.myPlayer) {
+      const serverMe = cloned.players.find(p => p.id === this.myPlayer.id)
+      if (serverMe) {
+        this.myPlayer.name = serverMe.name
+        this.myPlayer.team = serverMe.team
+      }
+    }
+
+    this.currentRoom = cloned
+    this.emitInternal('room_updated', cloned)
   }
 
   handleClientReceivedData(msg) {
     if (!msg || !msg.type) return
 
     if (msg.type === 'ROOM_UPDATE' || msg.type === 'ROOM_JOINED') {
-      this.currentRoom = msg.room
-      if (this.joinRetryInterval) clearInterval(this.joinRetryInterval)
-      this.emitInternal('room_updated', msg.room)
+      this.handleClientRoomUpdate(msg.room)
     } else if (msg.type === 'START_MATCH') {
       this.currentRoom = msg.room || this.currentRoom
       this.currentRoom.status = 'in_game'
-      this.emitInternal('match_started', this.currentRoom)
+      this.emitInternal('match_started', this.cloneRoom())
     } else if (msg.type === 'PLAYER_SYNC') {
       if (this.myPlayer && msg.data.id !== this.myPlayer.id) {
         this.emitInternal('player_moved', msg.data)
@@ -511,8 +543,9 @@ export class NetworkSystem {
     if (this.isHost) {
       const p = this.currentRoom.players.find(x => x.id === this.myPlayer.id)
       if (p) p.team = targetTeam
-      this.broadcastToAll({ type: 'ROOM_UPDATE', room: this.currentRoom })
-      this.emitInternal('room_updated', this.currentRoom)
+      const roomClone = this.cloneRoom()
+      this.broadcastToAll({ type: 'ROOM_UPDATE', room: roomClone })
+      this.emitInternal('room_updated', roomClone)
     } else {
       if (this.hostConn && this.hostConn.open) {
         try { this.hostConn.send({ type: 'SWITCH_TEAM', playerId: this.myPlayer.id, targetTeam }) } catch (e) {}
@@ -528,8 +561,9 @@ export class NetworkSystem {
     if (this.isHost) {
       const p = this.currentRoom.players.find(x => x.id === this.myPlayer.id)
       if (p) p.agentId = agentId
-      this.broadcastToAll({ type: 'ROOM_UPDATE', room: this.currentRoom })
-      this.emitInternal('room_updated', this.currentRoom)
+      const roomClone = this.cloneRoom()
+      this.broadcastToAll({ type: 'ROOM_UPDATE', room: roomClone })
+      this.emitInternal('room_updated', roomClone)
     } else {
       if (this.hostConn && this.hostConn.open) {
         try { this.hostConn.send({ type: 'SELECT_AGENT', playerId: this.myPlayer.id, agentId }) } catch (e) {}
@@ -551,8 +585,9 @@ export class NetworkSystem {
         p.isLocked = true
         p.isReady = true
       }
-      this.broadcastToAll({ type: 'ROOM_UPDATE', room: this.currentRoom })
-      this.emitInternal('room_updated', this.currentRoom)
+      const roomClone = this.cloneRoom()
+      this.broadcastToAll({ type: 'ROOM_UPDATE', room: roomClone })
+      this.emitInternal('room_updated', roomClone)
     } else {
       if (this.hostConn && this.hostConn.open) {
         try { this.hostConn.send({ type: 'LOCK_AGENT', playerId: this.myPlayer.id }) } catch (e) {}
@@ -566,16 +601,18 @@ export class NetworkSystem {
   updateRoomConfig(roomId, newConfig) {
     if (this.isHost && this.currentRoom) {
       this.currentRoom.customConfig = { ...(this.currentRoom.customConfig || {}), ...newConfig }
-      this.broadcastToAll({ type: 'ROOM_UPDATE', room: this.currentRoom })
-      this.emitInternal('room_updated', this.currentRoom)
+      const roomClone = this.cloneRoom()
+      this.broadcastToAll({ type: 'ROOM_UPDATE', room: roomClone })
+      this.emitInternal('room_updated', roomClone)
     }
   }
 
   startMatch(roomId) {
     if (this.isHost && this.currentRoom) {
       this.currentRoom.status = 'in_game'
-      this.broadcastToAll({ type: 'START_MATCH', room: this.currentRoom })
-      this.emitInternal('match_started', this.currentRoom)
+      const roomClone = this.cloneRoom()
+      this.broadcastToAll({ type: 'START_MATCH', room: roomClone })
+      this.emitInternal('match_started', roomClone)
     }
   }
 
