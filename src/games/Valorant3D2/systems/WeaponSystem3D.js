@@ -6,13 +6,13 @@ import { soundManager } from './SoundSystem.js'
 const WEAPON_MODELS = {
   classic: {
     path: '/models/armas/fps_character_animation_pack_pistol.glb',
-    scale: [0.46, 0.46, 0.46],
+    scale: [0.32, 0.32, 0.32],
     rotation: [0, Math.PI, 0],
     hideBodyMesh: true,
-    hipPos: [0.035, -1.92, -0.14],
-    adsPos: [0.0, -1.86, -0.08],
+    hipPos: [0.04, -1.52, 0.04],
+    adsPos: [-0.083, -1.49, 0.07],
     adsRot: [0.0, 0.0, 0.0],
-    muzzlePos: [0.0, 1.86, -0.55],
+    muzzlePos: [0.0, 1.49, -0.65],
     animMap: {
       draw: 'RIG_UE5_Comando_Equip',
       idle: 'RIG_UE5_Comando_Idle',
@@ -226,6 +226,7 @@ export class WeaponSystem3D {
                 child.name === 'Object_12' ||
                 child.name === 'Object_20' ||
                 child.name === 'Object_27' ||
+                child.name === 'Object_28' ||
                 child.name === 'Object_25' ||
                 child.name === 'Object_14' ||
                 child.name === 'Object_15' ||
