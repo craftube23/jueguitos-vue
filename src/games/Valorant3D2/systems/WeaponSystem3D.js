@@ -211,18 +211,37 @@ export class WeaponSystem3D {
               const meshName = child.name.toLowerCase()
               const matName = child.material?.name?.toLowerCase() || ''
 
+              // Protect weapon and glove meshes
+              const isGunOrGlove = (
+                meshName.includes('weapon') ||
+                meshName.includes('pistol') ||
+                meshName.includes('glove') ||
+                meshName.includes('case') ||
+                meshName.includes('cargador') ||
+                meshName.includes('ak') ||
+                meshName.includes('saps') ||
+                meshName.includes('spas') ||
+                child.name === 'Object_124' ||
+                child.name === 'Object_12' ||
+                child.name === 'Object_20' ||
+                child.name === 'Object_27' ||
+                child.name === 'Object_25' ||
+                child.name === 'Object_14' ||
+                child.name === 'Object_15' ||
+                child.name === 'Object_17' ||
+                child.name === 'Object_18'
+              )
+
               if (
-                config.hideBodyMesh && (
+                config.hideBodyMesh && !isGunOrGlove && (
                   meshName.includes('body') ||
                   meshName.includes('sleeve') ||
                   meshName.includes('shirt') ||
                   meshName.includes('torso') ||
                   child.name === 'Object_57' ||
-                  child.name === 'Object_12' ||
                   child.name === 'Object_13' ||
                   child.name === 'Object_26' ||
                   child.name === 'Object_28' ||
-                  child.name === 'Object_124' ||
                   matName === 'sleeve_st6_generalist' ||
                   matName.includes('shirt')
                 )
