@@ -2,7 +2,6 @@
 import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { AGENTS } from './data/agents.js'
 import { WEAPONS, SHIELDS, WEAPON_CATEGORIES } from './data/weapons.js'
@@ -437,47 +436,27 @@ function initThreeJS() {
   botAI.setMeshColliders(MAP_3D.meshColliders)
   botAI.setColliders(MAP_3D.wallsAABB)
 
-  // Load 3D Rigged Military Character Model (T-Pose.fbx / eddy_militar_1.glb)
-  const fbxLoader = new FBXLoader()
-  fbxLoader.load(
-    '/models/personajes/T-Pose.fbx',
-    (fbx) => {
-      characterModelTemplate = fbx
-      fbx.traverse((c) => {
+  // Load 3D Military Character Model (eddy_militar_1.glb)
+  const charLoader = new GLTFLoader()
+  charLoader.load(
+    '/models/personajes/eddy_militar_1.glb',
+    (gltf) => {
+      characterModelTemplate = gltf.scene
+      characterModelTemplate.traverse((c) => {
         if (c.isMesh) {
           c.castShadow = true
           c.receiveShadow = true
           c.frustumCulled = false
         }
       })
-      // Clear placeholder meshes so new rigged military models are spawned
+      // Clear placeholder meshes so new military models are spawned
       playerMeshes.forEach((mesh) => {
         scene.remove(mesh)
       })
       playerMeshes.clear()
     },
     undefined,
-    (err) => {
-      console.warn('Could not load T-Pose.fbx, falling back to eddy_militar_1.glb:', err)
-      const charLoader = new GLTFLoader()
-      charLoader.load(
-        '/models/personajes/eddy_militar_1.glb',
-        (gltf) => {
-          characterModelTemplate = gltf.scene
-          characterModelTemplate.traverse((c) => {
-            if (c.isMesh) {
-              c.castShadow = true
-              c.receiveShadow = true
-              c.frustumCulled = false
-            }
-          })
-          playerMeshes.forEach((mesh) => scene.remove(mesh))
-          playerMeshes.clear()
-        },
-        undefined,
-        (gltfErr) => console.warn('Could not load fallback character model eddy_militar_1.glb:', gltfErr)
-      )
-    }
+    (err) => console.warn('Could not load character model eddy_militar_1.glb:', err)
   )
 
   // 6. Renderer (AAA Cinematic Tone Mapping & Color Pipeline)
@@ -857,7 +836,7 @@ function updateGame3D(dt) {
   }
 
   // Update 3D Meshes
-  updatePlayer3DMeshes(dt)
+  updatePlayer3DMeshes()
 
   // Online Sync
   if (isOnline.value && networkSystem && networkSystem.connected) {
@@ -880,7 +859,7 @@ function updateGame3D(dt) {
   }
 }
 
-function updatePlayer3DMeshes(dt = 0.016) {
+function updatePlayer3DMeshes() {
   // Clean up obsolete/disconnected player meshes from 3D scene
   const activeIds = new Set(players.value.map(p => p.id))
   for (const [id, m] of playerMeshes.entries()) {
@@ -920,10 +899,9 @@ function updatePlayer3DMeshes(dt = 0.016) {
       const agentColor = agentColors[p.agentId?.toLowerCase()] || baseTeamColor
 
       if (characterModelTemplate) {
-        // Clone Real 3D Rigged Military Soldier Model
+        // Clone Real 3D Military Soldier Model
         const charClone = SkeletonUtils.clone(characterModelTemplate)
-        charClone.scale.set(0.0096, 0.0096, 0.0096)
-        charClone.position.set(0, -103.47 * 0.0096, 0)
+        charClone.scale.set(0.01, 0.01, 0.01)
         charClone.rotation.y = Math.PI
 
         const bones = {}
@@ -938,31 +916,18 @@ function updatePlayer3DMeshes(dt = 0.016) {
             c.receiveShadow = true
             c.frustumCulled = false
             if (c.material) {
-              if (Array.isArray(c.material)) {
-                c.material = c.material.map(m => m.clone())
-              } else {
-                c.material = c.material.clone()
-              }
-              const mats = Array.isArray(c.material) ? c.material : [c.material]
-              mats.forEach(mat => {
-                if (mat.color) {
-                  if (c.name === 'Object_19' || mat.name?.toLowerCase().includes('suit') || c.name === 'Object_9') {
-                    mat.color.lerp(new THREE.Color(baseTeamColor), 0.35)
-                  }
-                  if (c.name === 'Object_17' || mat.name?.toLowerCase().includes('joint') || c.name === 'Beta_Joints') {
-                    mat.color.setHex(0x18181b)
-                    mat.emissive = new THREE.Color(agentColor)
-                    mat.emissiveIntensity = 0.3
-                  }
+              c.material = c.material.clone()
+              if (c.name === 'Object_19' || c.material.name === 'sNAKEsuit') {
+                if (c.material.color) {
+                  c.material.color.lerp(new THREE.Color(baseTeamColor), 0.2)
                 }
-              })
+              }
             }
           }
         })
 
         // Tactical 3D Rifle Prop attached to Right Hand
-        const handBone = bones['mixamorigRightHand'] || bones['CC_Base_R_Hand_013'] || bones['RightHand']
-        if (handBone) {
+        if (bones['CC_Base_R_Hand_013']) {
           const rifleGroup = new THREE.Group()
           const gunMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.35, metalness: 0.75 })
           const gunTrimMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.25, metalness: 0.9 })
@@ -1000,7 +965,7 @@ function updatePlayer3DMeshes(dt = 0.016) {
           rifleGroup.add(stock)
 
           rifleGroup.rotation.set(-Math.PI / 2, 0, Math.PI / 2)
-          handBone.add(rifleGroup)
+          bones['CC_Base_R_Hand_013'].add(rifleGroup)
         }
 
         mesh.userData.bones = bones
@@ -1122,10 +1087,8 @@ function updatePlayer3DMeshes(dt = 0.016) {
     if (bones && baseRot && p.alive) {
       const lastX = mesh.userData.lastX !== undefined ? mesh.userData.lastX : p.pos.x
       const lastZ = mesh.userData.lastZ !== undefined ? mesh.userData.lastZ : p.pos.z
-      const vx = p.pos.x - lastX
-      const vz = p.pos.z - lastZ
-      const moveDist = Math.hypot(vx, vz)
-      const instantSpeed = Math.min(8.0, moveDist / Math.max(0.001, dt))
+      const moveDist = Math.hypot(p.pos.x - lastX, p.pos.z - lastZ)
+      const instantSpeed = Math.min(8.0, moveDist / 0.016)
       mesh.userData.lastX = p.pos.x
       mesh.userData.lastZ = p.pos.z
       mesh.userData.moveSpeed = THREE.MathUtils.lerp(mesh.userData.moveSpeed || 0, instantSpeed, 0.22)
@@ -1152,120 +1115,57 @@ function updatePlayer3DMeshes(dt = 0.016) {
       const walkSwing = Math.sin(walkTimer) * 0.58 * walkWeight
       const idleTime = performance.now() * 0.0022
       const breath = Math.sin(idleTime) * 0.02
+
+      // 1. Legs Locomotion Cycle, Crouch Knee Bends & Airborne Jump Tucking
+      const rThighOffset = walkSwing + crouchProg * 0.85 + jumpProg * 0.42
+      const lThighOffset = -walkSwing + crouchProg * 0.85 + jumpProg * 0.35
+      const rCalfOffset = (Math.max(0, -Math.sin(walkTimer)) * 0.78 * walkWeight) - crouchProg * 1.25 - jumpProg * 0.55
+      const lCalfOffset = (Math.max(0, Math.sin(walkTimer)) * 0.78 * walkWeight) - crouchProg * 1.25 - jumpProg * 0.45
+
+      if (bones['CC_Base_R_Thigh_097'] && baseRot['CC_Base_R_Thigh_097']) {
+        bones['CC_Base_R_Thigh_097'].rotation.x = baseRot['CC_Base_R_Thigh_097'].x + rThighOffset
+      }
+      if (bones['CC_Base_L_Thigh_0117'] && baseRot['CC_Base_L_Thigh_0117']) {
+        bones['CC_Base_L_Thigh_0117'].rotation.x = baseRot['CC_Base_L_Thigh_0117'].x + lThighOffset
+      }
+      if (bones['CC_Base_R_Calf_0100'] && baseRot['CC_Base_R_Calf_0100']) {
+        bones['CC_Base_R_Calf_0100'].rotation.x = baseRot['CC_Base_R_Calf_0100'].x + rCalfOffset
+      }
+      if (bones['CC_Base_L_Calf_0120'] && baseRot['CC_Base_L_Calf_0120']) {
+        bones['CC_Base_L_Calf_0120'].rotation.x = baseRot['CC_Base_L_Calf_0120'].x + lCalfOffset
+      }
+      if (bones['CC_Base_R_Foot_0104'] && baseRot['CC_Base_R_Foot_0104']) {
+        bones['CC_Base_R_Foot_0104'].rotation.x = baseRot['CC_Base_R_Foot_0104'].x + walkSwing * 0.35 + crouchProg * 0.38
+      }
+      if (bones['CC_Base_L_Foot_0124'] && baseRot['CC_Base_L_Foot_0124']) {
+        bones['CC_Base_L_Foot_0124'].rotation.x = baseRot['CC_Base_L_Foot_0124'].x - walkSwing * 0.35 + crouchProg * 0.38
+      }
+
+      // 2. Arms Tactical Combat Hold & Stance (Hands holding rifle)
+      if (bones['CC_Base_R_Upperarm_06'] && baseRot['CC_Base_R_Upperarm_06']) {
+        bones['CC_Base_R_Upperarm_06'].rotation.x = baseRot['CC_Base_R_Upperarm_06'].x + 0.85 + breath - crouchProg * 0.12
+        bones['CC_Base_R_Upperarm_06'].rotation.y = baseRot['CC_Base_R_Upperarm_06'].y - 0.45
+        bones['CC_Base_R_Upperarm_06'].rotation.z = baseRot['CC_Base_R_Upperarm_06'].z - 0.35
+      }
+      if (bones['CC_Base_R_Forearm_09'] && baseRot['CC_Base_R_Forearm_09']) {
+        bones['CC_Base_R_Forearm_09'].rotation.x = baseRot['CC_Base_R_Forearm_09'].x + 1.15
+      }
+      if (bones['CC_Base_L_Upperarm_035'] && baseRot['CC_Base_L_Upperarm_035']) {
+        bones['CC_Base_L_Upperarm_035'].rotation.x = baseRot['CC_Base_L_Upperarm_035'].x + 0.95 + breath - crouchProg * 0.12
+        bones['CC_Base_L_Upperarm_035'].rotation.y = baseRot['CC_Base_L_Upperarm_035'].y + 0.55
+        bones['CC_Base_L_Upperarm_035'].rotation.z = baseRot['CC_Base_L_Upperarm_035'].z + 0.35
+      }
+      if (bones['CC_Base_L_Forearm_038'] && baseRot['CC_Base_L_Forearm_038']) {
+        bones['CC_Base_L_Forearm_038'].rotation.x = baseRot['CC_Base_L_Forearm_038'].x + 1.35
+      }
+
+      // 3. Torso & Head Pitch Aiming (looking up/down with player/bot view and crouch forward lean)
       const aimPitch = p.pitch || 0
-
-      // Calculate lateral strafe vs forward angle
-      let forwardMove = 1.0
-      let lateralStrafe = 0.0
-      if (isMoving) {
-        const moveAngle = Math.atan2(vx, vz)
-        const relAngle = moveAngle - (p.yaw || 0)
-        forwardMove = Math.cos(relAngle)
-        lateralStrafe = Math.sin(relAngle)
+      if (bones['CC_Base_Spine01_03'] && baseRot['CC_Base_Spine01_03']) {
+        bones['CC_Base_Spine01_03'].rotation.x = baseRot['CC_Base_Spine01_03'].x - aimPitch * 0.35 + breath * 0.5 + crouchProg * 0.28
       }
-
-      // --- 1. MIXAMO SKELETON RIG ---
-      if (bones['mixamorigHips']) {
-        const rThigh = walkSwing * forwardMove + crouchProg * 0.75 + jumpProg * 0.45
-        const lThigh = -walkSwing * forwardMove + crouchProg * 0.75 + jumpProg * 0.35
-        const rKnee = (Math.max(0, -Math.sin(walkTimer)) * 0.85 * walkWeight) - crouchProg * 1.15 - jumpProg * 0.55
-        const lKnee = (Math.max(0, Math.sin(walkTimer)) * 0.85 * walkWeight) - crouchProg * 1.15 - jumpProg * 0.45
-
-        if (bones['mixamorigRightUpLeg']) {
-          bones['mixamorigRightUpLeg'].rotation.x = rThigh
-          bones['mixamorigRightUpLeg'].rotation.z = walkSwing * lateralStrafe * 0.35
-        }
-        if (bones['mixamorigLeftUpLeg']) {
-          bones['mixamorigLeftUpLeg'].rotation.x = lThigh
-          bones['mixamorigLeftUpLeg'].rotation.z = -walkSwing * lateralStrafe * 0.35
-        }
-        if (bones['mixamorigRightLeg']) {
-          bones['mixamorigRightLeg'].rotation.x = rKnee
-        }
-        if (bones['mixamorigLeftLeg']) {
-          bones['mixamorigLeftLeg'].rotation.x = lKnee
-        }
-        if (bones['mixamorigRightFoot']) {
-          bones['mixamorigRightFoot'].rotation.x = (baseRot['mixamorigRightFoot']?.x || 0.88) + walkSwing * 0.25 + crouchProg * 0.3
-        }
-        if (bones['mixamorigLeftFoot']) {
-          bones['mixamorigLeftFoot'].rotation.x = (baseRot['mixamorigLeftFoot']?.x || 0.88) - walkSwing * 0.25 + crouchProg * 0.3
-        }
-
-        // Tactical 2-Hand Weapon Hold
-        if (bones['mixamorigRightArm']) {
-          bones['mixamorigRightArm'].rotation.set(0.35 + breath * 0.5 - crouchProg * 0.1, -0.25, -1.05)
-        }
-        if (bones['mixamorigRightForeArm']) {
-          bones['mixamorigRightForeArm'].rotation.set(-0.35, 0.45, -0.85)
-        }
-        if (bones['mixamorigLeftArm']) {
-          bones['mixamorigLeftArm'].rotation.set(0.55 + breath * 0.5 - crouchProg * 0.1, 0.35, 0.95)
-        }
-        if (bones['mixamorigLeftForeArm']) {
-          bones['mixamorigLeftForeArm'].rotation.set(-0.25, -0.55, 1.15)
-        }
-
-        // Torso, Head & Hips bounce
-        if (bones['mixamorigSpine1']) {
-          bones['mixamorigSpine1'].rotation.x = -aimPitch * 0.35 + breath * 0.5 + crouchProg * 0.25
-        }
-        if (bones['mixamorigHead']) {
-          bones['mixamorigHead'].rotation.x = -aimPitch * 0.45
-        }
-        if (bones['mixamorigHips']) {
-          bones['mixamorigHips'].position.y = -crouchProg * 25 - (jumpProg > 0.1 ? 10 : 0) + Math.sin(walkTimer * 2) * 2.0 * walkWeight
-        }
-      }
-      // --- 2. CC SKELETON FALLBACK ---
-      else if (bones['CC_Base_R_Thigh_097']) {
-        const rThighOffset = walkSwing + crouchProg * 0.85 + jumpProg * 0.42
-        const lThighOffset = -walkSwing + crouchProg * 0.85 + jumpProg * 0.35
-        const rCalfOffset = (Math.max(0, -Math.sin(walkTimer)) * 0.78 * walkWeight) - crouchProg * 1.25 - jumpProg * 0.55
-        const lCalfOffset = (Math.max(0, Math.sin(walkTimer)) * 0.78 * walkWeight) - crouchProg * 1.25 - jumpProg * 0.45
-
-        if (bones['CC_Base_R_Thigh_097'] && baseRot['CC_Base_R_Thigh_097']) {
-          bones['CC_Base_R_Thigh_097'].rotation.x = baseRot['CC_Base_R_Thigh_097'].x + rThighOffset
-        }
-        if (bones['CC_Base_L_Thigh_0117'] && baseRot['CC_Base_L_Thigh_0117']) {
-          bones['CC_Base_L_Thigh_0117'].rotation.x = baseRot['CC_Base_L_Thigh_0117'].x + lThighOffset
-        }
-        if (bones['CC_Base_R_Calf_0100'] && baseRot['CC_Base_R_Calf_0100']) {
-          bones['CC_Base_R_Calf_0100'].rotation.x = baseRot['CC_Base_R_Calf_0100'].x + rCalfOffset
-        }
-        if (bones['CC_Base_L_Calf_0120'] && baseRot['CC_Base_L_Calf_0120']) {
-          bones['CC_Base_L_Calf_0120'].rotation.x = baseRot['CC_Base_L_Calf_0120'].x + lCalfOffset
-        }
-        if (bones['CC_Base_R_Foot_0104'] && baseRot['CC_Base_R_Foot_0104']) {
-          bones['CC_Base_R_Foot_0104'].rotation.x = baseRot['CC_Base_R_Foot_0104'].x + walkSwing * 0.35 + crouchProg * 0.38
-        }
-        if (bones['CC_Base_L_Foot_0124'] && baseRot['CC_Base_L_Foot_0124']) {
-          bones['CC_Base_L_Foot_0124'].rotation.x = baseRot['CC_Base_L_Foot_0124'].x - walkSwing * 0.35 + crouchProg * 0.38
-        }
-
-        if (bones['CC_Base_R_Upperarm_06'] && baseRot['CC_Base_R_Upperarm_06']) {
-          bones['CC_Base_R_Upperarm_06'].rotation.x = baseRot['CC_Base_R_Upperarm_06'].x + 0.85 + breath - crouchProg * 0.12
-          bones['CC_Base_R_Upperarm_06'].rotation.y = baseRot['CC_Base_R_Upperarm_06'].y - 0.45
-          bones['CC_Base_R_Upperarm_06'].rotation.z = baseRot['CC_Base_R_Upperarm_06'].z - 0.35
-        }
-        if (bones['CC_Base_R_Forearm_09'] && baseRot['CC_Base_R_Forearm_09']) {
-          bones['CC_Base_R_Forearm_09'].rotation.x = baseRot['CC_Base_R_Forearm_09'].x + 1.15
-        }
-        if (bones['CC_Base_L_Upperarm_035'] && baseRot['CC_Base_L_Upperarm_035']) {
-          bones['CC_Base_L_Upperarm_035'].rotation.x = baseRot['CC_Base_L_Upperarm_035'].x + 0.95 + breath - crouchProg * 0.12
-          bones['CC_Base_L_Upperarm_035'].rotation.y = baseRot['CC_Base_L_Upperarm_035'].y + 0.55
-          bones['CC_Base_L_Upperarm_035'].rotation.z = baseRot['CC_Base_L_Upperarm_035'].z + 0.35
-        }
-        if (bones['CC_Base_L_Forearm_038'] && baseRot['CC_Base_L_Forearm_038']) {
-          bones['CC_Base_L_Forearm_038'].rotation.x = baseRot['CC_Base_L_Forearm_038'].x + 1.35
-        }
-
-        if (bones['CC_Base_Spine01_03'] && baseRot['CC_Base_Spine01_03']) {
-          bones['CC_Base_Spine01_03'].rotation.x = baseRot['CC_Base_Spine01_03'].x - aimPitch * 0.35 + breath * 0.5 + crouchProg * 0.28
-        }
-        if (bones['CC_Base_Head_075'] && baseRot['CC_Base_Head_075']) {
-          bones['CC_Base_Head_075'].rotation.x = baseRot['CC_Base_Head_075'].x - aimPitch * 0.45
-        }
+      if (bones['CC_Base_Head_075'] && baseRot['CC_Base_Head_075']) {
+        bones['CC_Base_Head_075'].rotation.x = baseRot['CC_Base_Head_075'].x - aimPitch * 0.45
       }
     }
   })
