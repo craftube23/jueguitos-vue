@@ -46,39 +46,37 @@ const WEAPON_MODELS = {
     }
   },
   ak74u: {
-    path: '/models/armas/ak74u__free_animation.glb',
-    scale: [1, 1, 1],
-    hideBodyMesh: true,
-    hipPos: [0.07, -1.63, -0.26],
-    adsPos: [-0.067, -1.585, -0.22],
-    muzzlePos: [0.067, 1.51, -0.65],
+    path: '/models/armas/fps_character_animation_pack_ak-47.glb',
+    scale: [0.012, 0.012, 0.012],
+    rotation: [0, Math.PI, 0],
+    hideBodyMesh: false,
+    hipPos: [0.03, -1.44, -0.22],
+    adsPos: [0.0, -1.41, -0.16],
+    adsRot: [0.0, 0.0, 0.0],
+    muzzlePos: [0.0, 1.41, -0.88],
     animMap: {
-      draw: 'DRAW',
-      idle: 'IDLE',
-      shoot: 'SHOOT',
-      reload: 'RELOAD2',
-      inspect: 'INSPEC'
+      draw: 'RIG_UE5_Comando_AK_Equip',
+      idle: 'RIG_UE5_Comando_AK_Idle',
+      shoot: 'RIG_UE5_Comando_AK_Fire',
+      reload: 'RIG_UE5_Comando_AK_Reload',
+      inspect: 'RIG_UE5_Comando_AK_Hold'
     }
   },
   benelli_m4: {
-    path: '/models/armas/fps_benelli_m4_animations.glb',
-    scale: [0.025, 0.025, 0.025],
+    path: '/models/armas/fps_character_animation_pack_saps-12.glb',
+    scale: [0.012, 0.012, 0.012],
     rotation: [0, Math.PI, 0],
-    meshScale: {
-      Object_18: 0.01,
-      Object_19: 0.01,
-      Object_20: 0.01
-    },
-    hideBodyMesh: true,
-    hipPos: [0.08, -0.855, -0.22],
-    adsPos: [-0.0227, -0.816, -0.16],
-    muzzlePos: [0.0, 0.816, -0.90],
+    hideBodyMesh: false,
+    hipPos: [0.04, -1.44, -0.22],
+    adsPos: [0.0, -1.40, -0.16],
+    adsRot: [0.0, 0.0, 0.0],
+    muzzlePos: [0.0, 1.40, -0.85],
     animMap: {
-      draw: 'Rig|M4_Idle',
-      idle: 'Rig|M4_Idle',
-      shoot: 'Rig|M4_Fire',
-      reload: 'Rig|M4_ReloadFull_type1',
-      inspect: 'Rig|M4_ReloadOne_type1'
+      draw: 'RIG_UE5_Comando_Equip',
+      idle: 'RIG_UE5_Comando_Idle',
+      shoot: 'RIG_UE5_Comando_Fire',
+      reload: 'RIG_UE5_Comando_Reload',
+      inspect: 'RIG_UE5_Comando_Hold'
     }
   },
   kriss_vector: {
