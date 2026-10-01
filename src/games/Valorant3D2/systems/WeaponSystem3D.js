@@ -6,13 +6,13 @@ import { soundManager } from './SoundSystem.js'
 const WEAPON_MODELS = {
   classic: {
     path: '/models/armas/fps_character_animation_pack_pistol.glb',
-    scale: [0.42, 0.42, 0.42],
+    scale: [0.35, 0.35, 0.35],
     rotation: [0, Math.PI, 0],
-    hideBodyMesh: false,
-    hipPos: [0.03, -1.72, -0.24],
-    adsPos: [-0.002, -1.68, -0.18],
+    hideBodyMesh: true,
+    hipPos: [0.06, -1.75, -0.38],
+    adsPos: [-0.001, -1.70, -0.28],
     adsRot: [0.0, 0.0, 0.0],
-    muzzlePos: [0.0, 1.68, -0.65],
+    muzzlePos: [0.0, 1.70, -0.75],
     animMap: {
       draw: 'RIG_UE5_Comando_Equip',
       idle: 'RIG_UE5_Comando_Idle',
@@ -47,13 +47,13 @@ const WEAPON_MODELS = {
   },
   ak74u: {
     path: '/models/armas/fps_character_animation_pack_ak-47.glb',
-    scale: [1.0, 1.0, 1.0],
+    scale: [0.82, 0.82, 0.82],
     rotation: [0, Math.PI, 0],
-    hideBodyMesh: false,
-    hipPos: [0.02, -1.40, -0.22],
-    adsPos: [0.0, -1.35, -0.16],
+    hideBodyMesh: true,
+    hipPos: [0.06, -1.48, -0.42],
+    adsPos: [0.0, -1.43, -0.32],
     adsRot: [0.0, 0.0, 0.0],
-    muzzlePos: [0.0, 1.35, -0.85],
+    muzzlePos: [0.0, 1.43, -0.90],
     animMap: {
       draw: 'RIG_UE5_Comando_AK_Equip',
       idle: 'RIG_UE5_Comando_AK_Idle',
@@ -64,13 +64,13 @@ const WEAPON_MODELS = {
   },
   benelli_m4: {
     path: '/models/armas/fps_character_animation_pack_saps-12.glb',
-    scale: [0.42, 0.42, 0.42],
+    scale: [0.35, 0.35, 0.35],
     rotation: [0, Math.PI, 0],
-    hideBodyMesh: false,
-    hipPos: [0.03, -1.42, -0.25],
-    adsPos: [0.0, -1.38, -0.18],
+    hideBodyMesh: true,
+    hipPos: [0.06, -1.48, -0.42],
+    adsPos: [0.0, -1.43, -0.32],
     adsRot: [0.0, 0.0, 0.0],
-    muzzlePos: [0.0, 1.38, -0.85],
+    muzzlePos: [0.0, 1.43, -0.90],
     animMap: {
       draw: 'RIG_UE5_Comando_Equip',
       idle: 'RIG_UE5_Comando_Idle',
@@ -215,9 +215,16 @@ export class WeaponSystem3D {
                 config.hideBodyMesh && (
                   meshName.includes('body') ||
                   meshName.includes('sleeve') ||
+                  meshName.includes('shirt') ||
+                  meshName.includes('torso') ||
                   child.name === 'Object_57' ||
                   child.name === 'Object_12' ||
-                  matName === 'sleeve_st6_generalist'
+                  child.name === 'Object_13' ||
+                  child.name === 'Object_26' ||
+                  child.name === 'Object_28' ||
+                  child.name === 'Object_124' ||
+                  matName === 'sleeve_st6_generalist' ||
+                  matName.includes('shirt')
                 )
               ) {
                 child.visible = false
