@@ -4,6 +4,23 @@ import { DamageSystem } from './DamageSystem.js'
 import { soundManager } from './SoundSystem.js'
 
 const WEAPON_MODELS = {
+  classic: {
+    path: '/models/armas/fps_character_animation_pack_pistol.glb',
+    scale: [0.012, 0.012, 0.012],
+    rotation: [0, Math.PI, 0],
+    hideBodyMesh: false,
+    hipPos: [0.04, -1.42, -0.22],
+    adsPos: [-0.002, -1.39, -0.16],
+    adsRot: [0.0, 0.0, 0.0],
+    muzzlePos: [0.0, 1.39, -0.65],
+    animMap: {
+      draw: 'RIG_UE5_Comando_Equip',
+      idle: 'RIG_UE5_Comando_Idle',
+      shoot: 'RIG_UE5_Comando_Fire',
+      reload: 'RIG_UE5_Comando_Reload',
+      inspect: 'RIG_UE5_Comando_Change'
+    }
+  },
   m4a1: {
     path: '/models/armas/m4_-_fps_weapon_animations_pack_v.1.glb',
     scale: [1, 1, 1],
@@ -316,7 +333,9 @@ export class WeaponSystem3D {
       targetKey = 'sniper'
     } else if (weaponId === 'benelli_m4' || ['shotgun', 'judge', 'bucky', 'shorty'].includes(weaponId)) {
       targetKey = 'benelli_m4'
-    } else if (weaponId === 'kriss_vector' || ['smg', 'spectre', 'stinger', 'classic', 'ghost', 'sheriff', 'frenzy'].includes(weaponId)) {
+    } else if (weaponId === 'classic' || ['pistol', 'pistola', 'ghost', 'sheriff', 'frenzy'].includes(weaponId)) {
+      targetKey = 'classic'
+    } else if (weaponId === 'kriss_vector' || ['smg', 'spectre', 'stinger'].includes(weaponId)) {
       targetKey = 'kriss_vector'
     } else if (weaponId === 'm4a1' || weaponId === 'm4' || weaponId === 'carabina') {
       targetKey = 'm4a1'
