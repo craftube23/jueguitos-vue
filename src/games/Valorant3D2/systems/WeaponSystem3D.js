@@ -647,6 +647,7 @@ export class WeaponSystem3D {
 
       const isHeadHit = distToHead <= 0.18
       const isBodyHit = distToBody <= hitThreshold
+      const isLegHit = !isHeadHit && (bestHitY < feetY + 0.65)
 
       if (isHeadHit || isBodyHit) {
         const hitPosition = isHeadHit ? headCenter : new THREE.Vector3(target.pos.x, bestHitY, target.pos.z)
@@ -657,6 +658,7 @@ export class WeaponSystem3D {
             closestHit = { dist: distFromShooter, pos: hitPosition }
             hitTarget = target
             isHeadshot = isHeadHit
+            isLegshot = isLegHit
           }
         }
       }
@@ -693,13 +695,19 @@ export class WeaponSystem3D {
     }
 
     if (hitTarget) {
-      const rawDmg = isHeadshot ? wep.damage.head : wep.damage.body
+      let rawDmg = wep.damage.body
+      if (isHeadshot) {
+        rawDmg = wep.damage.head
+      } else if (isLegshot && wep.damage.leg) {
+        rawDmg = wep.damage.leg
+      }
+
       if (isHeadshot) soundManager.play('headshot')
       else soundManager.play('hit')
 
-      const res = DamageSystem.applyDamage(hitTarget, rawDmg, isHeadshot, false, isMelee ? 'knife' : 'bullet')
+      const res = DamageSystem.applyDamage(hitTarget, rawDmg, isHeadshot, isLegshot, isMelee ? 'knife' : 'bullet')
       if (onHitCallback) onHitCallback(hitTarget, isHeadshot, rawDmg, res.killed)
-      return { hit: true, target: hitTarget, headshot: isHeadshot, killed: res.killed }
+      return { hit: true, target: hitTarget, headshot: isHeadshot, legshot: isLegshot, damageDealt: rawDmg, killed: res.killed }
     }
 
     return { hit: false }

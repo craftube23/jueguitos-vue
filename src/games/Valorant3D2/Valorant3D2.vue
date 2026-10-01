@@ -132,7 +132,7 @@ const customSettings = reactive({
   allyBotCount: 0,  // 0 to 4
   maxRounds: 5,     // First to 5
   roundDuration: 90,
-  startingCredits: 5000,
+  startingCredits: 800,
   infiniteAmmo: false
 })
 
@@ -179,11 +179,11 @@ const player = reactive({
   height: 1.7,
   crouching: false,
   onGround: true,
-  health: 100,
-  maxHealth: 100,
-  armor: 50,
+  health: 150,
+  maxHealth: 150,
+  armor: 0,
   maxArmor: 50,
-  credits: 5000,
+  credits: 800,
   primaryWeapon: 'ak74u',
   primaryAmmo: 25,
   primaryReserveAmmo: 75,
@@ -1361,11 +1361,11 @@ function resetRound(fullReset = false) {
     match.scoreAtk = 0
     match.scoreDef = 0
     match.round = 1
-    player.credits = customSettings.startingCredits || 5000
+    player.credits = customSettings.startingCredits || 800
     player.kills = 0
     player.deaths = 0
     players.value.forEach(p => {
-      p.credits = customSettings.startingCredits || 5000
+      p.credits = customSettings.startingCredits || 800
       p.kills = 0
       p.deaths = 0
     })
@@ -1377,8 +1377,10 @@ function resetRound(fullReset = false) {
   match.announcement = 'FASE DE COMPRA - SELECCIONA TU ARSENAL [B]'
 
   player.alive = true
-  player.health = 100
-  player.armor = 50
+  player.health = 150
+  player.maxHealth = 150
+  player.armor = 0
+  player.maxArmor = 50
   player.ammo = 25
   player.reserveAmmo = 75
   isSpectating.value = false
@@ -1432,12 +1434,12 @@ function setup3DBots() {
         pos: { x: (i % 2 === 0 ? -4 : 4), y: 1.7, z: -14 + Math.floor(i / 2) * 4 },
         initialZ: -14 + Math.floor(i / 2) * 4,
         radius: 0.6,
-        health: 100,
-        armor: 50,
+        health: 150,
+        armor: 0,
         alive: true,
         isDummy: true,
         strafing: i % 2 === 1,
-        credits: 5000,
+        credits: 800,
         kills: 0,
         deaths: 0
       })
@@ -1450,8 +1452,8 @@ function setup3DBots() {
     if (remotePlayers.length > 0) {
       remotePlayers.forEach(rp => {
         rp.alive = true
-        rp.health = 100
-        rp.armor = 50
+        rp.health = 150
+        rp.armor = rp.armor || 0
         const slot = getPlayerSpawnSlot(rp)
         rp.pos.x = slot.x
         rp.pos.y = slot.y
@@ -1472,8 +1474,8 @@ function setup3DBots() {
             yaw: p.team === 'attackers' ? Math.PI / 2 : -Math.PI / 2,
             pitch: 0,
             radius: 0.6,
-            health: 100,
-            armor: 50,
+            health: 150,
+            armor: 0,
             alive: true,
             weapon: p.weapon || 'ak74u',
             isRemotePlayer: true
@@ -1511,11 +1513,11 @@ function setup3DBots() {
       pos: { x: slot.x, y: slot.y, z: slot.z },
       yaw: player.team === 'attackers' ? Math.PI / 2 : -Math.PI / 2,
       radius: 0.6,
-      health: 100,
-      armor: existing?.armor || 50,
+      health: 150,
+      armor: existing?.armor || 0,
       alive: true,
       weapon: existing?.weapon || 'ak74u',
-      credits: existing?.credits !== undefined ? existing.credits : (customSettings.startingCredits || 5000),
+      credits: existing?.credits !== undefined ? existing.credits : (customSettings.startingCredits || 800),
       kills: existing?.kills || 0,
       deaths: existing?.deaths || 0
     })
@@ -1538,11 +1540,11 @@ function setup3DBots() {
       pos: { x: slot.x, y: slot.y, z: slot.z },
       yaw: enemyTeam === 'attackers' ? Math.PI / 2 : -Math.PI / 2,
       radius: 0.6,
-      health: 100,
-      armor: existing?.armor || 50,
+      health: 150,
+      armor: existing?.armor || 0,
       alive: true,
       weapon: existing?.weapon || 'ak74u',
-      credits: existing?.credits !== undefined ? existing.credits : (customSettings.startingCredits || 5000),
+      credits: existing?.credits !== undefined ? existing.credits : (customSettings.startingCredits || 800),
       kills: existing?.kills || 0,
       deaths: existing?.deaths || 0
     })
@@ -1561,16 +1563,16 @@ function endRound(winningTeam, message) {
     abilitySystem.clearRoundStructures()
   }
 
-  // Economy Bonus for Round Result
+  // Economy Bonus for Round Result (Balanced Rewards)
   const won = player.team === winningTeam
-  const roundBonus = won ? 3000 : 1900
+  const roundBonus = won ? 2200 : 1400
   player.credits = Math.min(9000, (player.credits || 0) + roundBonus)
-  showEconomyNotification(won ? '+ $3000 🏆 RONDA GANADA' : '+ $1900 🛡️ BONIFICACIÓN DE DERROTA')
+  showEconomyNotification(won ? '+ $2200 🏆 RONDA GANADA' : '+ $1400 🛡️ BONIFICACIÓN DE DERROTA')
 
   // Award bots
   players.value.forEach(p => {
     if (p.id !== player.id) {
-      const b = (p.team === winningTeam) ? 3000 : 1900
+      const b = (p.team === winningTeam) ? 2200 : 1400
       p.credits = Math.min(9000, (p.credits || 0) + b)
     }
   })
@@ -1597,7 +1599,7 @@ function handlePlayerKilled3D(victim, killerId, weaponName, isHeadshot) {
   const killer = players.value.find(p => p.id === killerId)
   if (killer) {
     killer.kills++
-    const killBonus = isHeadshot ? 400 : 300
+    const killBonus = isHeadshot ? 300 : 200
     killer.credits = Math.min(9000, (killer.credits || 0) + killBonus)
     if (killer.id === player.id) {
       player.credits = killer.credits
@@ -2393,7 +2395,7 @@ function start1v1Duel() {
   customSettings.allyBotCount = 0
   customSettings.maxRounds = 5
   match.maxRounds = 5
-  player.credits = 5000
+  player.credits = customSettings.startingCredits || 800
   gameMode.value = 'IN_GAME'
   resetRound(true)
   setTimeout(requestPointerLock, 100)
@@ -2402,7 +2404,7 @@ function start1v1Duel() {
 function startCustomMatch() {
   customSettings.gameType = 'CUSTOM_MATCH'
   match.maxRounds = customSettings.maxRounds
-  player.credits = customSettings.startingCredits
+  player.credits = customSettings.startingCredits || 800
   gameMode.value = 'IN_GAME'
   resetRound(true)
   setTimeout(requestPointerLock, 100)
@@ -2414,6 +2416,7 @@ function startStandardGame() {
   customSettings.enemyBotCount = 5
   customSettings.allyBotCount = 4
   match.maxRounds = 13
+  player.credits = 800
   gameMode.value = 'IN_GAME'
   resetRound(true)
   setTimeout(requestPointerLock, 100)
