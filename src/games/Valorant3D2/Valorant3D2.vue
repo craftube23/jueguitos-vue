@@ -1446,7 +1446,7 @@ function resetRound(fullReset = false) {
   player.abilityCharges.X = infiniteAbilities.value ? 99 : 0
 
   if (pickupSystem) {
-    pickupSystem.resetRoundPickups()
+    pickupSystem.resetRoundPickups(selectedMapId.value)
   }
 
   abilityCooldowns.C = 0
