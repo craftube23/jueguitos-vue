@@ -185,14 +185,14 @@ const player = reactive({
   armor: 0,
   maxArmor: 50,
   credits: 800,
-  primaryWeapon: 'ak74u',
-  primaryAmmo: 25,
-  primaryReserveAmmo: 75,
+  primaryWeapon: 'classic',
+  primaryAmmo: 12,
+  primaryReserveAmmo: 36,
   meleeWeapon: 'knife',
   currentSlot: 'primary',
-  weapon: 'ak74u',
-  ammo: 25,
-  reserveAmmo: 75,
+  weapon: 'classic',
+  ammo: 12,
+  reserveAmmo: 36,
   isReloading: false,
   reloadTimer: 0,
   shootCooldown: 0,
@@ -1392,32 +1392,43 @@ function getPlayerSpawnSlot(targetPlayer) {
 }
 
 function resetRound(fullReset = false) {
-  if (fullReset) {
-    match.scoreAtk = 0
-    match.scoreDef = 0
-    match.round = 1
+  if (fullReset || match.round === 1) {
+    if (fullReset) {
+      match.scoreAtk = 0
+      match.scoreDef = 0
+      match.round = 1
+      player.kills = 0
+      player.deaths = 0
+      players.value.forEach(p => {
+        p.kills = 0
+        p.deaths = 0
+      })
+    }
     player.credits = customSettings.startingCredits || 800
-    player.kills = 0
-    player.deaths = 0
     players.value.forEach(p => {
       p.credits = customSettings.startingCredits || 800
-      p.kills = 0
-      p.deaths = 0
     })
+    player.primaryWeapon = 'classic'
+    player.weapon = 'classic'
+    player.currentSlot = 'primary'
+    player.primaryAmmo = 12
+    player.primaryReserveAmmo = 36
   }
 
   match.phase = 'BUY_PHASE'
   match.timer = 15
   match.winner = null
-  match.announcement = 'FASE DE COMPRA - SELECCIONA TU ARSENAL [B]'
+  match.announcement = match.round === 1 ? 'RONDA 1: PISTOLAS // COMPRA TÁCTICA [B]' : 'FASE DE COMPRA - SELECCIONA TU ARSENAL [B]'
 
   player.alive = true
   player.health = 150
   player.maxHealth = 150
   player.armor = 0
   player.maxArmor = 50
-  player.ammo = 25
-  player.reserveAmmo = 75
+
+  const wep = WEAPONS[player.weapon] || WEAPONS.classic
+  player.ammo = wep.isMelee ? 1 : (wep.magazineSize || 12)
+  player.reserveAmmo = wep.isMelee ? 0 : (wep.reserveAmmo || 36)
   isSpectating.value = false
   spectateIndex.value = 0
 
@@ -1471,6 +1482,42 @@ function setup3DBots() {
   const remotePlayers = previousPlayers.filter(p => p.isRemotePlayer && p.id !== player.id)
   players.value = [player]
   const botAgents = ['sova', 'phoenix', 'reyna', 'sage', 'chamber', 'omen']
+  const isRound1 = (match.round === 1)
+
+  function getBotEquipment(existing) {
+    if (isRound1) {
+      return {
+        weapon: 'classic',
+        armor: 0,
+        credits: customSettings.startingCredits || 800
+      }
+    }
+    let creds = existing?.credits !== undefined ? existing.credits : 800
+    let weapon = 'classic'
+    let armor = 0
+
+    // Economy AI for bots: upgrade based on funds
+    if (creds >= 3400) {
+      weapon = Math.random() > 0.4 ? 'ak74u' : 'm4a1'
+      creds -= (weapon === 'ak74u' ? 3400 : 3200)
+    } else if (creds >= 2100) {
+      weapon = Math.random() > 0.5 ? 'benelli_m4' : 'kriss_vector'
+      creds -= (weapon === 'benelli_m4' ? 2100 : 1800)
+    } else if (creds >= 1800) {
+      weapon = 'kriss_vector'
+      creds -= 1800
+    }
+
+    if (creds >= 1200) {
+      armor = 50
+      creds -= 1200
+    } else if (creds >= 500) {
+      armor = 25
+      creds -= 500
+    }
+
+    return { weapon, armor, credits: creds }
+  }
 
   if (gameMode.value === 'PRACTICE') {
     for (let i = 0; i < 4; i++) {
@@ -1525,7 +1572,7 @@ function setup3DBots() {
             health: 150,
             armor: 0,
             alive: true,
-            weapon: p.weapon || 'ak74u',
+            weapon: p.weapon || (isRound1 ? 'classic' : 'ak74u'),
             isRemotePlayer: true
           })
         }
@@ -1553,6 +1600,7 @@ function setup3DBots() {
     const slotIdx = (humanAlliesCount + i) % mySlots.length
     const slot = mySlots[slotIdx]
     const existing = previousPlayers.find(p => p.id === `ally_${i}`)
+    const botEq = getBotEquipment(existing)
     players.value.push({
       id: `ally_${i}`,
       name: `Aliado ${i + 1}`,
@@ -1562,10 +1610,10 @@ function setup3DBots() {
       yaw: player.team === 'attackers' ? Math.PI / 2 : -Math.PI / 2,
       radius: 0.6,
       health: 150,
-      armor: existing?.armor || 0,
+      armor: botEq.armor,
       alive: true,
-      weapon: existing?.weapon || 'ak74u',
-      credits: existing?.credits !== undefined ? existing.credits : (customSettings.startingCredits || 800),
+      weapon: botEq.weapon,
+      credits: botEq.credits,
       kills: existing?.kills || 0,
       deaths: existing?.deaths || 0
     })
@@ -1580,6 +1628,7 @@ function setup3DBots() {
     const slotIdx = (humanEnemiesCount + i) % enemySlots.length
     const slot = enemySlots[slotIdx]
     const existing = previousPlayers.find(p => p.id === `enemy_${i}`)
+    const botEq = getBotEquipment(existing)
     players.value.push({
       id: `enemy_${i}`,
       name: numEnemies === 1 ? 'Rival 1v1' : `Rival ${i + 1}`,
@@ -1589,10 +1638,10 @@ function setup3DBots() {
       yaw: enemyTeam === 'attackers' ? Math.PI / 2 : -Math.PI / 2,
       radius: 0.6,
       health: 150,
-      armor: existing?.armor || 0,
+      armor: botEq.armor,
       alive: true,
-      weapon: existing?.weapon || 'ak74u',
-      credits: existing?.credits !== undefined ? existing.credits : (customSettings.startingCredits || 800),
+      weapon: botEq.weapon,
+      credits: botEq.credits,
       kills: existing?.kills || 0,
       deaths: existing?.deaths || 0
     })
