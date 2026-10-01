@@ -10,6 +10,7 @@ import { DamageSystem, PLAYER_STATES } from './systems/DamageSystem.js'
 import { PlayerController3D } from './systems/PlayerController3D.js'
 import { WeaponSystem3D } from './systems/WeaponSystem3D.js'
 import { AbilitySystem3D } from './systems/AbilitySystem3D.js'
+import { PickupSystem3D, PICKUP_TYPES } from './systems/PickupSystem3D.js'
 import { BotAI3D } from './systems/BotAI3D.js'
 import { NetworkSystem } from './systems/NetworkSystem.js'
 import { buildTacticalArena } from './systems/MapBuilder3D.js'
@@ -202,6 +203,12 @@ const player = reactive({
   blindAlpha: 0,
   ultPoints: 0,
   requiredUltPoints: 7,
+  abilityCharges: {
+    C: 0,
+    Q: 0,
+    E: 0,
+    X: 0
+  },
   kills: 0,
   deaths: 0,
   assists: 0
@@ -329,6 +336,7 @@ let dirLight = null
 let playerController = null
 let weaponSystem = null
 let abilitySystem = null
+let pickupSystem = null
 let botAI = null
 let networkSystem = null
 let characterModelTemplate = null
@@ -440,6 +448,8 @@ function initThreeJS() {
   abilitySystem = new AbilitySystem3D(scene, camera)
   abilitySystem.setPlayerController(playerController)
   abilitySystem.setMeshColliders(MAP_3D.meshColliders)
+  pickupSystem = new PickupSystem3D(scene)
+  pickupSystem.loadMapPickups(selectedMapId.value)
   botAI = new BotAI3D(scene)
   botAI.setBounds(MAP_3D.bounds)
   botAI.setMeshColliders(MAP_3D.meshColliders)
@@ -524,6 +534,9 @@ function rebuildMap3D(mapId) {
   }
   if (abilitySystem) {
     abilitySystem.setMeshColliders(arenaData.meshColliders)
+  }
+  if (pickupSystem) {
+    pickupSystem.loadMapPickups(mapId)
   }
   if (botAI) {
     botAI.setBounds(arenaData.bounds)
@@ -847,6 +860,13 @@ function updateGame3D(dt) {
   if (abilityCooldowns.X > 0) abilityCooldowns.X = Math.max(0, abilityCooldowns.X - dt)
 
   abilitySystem.update(dt, player, players.value)
+
+  // Update Interactive Map Pickups (Abilities, HP, Shields)
+  if (pickupSystem) {
+    pickupSystem.update(dt, player, (pickupType) => {
+      showEconomyNotification(`✨ ¡Recogiste ${pickupType.icon} ${pickupType.name}! (${pickupType.desc})`)
+    }, players.value)
+  }
 
   // Update Bots AI (Hunter Team Deathmatch mode)
   if (!isOnline.value || isHost.value) {
@@ -1304,8 +1324,23 @@ function renderRadar() {
     ctx.fill()
   })
 
-  // 4. Draw Spike if Dropped or Planted
-  // 4. Draw Live Players (Red vs Blue)
+  // 4. Draw Active Ability / Buff Pickups on Radar
+  if (pickupSystem && pickupSystem.pickups) {
+    pickupSystem.pickups.forEach(p => {
+      if (!p.active) return
+      const rx = cx + p.basePos.x * scale
+      const ry = cy + p.basePos.z * scale
+      ctx.fillStyle = p.type.hexColor || '#38bdf8'
+      ctx.beginPath()
+      ctx.arc(rx, ry, 3.2, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.strokeStyle = '#ffffff'
+      ctx.lineWidth = 1.0
+      ctx.stroke()
+    })
+  }
+
+  // 5. Draw Live Players (Red vs Blue)
   players.value.forEach(p => {
     if (!p.alive) return
     const isMe = p.id === player.id
@@ -1388,6 +1423,19 @@ function resetRound(fullReset = false) {
 
   if (abilitySystem) {
     abilitySystem.clearRoundStructures()
+  }
+
+  // Reset ability charges (0 by default, collect in map!)
+  if (!player.abilityCharges) {
+    player.abilityCharges = reactive({ C: 0, Q: 0, E: 0, X: 0 })
+  }
+  player.abilityCharges.C = infiniteAbilities.value ? 99 : 0
+  player.abilityCharges.Q = infiniteAbilities.value ? 99 : 0
+  player.abilityCharges.E = infiniteAbilities.value ? 99 : 0
+  player.abilityCharges.X = infiniteAbilities.value ? 99 : 0
+
+  if (pickupSystem) {
+    pickupSystem.resetRoundPickups()
   }
 
   abilityCooldowns.C = 0
@@ -1859,12 +1907,17 @@ function castAbility(slot) {
   if (!player.alive || match.phase === 'BUY_PHASE') return
 
   if (!infiniteAbilities.value) {
-    if (abilityCooldowns[slot] > 0) {
-      showEconomyNotification(`⏳ HABILIDAD [${slot}] EN ENFRIAMIENTO (${abilityCooldowns[slot].toFixed(1)}s)`)
+    if (!player.abilityCharges) {
+      player.abilityCharges = reactive({ C: 0, Q: 0, E: 0, X: 0 })
+    }
+    const currentCharges = player.abilityCharges[slot] || 0
+    if (currentCharges <= 0) {
+      showEconomyNotification(`❌ ¡SIN CARGAS DE [${slot}]! Recoge orbes en el mapa.`)
       soundManager.play('deny')
       return
     }
-    if (slot === 'X' && player.ultPoints < player.requiredUltPoints && abilityCooldowns.X > 0) {
+    if (abilityCooldowns[slot] > 0) {
+      showEconomyNotification(`⏳ HABILIDAD [${slot}] EN ENFRIAMIENTO (${abilityCooldowns[slot].toFixed(1)}s)`)
       soundManager.play('deny')
       return
     }
@@ -1873,8 +1926,8 @@ function castAbility(slot) {
   abilitySystem.cast(player, slot, players.value, (msg) => match.announcement = msg)
 
   if (!infiniteAbilities.value) {
-    abilityCooldowns[slot] = ABILITY_MAX_COOLDOWNS[slot] || 5.0
-    if (slot === 'X') player.ultPoints = 0
+    player.abilityCharges[slot] = Math.max(0, (player.abilityCharges[slot] || 1) - 1)
+    abilityCooldowns[slot] = (slot === 'Q') ? 0.3 : 0.8 // Short delay to prevent accidental multi-activation
   }
 
   if (isOnline.value && networkSystem && networkSystem.connected && camera) {
@@ -3145,30 +3198,34 @@ function buyItem(item) {
         </div>
 
         <div class="hud-abilities">
-          <div class="ability-slot" :class="{ 'on-cooldown': abilityCooldowns.C > 0 }" title="[C] Nube de Humo Táctica (10s)">
+          <div class="ability-slot" :class="{ 'has-charges': (player.abilityCharges?.C || 0) > 0 || infiniteAbilities, 'no-charges': (player.abilityCharges?.C || 0) === 0 && !infiniteAbilities, 'on-cooldown': abilityCooldowns.C > 0 }" title="[C] Nube de Humo Táctica (Recoge orbes en el mapa)">
             <span class="key-badge">C</span>
             <span class="ab-icon">☁️</span>
+            <span class="charge-counter">{{ infiniteAbilities ? '∞' : `x${player.abilityCharges?.C || 0}` }}</span>
             <div v-if="abilityCooldowns.C > 0" class="cooldown-overlay">
               <span class="cd-timer">{{ Math.ceil(abilityCooldowns.C) }}s</span>
             </div>
           </div>
-          <div class="ability-slot" :class="{ 'on-cooldown': abilityCooldowns.Q > 0 }" title="[Q] Construir Rampa 1v1 (1.6s)">
+          <div class="ability-slot" :class="{ 'has-charges': (player.abilityCharges?.Q || 0) > 0 || infiniteAbilities, 'no-charges': (player.abilityCharges?.Q || 0) === 0 && !infiniteAbilities, 'on-cooldown': abilityCooldowns.Q > 0 }" title="[Q] Construir Rampa 1v1 (Recoge orbes en el mapa)">
             <span class="key-badge">Q</span>
             <span class="ab-icon">🪜</span>
+            <span class="charge-counter">{{ infiniteAbilities ? '∞' : `x${player.abilityCharges?.Q || 0}` }}</span>
             <div v-if="abilityCooldowns.Q > 0" class="cooldown-overlay">
               <span class="cd-timer">{{ abilityCooldowns.Q >= 1 ? Math.ceil(abilityCooldowns.Q) : abilityCooldowns.Q.toFixed(1) }}s</span>
             </div>
           </div>
-          <div class="ability-slot" :class="{ 'on-cooldown': abilityCooldowns.E > 0 }" title="[E] Gancho de Agarre / Impulso (6s)">
+          <div class="ability-slot" :class="{ 'has-charges': (player.abilityCharges?.E || 0) > 0 || infiniteAbilities, 'no-charges': (player.abilityCharges?.E || 0) === 0 && !infiniteAbilities, 'on-cooldown': abilityCooldowns.E > 0 }" title="[E] Gancho de Agarre / Impulso (Recoge orbes en el mapa)">
             <span class="key-badge">E</span>
             <span class="ab-icon">⚡</span>
+            <span class="charge-counter">{{ infiniteAbilities ? '∞' : `x${player.abilityCharges?.E || 0}` }}</span>
             <div v-if="abilityCooldowns.E > 0" class="cooldown-overlay">
               <span class="cd-timer">{{ Math.ceil(abilityCooldowns.E) }}s</span>
             </div>
           </div>
-          <div class="ability-slot ult-slot" :class="{ ready: (player.ultPoints >= player.requiredUltPoints || infiniteAbilities) && abilityCooldowns.X <= 0, 'on-cooldown': abilityCooldowns.X > 0 }" title="[X] Plataforma de Salto + Súper Escudo (+50)">
+          <div class="ability-slot ult-slot" :class="{ 'has-charges': (player.abilityCharges?.X || 0) > 0 || infiniteAbilities, 'no-charges': (player.abilityCharges?.X || 0) === 0 && !infiniteAbilities, 'on-cooldown': abilityCooldowns.X > 0 }" title="[X] Plataforma de Salto + Súper Escudo (Recoge orbes en el mapa)">
             <span class="key-badge">X</span>
             <span class="ab-icon">🚀</span>
+            <span class="charge-counter">{{ infiniteAbilities ? '∞' : `x${player.abilityCharges?.X || 0}` }}</span>
             <div v-if="abilityCooldowns.X > 0" class="cooldown-overlay">
               <span class="cd-timer">{{ Math.ceil(abilityCooldowns.X) }}s</span>
             </div>
@@ -3833,6 +3890,32 @@ function buyItem(item) {
   font-size: 1.4rem;
 }
 
+.ability-slot.no-charges {
+  opacity: 0.40;
+  border: 1px dashed rgba(255, 255, 255, 0.18);
+  background: rgba(15, 23, 42, 0.6);
+  filter: grayscale(0.8);
+}
+
+.ability-slot.has-charges {
+  opacity: 1.0;
+  border-color: #38bdf8;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.35);
+  background: rgba(14, 116, 144, 0.25);
+  filter: none;
+}
+
+.charge-counter {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-size: 0.72rem;
+  font-weight: 900;
+  color: #38bdf8;
+  text-shadow: 0 0 4px rgba(56, 189, 248, 0.8);
+  letter-spacing: -0.5px;
+}
+
 .ability-slot.on-cooldown {
   opacity: 0.65;
   border-color: rgba(239, 68, 68, 0.4);
@@ -3861,15 +3944,10 @@ function buyItem(item) {
 .key-badge {
   position: absolute;
   bottom: 2px;
-  right: 4px;
+  left: 4px;
   font-size: 0.65rem;
   font-weight: 800;
   color: #94a3b8;
-}
-
-.ult-slot.ready {
-  border-color: #38bdf8;
-  box-shadow: 0 0 12px rgba(56, 189, 248, 0.6);
 }
 
 /* INVENTORY SLOTS HUD */
