@@ -3092,36 +3092,160 @@ function buyItem(item) {
         🖱️ HAZ CLIC AQUÍ PARA BLOQUEAR EL RATÓN Y APUNTAR EN 3D (FPS)
       </div>
 
-      <!-- 3D Crosshair (Hides during ADS or when dead) -->
-      <div v-if="player.alive && !isAiming" class="crosshair-wrap">
-        <div class="crosshair-dot" :style="{ backgroundColor: settings.crosshairColor }"></div>
-        <div class="crosshair-bar bar-top" :style="{ backgroundColor: settings.crosshairColor, transform: `translateY(-${5 + crosshairSpread * 14}px)` }"></div>
-        <div class="crosshair-bar bar-bottom" :style="{ backgroundColor: settings.crosshairColor, transform: `translateY(${5 + crosshairSpread * 14}px)` }"></div>
-        <div class="crosshair-bar bar-left" :style="{ backgroundColor: settings.crosshairColor, transform: `translateX(-${5 + crosshairSpread * 14}px)` }"></div>
-        <div class="crosshair-bar bar-right" :style="{ backgroundColor: settings.crosshairColor, transform: `translateX(${5 + crosshairSpread * 14}px)` }"></div>
+      <!-- UNIQUE WEAPON CROSSHAIRS (HIPFIRE) -->
+      <div v-if="player.alive && !isAiming" class="crosshair-wrap" :class="`crosshair-${player.weapon || 'ak74u'}`">
+        <!-- 1. CLASSIC PISTOL: Minimal Tactical 4-Dot/Bar -->
+        <template v-if="player.weapon === 'classic'">
+          <div class="ch-dot" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc' }"></div>
+          <div class="classic-bar classic-t" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc', transform: `translateY(-${4 + crosshairSpread * 10}px)` }"></div>
+          <div class="classic-bar classic-b" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc', transform: `translateY(${4 + crosshairSpread * 10}px)` }"></div>
+          <div class="classic-bar classic-l" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc', transform: `translateX(-${4 + crosshairSpread * 10}px)` }"></div>
+          <div class="classic-bar classic-r" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc', transform: `translateX(${4 + crosshairSpread * 10}px)` }"></div>
+        </template>
+
+        <!-- 2. KRISS VECTOR (SMG): Pulsating Holo Ring & Center Dot -->
+        <template v-else-if="player.weapon === 'kriss_vector'">
+          <div class="ch-dot vector-dot" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc' }"></div>
+          <div class="vector-ring" :style="{ borderColor: settings.crosshairColor || '#00ffcc', width: `${24 + crosshairSpread * 20}px`, height: `${24 + crosshairSpread * 20}px` }"></div>
+          <div class="vector-tick tick-t" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc', transform: `translateY(-${14 + crosshairSpread * 10}px)` }"></div>
+          <div class="vector-tick tick-b" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc', transform: `translateY(${14 + crosshairSpread * 10}px)` }"></div>
+          <div class="vector-tick tick-l" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc', transform: `translateX(-${14 + crosshairSpread * 10}px)` }"></div>
+          <div class="vector-tick tick-r" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc', transform: `translateX(${14 + crosshairSpread * 10}px)` }"></div>
+        </template>
+
+        <!-- 3. BENELLI M4 (SHOTGUN): 8-Pellet Spread Circle & Corner Prongs -->
+        <template v-else-if="player.weapon === 'benelli_m4'">
+          <div class="shotgun-ch-ring" :style="{ borderColor: settings.crosshairColor || '#00ffcc', width: `${36 + crosshairSpread * 24}px`, height: `${36 + crosshairSpread * 24}px` }"></div>
+          <div class="ch-dot shotgun-ch-dot" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc' }"></div>
+          <div class="shotgun-corner corner-tl" :style="{ borderColor: settings.crosshairColor || '#00ffcc', transform: `translate(-${20 + crosshairSpread * 12}px, -${20 + crosshairSpread * 12}px)` }"></div>
+          <div class="shotgun-corner corner-tr" :style="{ borderColor: settings.crosshairColor || '#00ffcc', transform: `translate(${20 + crosshairSpread * 12}px, -${20 + crosshairSpread * 12}px)` }"></div>
+          <div class="shotgun-corner corner-bl" :style="{ borderColor: settings.crosshairColor || '#00ffcc', transform: `translate(-${20 + crosshairSpread * 12}px, ${20 + crosshairSpread * 12}px)` }"></div>
+          <div class="shotgun-corner corner-br" :style="{ borderColor: settings.crosshairColor || '#00ffcc', transform: `translate(${20 + crosshairSpread * 12}px, ${20 + crosshairSpread * 12}px)` }"></div>
+        </template>
+
+        <!-- 4. M4A1 (CARBINE): Modern Tactical Framing Brackets -->
+        <template v-else-if="player.weapon === 'm4a1'">
+          <div class="ch-dot m4-dot" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc' }"></div>
+          <div class="m4-bracket brk-tl" :style="{ borderColor: settings.crosshairColor || '#00ffcc', transform: `translate(-${7 + crosshairSpread * 14}px, -${7 + crosshairSpread * 14}px)` }"></div>
+          <div class="m4-bracket brk-tr" :style="{ borderColor: settings.crosshairColor || '#00ffcc', transform: `translate(${7 + crosshairSpread * 14}px, -${7 + crosshairSpread * 14}px)` }"></div>
+          <div class="m4-bracket brk-bl" :style="{ borderColor: settings.crosshairColor || '#00ffcc', transform: `translate(-${7 + crosshairSpread * 14}px, ${7 + crosshairSpread * 14}px)` }"></div>
+          <div class="m4-bracket brk-br" :style="{ borderColor: settings.crosshairColor || '#00ffcc', transform: `translate(${7 + crosshairSpread * 14}px, ${7 + crosshairSpread * 14}px)` }"></div>
+        </template>
+
+        <!-- 5. AK-74U (HEAVY RIFLE): Russian T-Bar Crosshair (Open Headshot View) -->
+        <template v-else-if="player.weapon === 'ak74u'">
+          <div class="ch-dot ak-dot" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc' }"></div>
+          <div class="ak-bar ak-l" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc', transform: `translateX(-${6 + crosshairSpread * 15}px)` }"></div>
+          <div class="ak-bar ak-r" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc', transform: `translateX(${6 + crosshairSpread * 15}px)` }"></div>
+          <div class="ak-bar ak-b" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc', transform: `translateY(${6 + crosshairSpread * 15}px)` }"></div>
+        </template>
+
+        <!-- 6. AWP SNIPER: Wide Inaccurate Hipfire Brackets -->
+        <template v-else-if="player.weapon === 'sniper'">
+          <div class="ch-dot sniper-dot" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc' }"></div>
+          <div class="sniper-bracket s-left" :style="{ borderColor: settings.crosshairColor || '#00ffcc', transform: `translateX(-${24 + crosshairSpread * 24}px)` }"></div>
+          <div class="sniper-bracket s-right" :style="{ borderColor: settings.crosshairColor || '#00ffcc', transform: `translateX(${24 + crosshairSpread * 24}px)` }"></div>
+          <div class="sniper-bracket s-top" :style="{ borderColor: settings.crosshairColor || '#00ffcc', transform: `translateY(-${24 + crosshairSpread * 24}px)` }"></div>
+          <div class="sniper-bracket s-bottom" :style="{ borderColor: settings.crosshairColor || '#00ffcc', transform: `translateY(${24 + crosshairSpread * 24}px)` }"></div>
+        </template>
+
+        <!-- 7. KNIFE: Melee Slash Crosshair -->
+        <template v-else-if="player.weapon === 'knife'">
+          <div class="knife-dot" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc' }"></div>
+          <div class="knife-arc arc-left" :style="{ borderColor: settings.crosshairColor || '#00ffcc' }"></div>
+          <div class="knife-arc arc-right" :style="{ borderColor: settings.crosshairColor || '#00ffcc' }"></div>
+        </template>
+
+        <!-- Hitmarker -->
         <div v-if="hitmarkerActive" class="hitmarker" :class="{ headshot: hitmarkerHeadshot }">✕</div>
       </div>
 
-      <!-- Tactical Sniper Scope Fullscreen Overlay (For Operator / Marshal) -->
-      <div v-if="player.alive && isAiming && (WEAPONS[player.weapon]?.category === WEAPON_CATEGORIES.SNIPERS)" class="sniper-scope-overlay">
-        <div class="scope-reticle">
+      <!-- UNIQUE WEAPON ADS OPTICS (RIGHT CLICK AIMING) -->
+      <!-- 1. AWP SNIPER SCOPE: Fullscreen High-Tech Military Long-Range Scope -->
+      <div v-if="player.alive && isAiming && player.weapon === 'sniper'" class="sniper-scope-overlay">
+        <div class="scope-housing">
           <div class="scope-cross-h"></div>
           <div class="scope-cross-v"></div>
           <div class="scope-center-dot"></div>
-          <div class="scope-range-ring"></div>
+          <div class="scope-ring-outer"></div>
+          <div class="scope-ring-inner"></div>
+          
+          <!-- Distance rangefinder & mil marks -->
+          <div class="scope-mil-marks">
+            <span class="mil-label label-heading">AZM 084° // RNG 450M</span>
+            <span class="mil-label label-ammo">AWP .338 LAPUA MAG</span>
+            <div class="mil-line ml-1"></div>
+            <div class="mil-line ml-2"></div>
+            <div class="mil-line ml-3"></div>
+            <div class="mil-line ml-4"></div>
+          </div>
         </div>
         <div v-if="hitmarkerActive" class="hitmarker scope-hit" :class="{ headshot: hitmarkerHeadshot }">✕</div>
       </div>
 
-      <!-- Tactical ADS Optic Focus Vignette & Precision Reflex Reticle (For Rifles, SMGs, Pistols) -->
-      <div v-if="player.alive && isAiming && (WEAPONS[player.weapon]?.category !== WEAPON_CATEGORIES.SNIPERS)" class="ads-focus-overlay"></div>
-      <div v-if="player.alive && isAiming && (WEAPONS[player.weapon]?.category !== WEAPON_CATEGORIES.SNIPERS)" class="ads-reflex-reticle">
-        <div class="reflex-glow-ring"></div>
-        <div class="reflex-center-dot" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
-        <div class="reflex-side-notch notch-left"></div>
-        <div class="reflex-side-notch notch-right"></div>
-        <div class="reflex-bottom-post"></div>
-        <div v-if="hitmarkerActive" class="hitmarker" :class="{ headshot: hitmarkerHeadshot }">✕</div>
+      <!-- 2. M4A1 ACOG / REFLEX CHEVRON OPTIC -->
+      <div v-else-if="player.alive && isAiming && player.weapon === 'm4a1'" class="ads-view-container">
+        <div class="ads-focus-overlay"></div>
+        <div class="ads-optic-frame optic-m4a1">
+          <div class="m4-optic-glass">
+            <div class="m4-chevron-point" :style="{ borderBottomColor: settings.crosshairColor || '#00f3ff' }"></div>
+            <div class="m4-stadia-h" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+            <div class="m4-stadia-v" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+          </div>
+          <div v-if="hitmarkerActive" class="hitmarker" :class="{ headshot: hitmarkerHeadshot }">✕</div>
+        </div>
+      </div>
+
+      <!-- 3. KRISS VECTOR EOTECH HOLOGRAPHIC OPTIC -->
+      <div v-else-if="player.alive && isAiming && player.weapon === 'kriss_vector'" class="ads-view-container">
+        <div class="ads-focus-overlay"></div>
+        <div class="ads-optic-frame optic-vector">
+          <div class="vector-holo-ring" :style="{ borderColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="vector-holo-dot" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="vector-holo-post post-t" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="vector-holo-post post-b" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="vector-holo-post post-l" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="vector-holo-post post-r" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div v-if="hitmarkerActive" class="hitmarker" :class="{ headshot: hitmarkerHeadshot }">✕</div>
+        </div>
+      </div>
+
+      <!-- 4. AK-74U KOBRA T-POST PRISM OPTIC -->
+      <div v-else-if="player.alive && isAiming && player.weapon === 'ak74u'" class="ads-view-container">
+        <div class="ads-focus-overlay"></div>
+        <div class="ads-optic-frame optic-ak74u">
+          <div class="kobra-center-dot" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="kobra-arm arm-left" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="kobra-arm arm-right" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="kobra-post" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div v-if="hitmarkerActive" class="hitmarker" :class="{ headshot: hitmarkerHeadshot }">✕</div>
+        </div>
+      </div>
+
+      <!-- 5. BENELLI M4 TACTICAL COMBAT CHOKE OPTIC -->
+      <div v-else-if="player.alive && isAiming && player.weapon === 'benelli_m4'" class="ads-view-container">
+        <div class="ads-focus-overlay"></div>
+        <div class="ads-optic-frame optic-shotgun">
+          <div class="shotgun-tight-ring" :style="{ borderColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="shotgun-center-pellet" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="shotgun-choke-angle a-tl" :style="{ borderColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="shotgun-choke-angle a-tr" :style="{ borderColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="shotgun-choke-angle a-bl" :style="{ borderColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="shotgun-choke-angle a-br" :style="{ borderColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div v-if="hitmarkerActive" class="hitmarker" :class="{ headshot: hitmarkerHeadshot }">✕</div>
+        </div>
+      </div>
+
+      <!-- 6. CLASSIC PISTOL CLEAN MICRO REFLEX -->
+      <div v-else-if="player.alive && isAiming && player.weapon === 'classic'" class="ads-view-container">
+        <div class="ads-focus-overlay"></div>
+        <div class="ads-optic-frame optic-classic">
+          <div class="classic-ads-dot" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="classic-ads-ring" :style="{ borderColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="classic-ads-wing wing-l" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="classic-ads-wing wing-r" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div v-if="hitmarkerActive" class="hitmarker" :class="{ headshot: hitmarkerHeadshot }">✕</div>
+        </div>
       </div>
 
       <!-- Tactical Minimap Radar -->
@@ -3607,7 +3731,10 @@ function buyItem(item) {
   pointer-events: auto;
 }
 
-/* CROSSHAIR */
+/* ==========================================================================
+   UNIQUE WEAPON CROSSHAIRS & ADS OPTICS (CUSTOM DESIGN PER WEAPON)
+   ========================================================================== */
+
 .crosshair-wrap {
   position: absolute;
   top: 50%;
@@ -3619,33 +3746,125 @@ function buyItem(item) {
   display: flex;
   align-items: center;
   justify-content: center;
+  z-index: 10;
 }
 
-.crosshair-dot {
+.ch-dot {
   position: absolute;
   width: 3px;
   height: 3px;
   border-radius: 50%;
-  box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.9), 0 0 4px currentColor;
 }
 
-.crosshair-bar {
+/* 1. CLASSIC PISTOL CROSSHAIR */
+.classic-bar {
   position: absolute;
-  background: #00ffcc;
   box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
-  transition: transform 0.05s ease-out;
+  transition: transform 0.04s ease-out;
 }
+.classic-t, .classic-b { width: 2px; height: 5px; }
+.classic-l, .classic-r { width: 5px; height: 2px; }
 
-.bar-top, .bar-bottom {
-  width: 2px;
-  height: 7px;
+/* 2. KRISS VECTOR HOLO CROSSHAIR */
+.vector-ring {
+  position: absolute;
+  border: 1.5px solid;
+  border-radius: 50%;
+  opacity: 0.85;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.8), inset 0 0 4px rgba(0, 0, 0, 0.6);
+  transition: width 0.04s ease-out, height 0.04s ease-out;
 }
+.vector-dot {
+  width: 4px;
+  height: 4px;
+}
+.vector-tick {
+  position: absolute;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+  transition: transform 0.04s ease-out;
+}
+.vector-tick.tick-t, .vector-tick.tick-b { width: 2px; height: 4px; }
+.vector-tick.tick-l, .vector-tick.tick-r { width: 4px; height: 2px; }
 
-.bar-left, .bar-right {
+/* 3. BENELLI M4 SHOTGUN SPREAD RING */
+.shotgun-ch-ring {
+  position: absolute;
+  border: 1.5px dashed;
+  border-radius: 50%;
+  opacity: 0.75;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+  transition: width 0.04s ease-out, height 0.04s ease-out;
+}
+.shotgun-ch-dot {
+  width: 4px;
+  height: 4px;
+}
+.shotgun-corner {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border: 2px solid;
+  transition: transform 0.04s ease-out;
+}
+.corner-tl { border-right: none; border-bottom: none; }
+.corner-tr { border-left: none; border-bottom: none; }
+.corner-bl { border-right: none; border-top: none; }
+.corner-br { border-left: none; border-top: none; }
+
+/* 4. M4A1 TACTICAL BRACKETS CROSSHAIR */
+.m4-dot { width: 3px; height: 3px; }
+.m4-bracket {
+  position: absolute;
   width: 7px;
-  height: 2px;
+  height: 7px;
+  border: 2px solid;
+  transition: transform 0.04s ease-out;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
 }
+.brk-tl { border-right: none; border-bottom: none; }
+.brk-tr { border-left: none; border-bottom: none; }
+.brk-bl { border-right: none; border-top: none; }
+.brk-br { border-left: none; border-top: none; }
 
+/* 5. AK-74U RUSSIAN T-SHAPED CROSSHAIR */
+.ak-dot { width: 3px; height: 3px; }
+.ak-bar {
+  position: absolute;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+  transition: transform 0.04s ease-out;
+}
+.ak-l, .ak-r { width: 8px; height: 2px; }
+.ak-b { width: 2px; height: 9px; }
+
+/* 6. SNIPER HIPFIRE WIDE BRACKETS */
+.sniper-dot { width: 4px; height: 4px; }
+.sniper-bracket {
+  position: absolute;
+  border: 1.5px solid;
+  transition: transform 0.04s ease-out;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+}
+.s-left, .s-right { width: 6px; height: 14px; }
+.s-left { border-right: none; }
+.s-right { border-left: none; }
+.s-top, .s-bottom { width: 14px; height: 6px; }
+.s-top { border-bottom: none; }
+.s-bottom { border-top: none; }
+
+/* 7. KNIFE MELEE SLASH CROSSHAIR */
+.knife-dot { width: 3px; height: 3px; }
+.knife-arc {
+  position: absolute;
+  width: 8px;
+  height: 14px;
+  border: 2px solid;
+  border-radius: 50%;
+}
+.arc-left { border-right: none; border-top: none; border-bottom: none; transform: translateX(-8px); }
+.arc-right { border-left: none; border-top: none; border-bottom: none; transform: translateX(8px); }
+
+/* HITMARKER FEEDBACK */
 .hitmarker {
   position: absolute;
   top: -14px;
@@ -3669,16 +3888,22 @@ function buyItem(item) {
   100% { transform: scale(1.0); }
 }
 
-/* ADS OPTIC FOCUS VIGNETTE */
+/* ==========================================================================
+   ADS OPTICS (RIGHT CLICK AIMING SIGHTS)
+   ========================================================================== */
+
+.ads-view-container {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 30;
+}
+
 .ads-focus-overlay {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+  inset: 0;
   pointer-events: none;
-  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 30%, rgba(15, 23, 42, 0.4) 65%, rgba(4, 8, 20, 0.8) 100%);
-  z-index: 4;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 25%, rgba(15, 23, 42, 0.45) 60%, rgba(4, 8, 20, 0.85) 100%);
   animation: adsFocusFadeIn 0.12s ease-out;
 }
 
@@ -3687,13 +3912,20 @@ function buyItem(item) {
   to { opacity: 1; }
 }
 
-/* SNIPER SCOPE OVERLAY */
+.ads-optic-frame {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 1. SNIPER AWP MILITARY SCOPE */
 .sniper-scope-overlay {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+  inset: 0;
   pointer-events: none;
   display: flex;
   align-items: center;
@@ -3702,13 +3934,13 @@ function buyItem(item) {
   z-index: 50;
 }
 
-.scope-reticle {
+.scope-housing {
   position: relative;
   width: 760px;
   height: 760px;
   border-radius: 50%;
   border: 3px solid rgba(239, 68, 68, 0.85);
-  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.9), 0 0 20px rgba(239, 68, 68, 0.4);
+  box-shadow: inset 0 0 50px rgba(0, 0, 0, 0.95), 0 0 20px rgba(239, 68, 68, 0.4);
 }
 
 .scope-cross-h {
@@ -3735,30 +3967,234 @@ function buyItem(item) {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: #ef4444;
-  box-shadow: 0 0 8px #ef4444;
+  box-shadow: 0 0 10px #ef4444, 0 0 20px #ef4444;
   transform: translate(-50%, -50%);
 }
 
-.scope-range-ring {
+.scope-ring-outer {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 160px;
-  height: 160px;
+  width: 240px;
+  height: 240px;
   border-radius: 50%;
-  border: 1px dashed rgba(239, 68, 68, 0.5);
+  border: 1px dashed rgba(239, 68, 68, 0.4);
   transform: translate(-50%, -50%);
 }
+
+.scope-ring-inner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  transform: translate(-50%, -50%);
+}
+
+.scope-mil-marks {
+  position: absolute;
+  inset: 0;
+}
+
+.mil-label {
+  position: absolute;
+  font-family: monospace;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: rgba(239, 68, 68, 0.8);
+  letter-spacing: 1px;
+}
+.label-heading { top: 22px; left: 50%; transform: translateX(-50%); }
+.label-ammo { bottom: 22px; left: 50%; transform: translateX(-50%); }
+
+.mil-line {
+  position: absolute;
+  left: 50%;
+  width: 14px;
+  height: 1.5px;
+  background: rgba(239, 68, 68, 0.7);
+  transform: translateX(-50%);
+}
+.ml-1 { top: 56%; width: 12px; }
+.ml-2 { top: 62%; width: 18px; }
+.ml-3 { top: 68%; width: 24px; }
+.ml-4 { top: 74%; width: 30px; }
 
 .scope-hit {
   top: 50% !important;
   left: 50% !important;
   transform: translate(-50%, -50%) !important;
 }
+
+/* 2. M4A1 ACOG / REFLEX CHEVRON */
+.optic-m4a1 {
+  width: 44px;
+  height: 44px;
+}
+.m4-optic-glass {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.m4-chevron-point {
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 9px solid #00f3ff;
+  filter: drop-shadow(0 0 6px currentColor);
+  margin-top: -6px;
+}
+.m4-stadia-h {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 28px;
+  height: 1.5px;
+  transform: translate(-50%, -50%);
+  opacity: 0.6;
+}
+.m4-stadia-v {
+  position: absolute;
+  top: 58%;
+  left: 50%;
+  width: 1.5px;
+  height: 14px;
+  transform: translateX(-50%);
+  opacity: 0.6;
+}
+
+/* 3. KRISS VECTOR EOTECH HOLOGRAPHIC SIGHT */
+.optic-vector {
+  width: 40px;
+  height: 40px;
+}
+.vector-holo-ring {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  border: 1.5px solid;
+  border-radius: 50%;
+  opacity: 0.85;
+  box-shadow: 0 0 10px currentColor;
+}
+.vector-holo-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  box-shadow: 0 0 8px currentColor, 0 0 16px currentColor;
+}
+.vector-holo-post {
+  position: absolute;
+  opacity: 0.75;
+}
+.post-t, .post-b { width: 1.5px; height: 5px; left: 50%; transform: translateX(-50%); }
+.post-t { top: 0; }
+.post-b { bottom: 0; }
+.post-l, .post-r { width: 5px; height: 1.5px; top: 50%; transform: translateY(-50%); }
+.post-l { left: 0; }
+.post-r { right: 0; }
+
+/* 4. AK-74U RUSSIAN KOBRA PRISM OPTIC */
+.optic-ak74u {
+  width: 36px;
+  height: 36px;
+}
+.kobra-center-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  box-shadow: 0 0 8px currentColor;
+}
+.kobra-arm {
+  position: absolute;
+  width: 8px;
+  height: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0.85;
+}
+.arm-left { left: 2px; }
+.arm-right { right: 2px; }
+.kobra-post {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  height: 10px;
+  transform: translateX(-50%);
+  opacity: 0.85;
+}
+
+/* 5. BENELLI M4 TACTICAL CHOKE SIGHT */
+.optic-shotgun {
+  width: 46px;
+  height: 46px;
+}
+.shotgun-tight-ring {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border: 1.5px solid;
+  border-radius: 50%;
+  opacity: 0.85;
+  box-shadow: 0 0 8px currentColor;
+}
+.shotgun-center-pellet {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  box-shadow: 0 0 10px currentColor;
+}
+.shotgun-choke-angle {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border: 2px solid;
+}
+.a-tl { top: 2px; left: 2px; border-right: none; border-bottom: none; }
+.a-tr { top: 2px; right: 2px; border-left: none; border-bottom: none; }
+.a-bl { bottom: 2px; left: 2px; border-right: none; border-top: none; }
+.a-br { bottom: 2px; right: 2px; border-left: none; border-top: none; }
+
+/* 6. CLASSIC PISTOL MICRO REFLEX */
+.optic-classic {
+  width: 30px;
+  height: 30px;
+}
+.classic-ads-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  box-shadow: 0 0 8px currentColor;
+}
+.classic-ads-ring {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border: 1px dashed;
+  border-radius: 50%;
+  opacity: 0.5;
+}
+.classic-ads-wing {
+  position: absolute;
+  width: 5px;
+  height: 1.5px;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0.7;
+}
+.wing-l { left: 0; }
+.wing-r { right: 0; }
 
 /* RADAR */
 .radar-container {
