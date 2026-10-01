@@ -36,6 +36,13 @@ const MAPS_3D = [
     theme: 'glacier_cryo',
     desc: 'Estación de investigación criogénica ártica con losas de hielo azul, puente de titanio suspendido, reactor subcero y niebla helada.',
     icon: '❄️'
+  },
+  {
+    id: 'colossus_megacity',
+    name: 'VALLE COLOSO: MEGACIUDAD 3D',
+    theme: 'colossus_megacity',
+    desc: 'Megamapa colosal de 180m x 180m con monolito central de 32m, reactores cuánticos en Sitio A, megadocks en Sitio B, autopistas aéreas y rascacielos.',
+    icon: '🏙️'
   }
 ]
 const selectedMapId = ref('kasbah_temple')
@@ -482,6 +489,17 @@ function rebuildMap3D(mapId) {
   Object.assign(MAP_3D, arenaData)
   buildAtmosphere()
 
+  if (dirLight) {
+    const isColossus = (mapId === 'colossus_megacity')
+    const shadowSize = isColossus ? 100 : 38
+    dirLight.shadow.camera.left = -shadowSize
+    dirLight.shadow.camera.right = shadowSize
+    dirLight.shadow.camera.top = shadowSize
+    dirLight.shadow.camera.bottom = -shadowSize
+    dirLight.shadow.camera.far = isColossus ? 300 : 150
+    dirLight.shadow.camera.updateProjectionMatrix()
+  }
+
   if (playerController) {
     playerController.setMeshColliders(arenaData.meshColliders)
     playerController.setColliders(arenaData.wallsAABB)
@@ -515,6 +533,7 @@ function buildAtmosphere() {
 
   const isKasbah = (selectedMapId.value === 'kasbah_temple')
   const isGlacier = (selectedMapId.value === 'glacier_cryo')
+  const isColossus = (selectedMapId.value === 'colossus_megacity')
 
   // Atmospheric Sky Dome with Tactical Gradient
   const skyCanvas = document.createElement('canvas')
@@ -535,6 +554,13 @@ function buildAtmosphere() {
     grad.addColorStop(0.35, '#082f49') // Aurora navy
     grad.addColorStop(0.7, '#0369a1')  // Glacial cyan glow
     grad.addColorStop(1.0, '#7dd3fc')  // Frosted horizon accent
+  } else if (isColossus) {
+    // Megacity Cyberpunk Cosmic Twilight
+    grad.addColorStop(0, '#020617')    // Obsidian cosmic black zenith
+    grad.addColorStop(0.35, '#1e1b4b') // Electric violet mid-sky
+    grad.addColorStop(0.7, '#0f172a')  // Cyber slate horizon
+    grad.addColorStop(0.92, '#06b6d4') // Cyan skyline backlight
+    grad.addColorStop(1.0, '#ec4899')  // Neon magenta horizon rim
   } else {
     // Cyber Twilight Sky
     grad.addColorStop(0, '#040814')    // Deep zenith
@@ -547,24 +573,26 @@ function buildAtmosphere() {
   skyCtx.fillRect(0, 0, 512, 512)
 
   const skyTex = new THREE.CanvasTexture(skyCanvas)
-  const skyGeo = new THREE.SphereGeometry(250, 32, 16)
+  const skyRadius = isColossus ? 380 : 250
+  const skyGeo = new THREE.SphereGeometry(skyRadius, 32, 16)
   const skyMat = new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide })
   currentSkyDome = new THREE.Mesh(skyGeo, skyMat)
   scene.add(currentSkyDome)
 
   // Floating Radianite Dust / Arctic Snow Particles
-  const dustCount = isGlacier ? 160 : 120
+  const dustCount = isColossus ? 280 : (isGlacier ? 160 : 120)
+  const dustSpread = isColossus ? 160 : 60
   const dustGeo = new THREE.BufferGeometry()
   const dustPositions = new Float32Array(dustCount * 3)
   for (let i = 0; i < dustCount; i++) {
-    dustPositions[i * 3] = (Math.random() - 0.5) * 60
-    dustPositions[i * 3 + 1] = Math.random() * 8 + 0.5
-    dustPositions[i * 3 + 2] = (Math.random() - 0.5) * 60
+    dustPositions[i * 3] = (Math.random() - 0.5) * dustSpread
+    dustPositions[i * 3 + 1] = Math.random() * (isColossus ? 14 : 8) + 0.5
+    dustPositions[i * 3 + 2] = (Math.random() - 0.5) * dustSpread
   }
   dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3))
   const dustMat = new THREE.PointsMaterial({
     color: isKasbah ? 0xfbbf24 : (isGlacier ? 0xbae6fd : 0x38bdf8),
-    size: isGlacier ? 0.18 : 0.14,
+    size: isGlacier ? 0.18 : (isColossus ? 0.22 : 0.14),
     transparent: true,
     opacity: isGlacier ? 0.85 : 0.65,
     blending: THREE.AdditiveBlending
@@ -1182,7 +1210,8 @@ function renderRadar() {
   ctx.fillStyle = 'rgba(15, 23, 42, 0.92)'
   ctx.fillRect(0, 0, w, h)
 
-  const scale = 2.2
+  const mapMaxX = MAP_3D.bounds ? Math.max(MAP_3D.bounds.maxX, Math.abs(MAP_3D.bounds.minX)) : 32
+  const scale = (mapMaxX > 40) ? ((w / 2 - 12) / mapMaxX) : 2.2
   const cx = w / 2
   const cy = h / 2
 
@@ -1202,18 +1231,28 @@ function renderRadar() {
   ctx.strokeStyle = '#00f3ff'
   ctx.lineWidth = 1.5
 
-  // Skybridge (Mid)
-  const sb = MAP_3D.skybridge || { x: 0, z: 0, width: 5, depth: 16 }
-  const sbRx = cx + (sb.x - sb.width / 2) * scale
-  const sbRy = cy + (sb.z - sb.depth / 2) * scale
-  ctx.fillRect(sbRx, sbRy, sb.width * scale, sb.depth * scale)
-  ctx.strokeRect(sbRx, sbRy, sb.width * scale, sb.depth * scale)
+  // Skybridge / Mid Plaza
+  if (MAP_3D.skybridge) {
+    const sb = MAP_3D.skybridge
+    const sbRx = cx + (sb.x - sb.width / 2) * scale
+    const sbRy = cy + (sb.z - sb.depth / 2) * scale
+    ctx.fillRect(sbRx, sbRy, sb.width * scale, sb.depth * scale)
+    ctx.strokeRect(sbRx, sbRy, sb.width * scale, sb.depth * scale)
+  }
 
-  // Heaven A & B Balconies
-  ctx.fillRect(cx + 6 * scale, cy - 19 * scale, 12 * scale, 6 * scale)
-  ctx.strokeRect(cx + 6 * scale, cy - 19 * scale, 12 * scale, 6 * scale)
-  ctx.fillRect(cx + 6 * scale, cy + 13 * scale, 12 * scale, 6 * scale)
-  ctx.strokeRect(cx + 6 * scale, cy + 13 * scale, 12 * scale, 6 * scale)
+  if (mapMaxX <= 40) {
+    // Heaven A & B Balconies for Kasbah / Glacier / Radian
+    ctx.fillRect(cx + 6 * scale, cy - 19 * scale, 12 * scale, 6 * scale)
+    ctx.strokeRect(cx + 6 * scale, cy - 19 * scale, 12 * scale, 6 * scale)
+    ctx.fillRect(cx + 6 * scale, cy + 13 * scale, 12 * scale, 6 * scale)
+    ctx.strokeRect(cx + 6 * scale, cy + 13 * scale, 12 * scale, 6 * scale)
+  } else {
+    // Twin Highways for Colossus (North at Z=-26, South at Z=+26)
+    ctx.fillRect(cx - 55 * scale, cy - 29 * scale, 110 * scale, 6 * scale)
+    ctx.strokeRect(cx - 55 * scale, cy - 29 * scale, 110 * scale, 6 * scale)
+    ctx.fillRect(cx - 55 * scale, cy + 23 * scale, 110 * scale, 6 * scale)
+    ctx.strokeRect(cx - 55 * scale, cy + 23 * scale, 110 * scale, 6 * scale)
+  }
 
   // 3. Draw Green Plant Zones (Site A Top, Site B Bottom)
   const drawPlantZone = (site, label) => {
