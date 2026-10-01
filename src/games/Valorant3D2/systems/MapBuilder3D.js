@@ -896,7 +896,9 @@ export function buildTacticalArena(scene, mapId = 'kasbah_temple') {
       addPlatform(-64, 8.0, tw.z, 6.5, 6.5, trimMat)
       addStaircase(-70, tw.z, -65, tw.z, 0, 8.0, 2.5, 14)
     })
-    addWall(-60, 0, 0, 3.0, 4.5, 28.0) // West Front Trench Barricade
+    // Wide open corridors for smooth direct advance towards mid and skybridges
+    addWall(-60, 0, -20, 3.0, 4.0, 10.0)
+    addWall(-60, 0, 20, 3.0, 4.0, 10.0)
     addWall(-78, 0, -20, 3.0, 6.0, 16.0)
     addWall(-78, 0, 20, 3.0, 6.0, 16.0)
 
@@ -907,7 +909,9 @@ export function buildTacticalArena(scene, mapId = 'kasbah_temple') {
       addPlatform(64, 8.0, tw.z, 6.5, 6.5, trimMat)
       addStaircase(70, tw.z, 65, tw.z, 0, 8.0, 2.5, 14)
     })
-    addWall(60, 0, 0, 3.0, 4.5, 28.0) // East Front Trench Barricade
+    // Wide open corridors for smooth direct advance towards mid and skybridges
+    addWall(60, 0, -20, 3.0, 4.0, 10.0)
+    addWall(60, 0, 20, 3.0, 4.0, 10.0)
     addWall(78, 0, -20, 3.0, 6.0, 16.0)
     addWall(78, 0, 20, 3.0, 6.0, 16.0)
 

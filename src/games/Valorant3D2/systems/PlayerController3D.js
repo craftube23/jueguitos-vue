@@ -34,9 +34,21 @@ export class PlayerController3D {
 
     this.colliders = []
     this.meshColliders = []
+    this.bounds = { minX: -30.5, maxX: 30.5, minZ: -30.5, maxZ: 30.5 }
     this.currentFloorY = 0
     this.maxStepHeight = 0.75
     this.groundRaycaster = new THREE.Raycaster()
+  }
+
+  setBounds(bounds) {
+    if (bounds) {
+      this.bounds = {
+        minX: bounds.minX !== undefined ? bounds.minX : -30.5,
+        maxX: bounds.maxX !== undefined ? bounds.maxX : 30.5,
+        minZ: bounds.minZ !== undefined ? bounds.minZ : -30.5,
+        maxZ: bounds.maxZ !== undefined ? bounds.maxZ : 30.5
+      }
+    }
   }
 
   applyImpulse(vx, vy, vz) {
@@ -265,7 +277,10 @@ export class PlayerController3D {
     let px = targetX
     let pz = targetZ
     const r = this.radius
-    const bound = 30.5
+    const minX = (this.bounds?.minX !== undefined) ? this.bounds.minX : -30.5
+    const maxX = (this.bounds?.maxX !== undefined) ? this.bounds.maxX : 30.5
+    const minZ = (this.bounds?.minZ !== undefined) ? this.bounds.minZ : -30.5
+    const maxZ = (this.bounds?.maxZ !== undefined) ? this.bounds.maxZ : 30.5
 
     // 1. EXACT 3D MESH COLLISION (Checked at chest and head level to never snag on stairs)
     if (this.meshColliders && this.meshColliders.length > 0) {
@@ -342,11 +357,11 @@ export class PlayerController3D {
       }
     }
 
-    // 2. World Outer Boundary Limit (30.5m)
-    if (px < -bound + r) { px = -bound + r; this.velocity.x = Math.max(0, this.velocity.x) }
-    if (px > bound - r) { px = bound - r; this.velocity.x = Math.min(0, this.velocity.x) }
-    if (pz < -bound + r) { pz = -bound + r; this.velocity.z = Math.max(0, this.velocity.z) }
-    if (pz > bound - r) { pz = bound - r; this.velocity.z = Math.min(0, this.velocity.z) }
+    // 2. World Outer Boundary Limit (Dynamic map bounds)
+    if (px < minX + r) { px = minX + r; this.velocity.x = Math.max(0, this.velocity.x) }
+    if (px > maxX - r) { px = maxX - r; this.velocity.x = Math.min(0, this.velocity.x) }
+    if (pz < minZ + r) { pz = minZ + r; this.velocity.z = Math.max(0, this.velocity.z) }
+    if (pz > maxZ - r) { pz = maxZ - r; this.velocity.z = Math.min(0, this.velocity.z) }
 
     return { x: px, z: pz }
   }

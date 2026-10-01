@@ -9,6 +9,18 @@ export class BotAI3D {
     this.raycaster = new THREE.Raycaster()
     this.meshColliders = []
     this.wallsAABB = []
+    this.bounds = { minX: -29.5, maxX: 29.5, minZ: -29.5, maxZ: 29.5 }
+  }
+
+  setBounds(bounds) {
+    if (bounds) {
+      this.bounds = {
+        minX: bounds.minX !== undefined ? bounds.minX : -29.5,
+        maxX: bounds.maxX !== undefined ? bounds.maxX : 29.5,
+        minZ: bounds.minZ !== undefined ? bounds.minZ : -29.5,
+        maxZ: bounds.maxZ !== undefined ? bounds.maxZ : 29.5
+      }
+    }
   }
 
   setMeshColliders(meshList) {
@@ -43,22 +55,25 @@ export class BotAI3D {
     let px = targetX
     let pz = targetZ
     const r = radius
-    const bound = 29.5
+    const minX = (this.bounds?.minX !== undefined) ? this.bounds.minX : -29.5
+    const maxX = (this.bounds?.maxX !== undefined) ? this.bounds.maxX : 29.5
+    const minZ = (this.bounds?.minZ !== undefined) ? this.bounds.minZ : -29.5
+    const maxZ = (this.bounds?.maxZ !== undefined) ? this.bounds.maxZ : 29.5
 
     if (this.wallsAABB && this.wallsAABB.length > 0) {
       // 1. Resolve X movement
       let testX = px
       for (const w of this.wallsAABB) {
-        const minX = w.x - w.w / 2 - r
-        const maxX = w.x + w.w / 2 + r
-        const minZ = w.z - w.d / 2 - r
-        const maxZ = w.z + w.d / 2 + r
+        const bMinX = w.x - w.w / 2 - r
+        const bMaxX = w.x + w.w / 2 + r
+        const bMinZ = w.z - w.d / 2 - r
+        const bMaxZ = w.z + w.d / 2 + r
 
-        if (testX > minX && testX < maxX && currZ > minZ && currZ < maxZ) {
+        if (testX > bMinX && testX < bMaxX && currZ > bMinZ && currZ < bMaxZ) {
           if (targetX >= currX) {
-            testX = minX - 0.001
+            testX = bMinX - 0.001
           } else {
-            testX = maxX + 0.001
+            testX = bMaxX + 0.001
           }
         }
       }
@@ -67,16 +82,16 @@ export class BotAI3D {
       // 2. Resolve Z movement
       let testZ = pz
       for (const w of this.wallsAABB) {
-        const minX = w.x - w.w / 2 - r
-        const maxX = w.x + w.w / 2 + r
-        const minZ = w.z - w.d / 2 - r
-        const maxZ = w.z + w.d / 2 + r
+        const bMinX = w.x - w.w / 2 - r
+        const bMaxX = w.x + w.w / 2 + r
+        const bMinZ = w.z - w.d / 2 - r
+        const bMaxZ = w.z + w.d / 2 + r
 
-        if (px > minX && px < maxX && testZ > minZ && testZ < maxZ) {
+        if (px > bMinX && px < bMaxX && testZ > bMinZ && testZ < bMaxZ) {
           if (targetZ >= currZ) {
-            testZ = minZ - 0.001
+            testZ = bMinZ - 0.001
           } else {
-            testZ = maxZ + 0.001
+            testZ = bMaxZ + 0.001
           }
         }
       }
@@ -84,8 +99,8 @@ export class BotAI3D {
     }
 
     // Outer map perimeter containment
-    px = Math.max(-bound + r, Math.min(bound - r, px))
-    pz = Math.max(-bound + r, Math.min(bound - r, pz))
+    px = Math.max(minX + r, Math.min(maxX - r, px))
+    pz = Math.max(minZ + r, Math.min(maxZ - r, pz))
 
     return { x: px, z: pz }
   }

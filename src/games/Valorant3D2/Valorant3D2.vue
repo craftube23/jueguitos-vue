@@ -432,6 +432,7 @@ function initThreeJS() {
 
   // 5. Initialize Systems
   playerController = new PlayerController3D(camera, scene, container)
+  playerController.setBounds(MAP_3D.bounds)
   playerController.setMeshColliders(MAP_3D.meshColliders)
   playerController.setColliders(MAP_3D.wallsAABB)
   weaponSystem = new WeaponSystem3D(scene, camera)
@@ -440,6 +441,7 @@ function initThreeJS() {
   abilitySystem.setPlayerController(playerController)
   abilitySystem.setMeshColliders(MAP_3D.meshColliders)
   botAI = new BotAI3D(scene)
+  botAI.setBounds(MAP_3D.bounds)
   botAI.setMeshColliders(MAP_3D.meshColliders)
   botAI.setColliders(MAP_3D.wallsAABB)
 
@@ -513,6 +515,7 @@ function rebuildMap3D(mapId) {
   }
 
   if (playerController) {
+    playerController.setBounds(arenaData.bounds)
     playerController.setMeshColliders(arenaData.meshColliders)
     playerController.setColliders(arenaData.wallsAABB)
   }
@@ -523,6 +526,7 @@ function rebuildMap3D(mapId) {
     abilitySystem.setMeshColliders(arenaData.meshColliders)
   }
   if (botAI) {
+    botAI.setBounds(arenaData.bounds)
     botAI.setMeshColliders(arenaData.meshColliders)
     botAI.setColliders(arenaData.wallsAABB)
   }
