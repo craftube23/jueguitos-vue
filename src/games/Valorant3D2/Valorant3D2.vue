@@ -323,6 +323,7 @@ let animFrameId = null
 let lastTime = 0
 let ambientDust = null
 let currentSkyDome = null
+let dirLight = null
 
 // Modular Systems
 let playerController = null
@@ -411,7 +412,7 @@ function initThreeJS() {
   hemiLight.position.set(0, 50, 0)
   scene.add(hemiLight)
 
-  const dirLight = new THREE.DirectionalLight(0xffedd5, 1.9)
+  dirLight = new THREE.DirectionalLight(0xffedd5, 1.9)
   dirLight.position.set(30, 50, 20)
   dirLight.castShadow = true
   dirLight.shadow.mapSize.width = 2048
@@ -427,7 +428,6 @@ function initThreeJS() {
   scene.add(dirLight)
 
   // 4. Build Atmosphere & Tactical Arena 3D
-  buildAtmosphere()
   rebuildMap3D(selectedMapId.value)
 
   // 5. Initialize Systems
@@ -487,10 +487,22 @@ function rebuildMap3D(mapId) {
   selectedMapId.value = mapId
   const arenaData = buildTacticalArena(scene, mapId)
   Object.assign(MAP_3D, arenaData)
+
+  const isColossus = (mapId === 'colossus_megacity')
+  if (isColossus) {
+    scene.fog = new THREE.Fog(0x020617, 80, 450)
+    scene.background = new THREE.Color(0x020617)
+  } else if (mapId === 'glacier_cryo') {
+    scene.fog = new THREE.Fog(0x082f49, 45, 180)
+    scene.background = new THREE.Color(0x082f49)
+  } else {
+    scene.fog = new THREE.Fog(0x0b132b, 45, 160)
+    scene.background = new THREE.Color(0x0b132b)
+  }
+
   buildAtmosphere()
 
   if (dirLight) {
-    const isColossus = (mapId === 'colossus_megacity')
     const shadowSize = isColossus ? 100 : 38
     dirLight.shadow.camera.left = -shadowSize
     dirLight.shadow.camera.right = shadowSize
@@ -2463,6 +2475,30 @@ function buyItem(item) {
 
       <!-- PLAY / 1V1 TAB -->
       <div v-if="activeTab === 'play'" class="tab-content">
+        <!-- Quick Map Selection Bar -->
+        <div class="quick-map-bar" style="margin-bottom: 20px; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 12px; padding: 14px 20px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 0.95rem; color: #38bdf8;">
+              <span>🗺️ MAPA SELECCIONADO:</span>
+              <span style="color: #f8fafc; text-shadow: 0 0 10px rgba(56,189,248,0.5);">{{ MAPS_3D.find(m => m.id === selectedMapId)?.name || 'TEMPLO CIBERNÉTICO KASBAH' }}</span>
+            </div>
+            <span style="font-size: 0.8rem; color: #94a3b8;">{{ MAPS_3D.find(m => m.id === selectedMapId)?.desc }}</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px;">
+            <button 
+              v-for="m in MAPS_3D" 
+              :key="'play_map_' + m.id" 
+              class="btn-opt" 
+              :class="{ active: selectedMapId === m.id }" 
+              @click="rebuildMap3D(m.id)"
+              style="padding: 10px 14px; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 800; font-size: 0.85rem; border-radius: 8px; cursor: pointer; transition: all 0.2s ease;"
+            >
+              <span style="font-size: 1.2rem;">{{ m.icon }}</span>
+              <span>{{ m.name }}</span>
+            </button>
+          </div>
+        </div>
+
         <div class="modes-grid-duels">
           <!-- 1v1 Duel Mode Card -->
           <div class="mode-card featured-1v1" @click="start1v1Duel">
