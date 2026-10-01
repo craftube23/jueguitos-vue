@@ -6,13 +6,13 @@ import { soundManager } from './SoundSystem.js'
 const WEAPON_MODELS = {
   classic: {
     path: '/models/armas/fps_character_animation_pack_pistol.glb',
-    scale: [0.012, 0.012, 0.012],
+    scale: [0.42, 0.42, 0.42],
     rotation: [0, Math.PI, 0],
     hideBodyMesh: false,
-    hipPos: [0.04, -1.42, -0.22],
-    adsPos: [-0.002, -1.39, -0.16],
+    hipPos: [0.03, -1.72, -0.24],
+    adsPos: [-0.002, -1.68, -0.18],
     adsRot: [0.0, 0.0, 0.0],
-    muzzlePos: [0.0, 1.39, -0.65],
+    muzzlePos: [0.0, 1.68, -0.65],
     animMap: {
       draw: 'RIG_UE5_Comando_Equip',
       idle: 'RIG_UE5_Comando_Idle',
@@ -47,13 +47,13 @@ const WEAPON_MODELS = {
   },
   ak74u: {
     path: '/models/armas/fps_character_animation_pack_ak-47.glb',
-    scale: [0.012, 0.012, 0.012],
+    scale: [1.0, 1.0, 1.0],
     rotation: [0, Math.PI, 0],
     hideBodyMesh: false,
-    hipPos: [0.03, -1.44, -0.22],
-    adsPos: [0.0, -1.41, -0.16],
+    hipPos: [0.02, -1.40, -0.22],
+    adsPos: [0.0, -1.35, -0.16],
     adsRot: [0.0, 0.0, 0.0],
-    muzzlePos: [0.0, 1.41, -0.88],
+    muzzlePos: [0.0, 1.35, -0.85],
     animMap: {
       draw: 'RIG_UE5_Comando_AK_Equip',
       idle: 'RIG_UE5_Comando_AK_Idle',
@@ -64,13 +64,13 @@ const WEAPON_MODELS = {
   },
   benelli_m4: {
     path: '/models/armas/fps_character_animation_pack_saps-12.glb',
-    scale: [0.012, 0.012, 0.012],
+    scale: [0.42, 0.42, 0.42],
     rotation: [0, Math.PI, 0],
     hideBodyMesh: false,
-    hipPos: [0.04, -1.44, -0.22],
-    adsPos: [0.0, -1.40, -0.16],
+    hipPos: [0.03, -1.42, -0.25],
+    adsPos: [0.0, -1.38, -0.18],
     adsRot: [0.0, 0.0, 0.0],
-    muzzlePos: [0.0, 1.40, -0.85],
+    muzzlePos: [0.0, 1.38, -0.85],
     animMap: {
       draw: 'RIG_UE5_Comando_Equip',
       idle: 'RIG_UE5_Comando_Idle',
