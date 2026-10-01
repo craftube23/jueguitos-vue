@@ -2,7 +2,6 @@
 import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { AGENTS } from './data/agents.js'
 import { WEAPONS, SHIELDS, WEAPON_CATEGORIES } from './data/weapons.js'
@@ -325,7 +324,6 @@ let abilitySystem = null
 let botAI = null
 let networkSystem = null
 let characterModelTemplate = null
-let strafeAnimationClip = null
 
 const playerMeshes = new Map()
 
@@ -438,50 +436,27 @@ function initThreeJS() {
   botAI.setMeshColliders(MAP_3D.meshColliders)
   botAI.setColliders(MAP_3D.wallsAABB)
 
-  // Load 3D Character Model & Strafe Animation (Strafe Right Stop.fbx / eddy_militar_1.glb)
-  const fbxLoader = new FBXLoader()
-  fbxLoader.load(
-    '/models/personajes/Strafe Right Stop.fbx',
-    (fbx) => {
-      characterModelTemplate = fbx
-      if (fbx.animations && fbx.animations.length > 0) {
-        strafeAnimationClip = fbx.animations.find(a => a.tracks && a.tracks.length > 0) || fbx.animations[0]
-      }
-      fbx.traverse((c) => {
+  // Load 3D Military Character Model (eddy_militar_1.glb)
+  const charLoader = new GLTFLoader()
+  charLoader.load(
+    '/models/personajes/eddy_militar_1.glb',
+    (gltf) => {
+      characterModelTemplate = gltf.scene
+      characterModelTemplate.traverse((c) => {
         if (c.isMesh) {
           c.castShadow = true
           c.receiveShadow = true
           c.frustumCulled = false
         }
       })
-      // Clear placeholder meshes so new animated models are spawned
+      // Clear placeholder meshes so new military models are spawned
       playerMeshes.forEach((mesh) => {
         scene.remove(mesh)
       })
       playerMeshes.clear()
     },
     undefined,
-    (err) => {
-      console.warn('Could not load Strafe Right Stop.fbx, falling back to GLTF:', err)
-      const charLoader = new GLTFLoader()
-      charLoader.load(
-        '/models/personajes/eddy_militar_1.glb',
-        (gltf) => {
-          characterModelTemplate = gltf.scene
-          characterModelTemplate.traverse((c) => {
-            if (c.isMesh) {
-              c.castShadow = true
-              c.receiveShadow = true
-              c.frustumCulled = false
-            }
-          })
-          playerMeshes.forEach((mesh) => scene.remove(mesh))
-          playerMeshes.clear()
-        },
-        undefined,
-        (gltfErr) => console.warn('Could not load fallback character model eddy_militar_1.glb:', gltfErr)
-      )
-    }
+    (err) => console.warn('Could not load character model eddy_militar_1.glb:', err)
   )
 
   // 6. Renderer (AAA Cinematic Tone Mapping & Color Pipeline)
@@ -861,7 +836,7 @@ function updateGame3D(dt) {
   }
 
   // Update 3D Meshes
-  updatePlayer3DMeshes(dt)
+  updatePlayer3DMeshes()
 
   // Online Sync
   if (isOnline.value && networkSystem && networkSystem.connected) {
@@ -884,7 +859,7 @@ function updateGame3D(dt) {
   }
 }
 
-function updatePlayer3DMeshes(dt = 0.016) {
+function updatePlayer3DMeshes() {
   // Clean up obsolete/disconnected player meshes from 3D scene
   const activeIds = new Set(players.value.map(p => p.id))
   for (const [id, m] of playerMeshes.entries()) {
@@ -926,18 +901,8 @@ function updatePlayer3DMeshes(dt = 0.016) {
       if (characterModelTemplate) {
         // Clone Real 3D Military Soldier Model
         const charClone = SkeletonUtils.clone(characterModelTemplate)
-        charClone.scale.set(0.0096, 0.0096, 0.0096)
+        charClone.scale.set(0.01, 0.01, 0.01)
         charClone.rotation.y = Math.PI
-
-        let mixer = null
-        let strafeAction = null
-        if (strafeAnimationClip) {
-          mixer = new THREE.AnimationMixer(charClone)
-          strafeAction = mixer.clipAction(strafeAnimationClip)
-          strafeAction.setLoop(THREE.LoopRepeat)
-          strafeAction.clampWhenFinished = false
-          strafeAction.play()
-        }
 
         const bones = {}
         const baseRot = {}
@@ -951,31 +916,18 @@ function updatePlayer3DMeshes(dt = 0.016) {
             c.receiveShadow = true
             c.frustumCulled = false
             if (c.material) {
-              if (Array.isArray(c.material)) {
-                c.material = c.material.map(m => m.clone())
-              } else {
-                c.material = c.material.clone()
-              }
-              const mats = Array.isArray(c.material) ? c.material : [c.material]
-              mats.forEach(mat => {
-                if (mat.color) {
-                  if (c.name === 'Beta_Surface' || c.name === 'Object_19' || mat.name?.toLowerCase().includes('suit')) {
-                    mat.color.lerp(new THREE.Color(baseTeamColor), 0.35)
-                  }
-                  if (c.name === 'Beta_Joints' || mat.name?.toLowerCase().includes('joint')) {
-                    mat.color.setHex(0x18181b)
-                    mat.emissive = new THREE.Color(agentColor)
-                    mat.emissiveIntensity = 0.3
-                  }
+              c.material = c.material.clone()
+              if (c.name === 'Object_19' || c.material.name === 'sNAKEsuit') {
+                if (c.material.color) {
+                  c.material.color.lerp(new THREE.Color(baseTeamColor), 0.2)
                 }
-              })
+              }
             }
           }
         })
 
         // Tactical 3D Rifle Prop attached to Right Hand
-        const handBone = bones['mixamorigRightHand'] || bones['CC_Base_R_Hand_013'] || bones['RightHand']
-        if (handBone) {
+        if (bones['CC_Base_R_Hand_013']) {
           const rifleGroup = new THREE.Group()
           const gunMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.35, metalness: 0.75 })
           const gunTrimMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.25, metalness: 0.9 })
@@ -1013,11 +965,9 @@ function updatePlayer3DMeshes(dt = 0.016) {
           rifleGroup.add(stock)
 
           rifleGroup.rotation.set(-Math.PI / 2, 0, Math.PI / 2)
-          handBone.add(rifleGroup)
+          bones['CC_Base_R_Hand_013'].add(rifleGroup)
         }
 
-        mesh.userData.mixer = mixer
-        mesh.userData.strafeAction = strafeAction
         mesh.userData.bones = bones
         mesh.userData.baseRot = baseRot
         mesh.userData.walkTimer = 0
@@ -1131,41 +1081,18 @@ function updatePlayer3DMeshes(dt = 0.016) {
       mesh.rotation.y = p.yaw
     }
 
-    // Calculate dynamic speed and velocity vector
-    const lastX = mesh.userData.lastX !== undefined ? mesh.userData.lastX : p.pos.x
-    const lastZ = mesh.userData.lastZ !== undefined ? mesh.userData.lastZ : p.pos.z
-    const vx = p.pos.x - lastX
-    const vz = p.pos.z - lastZ
-    const moveDist = Math.hypot(vx, vz)
-    const instantSpeed = Math.min(8.0, moveDist / Math.max(0.001, dt))
-    mesh.userData.lastX = p.pos.x
-    mesh.userData.lastZ = p.pos.z
-    mesh.userData.moveSpeed = THREE.MathUtils.lerp(mesh.userData.moveSpeed || 0, instantSpeed, 0.22)
-
-    // Update FBX Strafe Animation Mixer if available
-    if (mesh.userData.mixer && p.alive) {
-      const isMoving = mesh.userData.moveSpeed > 0.12
-      if (mesh.userData.strafeAction) {
-        if (isMoving) {
-          const moveAngle = Math.atan2(vx, vz)
-          const relativeAngle = moveAngle - (p.yaw || 0)
-          const lateral = Math.sin(relativeAngle)
-          const speedScale = THREE.MathUtils.clamp(mesh.userData.moveSpeed * 0.45, 0.5, 2.2)
-          mesh.userData.strafeAction.timeScale = lateral < -0.2 ? -speedScale : speedScale
-          mesh.userData.strafeAction.paused = false
-          mesh.userData.strafeAction.weight = THREE.MathUtils.lerp(mesh.userData.strafeAction.weight || 0, 1.0, 0.25)
-        } else {
-          mesh.userData.strafeAction.weight = THREE.MathUtils.lerp(mesh.userData.strafeAction.weight || 0, 0.05, 0.12)
-          mesh.userData.strafeAction.timeScale = 0.3
-        }
-      }
-      mesh.userData.mixer.update(dt)
-    }
-
-    // Procedural Articulation Animation for Rigged Bones Layering
+    // Procedural Articulation Animation for Rigged Military Soldiers
     const bones = mesh.userData.bones
     const baseRot = mesh.userData.baseRot
-    if (bones && baseRot && p.alive && !mesh.userData.mixer) {
+    if (bones && baseRot && p.alive) {
+      const lastX = mesh.userData.lastX !== undefined ? mesh.userData.lastX : p.pos.x
+      const lastZ = mesh.userData.lastZ !== undefined ? mesh.userData.lastZ : p.pos.z
+      const moveDist = Math.hypot(p.pos.x - lastX, p.pos.z - lastZ)
+      const instantSpeed = Math.min(8.0, moveDist / 0.016)
+      mesh.userData.lastX = p.pos.x
+      mesh.userData.lastZ = p.pos.z
+      mesh.userData.moveSpeed = THREE.MathUtils.lerp(mesh.userData.moveSpeed || 0, instantSpeed, 0.22)
+
       // Smooth Crouch Transition Progress (0: standing, 1: fully crouched)
       const targetCrouch = p.crouching ? 1.0 : 0.0
       mesh.userData.crouchProgress = THREE.MathUtils.lerp(mesh.userData.crouchProgress || 0, targetCrouch, 0.25)
@@ -1232,7 +1159,7 @@ function updatePlayer3DMeshes(dt = 0.016) {
         bones['CC_Base_L_Forearm_038'].rotation.x = baseRot['CC_Base_L_Forearm_038'].x + 1.35
       }
 
-      // 3. Torso & Head Pitch Aiming
+      // 3. Torso & Head Pitch Aiming (looking up/down with player/bot view and crouch forward lean)
       const aimPitch = p.pitch || 0
       if (bones['CC_Base_Spine01_03'] && baseRot['CC_Base_Spine01_03']) {
         bones['CC_Base_Spine01_03'].rotation.x = baseRot['CC_Base_Spine01_03'].x - aimPitch * 0.35 + breath * 0.5 + crouchProg * 0.28
