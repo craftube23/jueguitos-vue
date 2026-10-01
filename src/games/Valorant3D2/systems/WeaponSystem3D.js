@@ -18,7 +18,7 @@ const WEAPON_MODELS = {
       idle: 'RIG_UE5_Comando_Idle',
       shoot: 'RIG_UE5_Comando_Fire',
       reload: 'RIG_UE5_Comando_Reload',
-      inspect: 'RIG_UE5_Comando_Change'
+      inspect: 'RIG_UE5_Comando_Equip'
     }
   },
   m4a1: {
@@ -35,14 +35,14 @@ const WEAPON_MODELS = {
       idle: { fromClip: 'Draw', start: 0.95, end: 1.033 },
       shoot: { fromClip: 'Fire', start: 0.0, end: 0.80 },
       reload: { fromClip: 'Reload', start: 0.0, end: 3.63 },
-      inspect: { fromClip: 'Holster', start: 0.0, end: 0.57 }
+      inspect: { fromClip: 'Draw', start: 0.0, end: 1.033 }
     },
     animMap: {
       draw: 'draw',
       idle: 'idle',
       shoot: 'shoot',
       reload: 'reload',
-      inspect: 'inspect'
+      inspect: 'draw'
     }
   },
   ak74u: {
@@ -59,7 +59,7 @@ const WEAPON_MODELS = {
       idle: 'RIG_UE5_Comando_AK_Idle',
       shoot: 'RIG_UE5_Comando_AK_Fire',
       reload: 'RIG_UE5_Comando_AK_Reload',
-      inspect: 'RIG_UE5_Comando_AK_Hold'
+      inspect: 'RIG_UE5_Comando_AK_Equip'
     }
   },
   benelli_m4: {
@@ -76,7 +76,7 @@ const WEAPON_MODELS = {
       idle: 'RIG_UE5_Comando_Idle',
       shoot: 'RIG_UE5_Comando_Fire',
       reload: 'RIG_UE5_Comando_Reload',
-      inspect: 'RIG_UE5_Comando_Hold'
+      inspect: 'RIG_UE5_Comando_Equip'
     }
   },
   kriss_vector: {
@@ -99,7 +99,7 @@ const WEAPON_MODELS = {
       idle: 'idle',
       shoot: 'shoot',
       reload: 'reload',
-      inspect: 'inspect'
+      inspect: 'draw'
     }
   },
   sniper: {
@@ -115,14 +115,14 @@ const WEAPON_MODELS = {
       idle: [1.0, 3.5],
       shoot: [4.2, 8.5],
       reload: [19.5, 26.5],
-      inspect: [11.5, 15.5]
+      inspect: [1.0, 3.5]
     },
     animMap: {
       draw: 'draw',
       idle: 'idle',
       shoot: 'shoot',
       reload: 'reload',
-      inspect: 'inspect'
+      inspect: 'draw'
     }
   },
   knife: {
@@ -170,6 +170,7 @@ export class WeaponSystem3D {
     this.activeModelKey = 'ak74u'
     this.currentWeaponId = 'ak74u'
     this.wasReloading = false
+    this.inspectTimer = 0
 
     this.initMuzzleEffects()
     this.loadAllWeaponModels()
@@ -396,9 +397,10 @@ export class WeaponSystem3D {
     const activeData = this.weaponModels[this.activeModelKey]
     if (!activeData) return
     const cfg = activeData.config
+    this.inspectTimer = 2.4 // 2.4s smooth inspection flourish
     const inspectAnim = cfg.animMap.inspect || cfg.animMap.draw
     if (inspectAnim) {
-      this.playWeaponAnimation(this.activeModelKey, inspectAnim, false, 1.15, () => {
+      this.playWeaponAnimation(this.activeModelKey, inspectAnim, false, 1.1, () => {
         if (cfg.animMap.idle) {
           this.playWeaponAnimation(this.activeModelKey, cfg.animMap.idle, true, 1.0)
         }
@@ -423,16 +425,25 @@ export class WeaponSystem3D {
       action.reset().fadeIn(0.2).setLoop(THREE.LoopRepeat).setEffectiveTimeScale(timeScale).play()
       data.currentLoopAction = action
     } else {
+      // Cleanly stop any existing one-shot action so animations don't conflict
+      if (data.currentOneShotAction && data.currentOneShotAction !== action) {
+        data.currentOneShotAction.stop()
+      }
+      data.currentOneShotAction = action
+
       action.reset().setLoop(THREE.LoopOnce, 1).setEffectiveTimeScale(timeScale)
-      action.clampWhenFinished = true
+      action.clampWhenFinished = false
       if (data.currentLoopAction) {
-        action.crossFadeFrom(data.currentLoopAction, 0.06, true)
+        action.crossFadeFrom(data.currentLoopAction, 0.08, true)
       }
       action.play()
 
+      let completed = false
       const onFinish = (e) => {
-        if (e.action === action) {
+        if (e.action === action && !completed) {
+          completed = true
           data.mixer.removeEventListener('finished', onFinish)
+          data.currentOneShotAction = null
           if (onComplete) onComplete()
           if (data.currentLoopAction) {
             data.currentLoopAction.reset().fadeIn(0.15).play()
@@ -440,6 +451,20 @@ export class WeaponSystem3D {
         }
       }
       data.mixer.addEventListener('finished', onFinish)
+
+      // Fallback timer in case clip finishes without event
+      const clipDuration = ((action.getClip()?.duration || 1.5) / timeScale) * 1000
+      setTimeout(() => {
+        if (!completed) {
+          completed = true
+          data.mixer.removeEventListener('finished', onFinish)
+          data.currentOneShotAction = null
+          if (onComplete) onComplete()
+          if (data.currentLoopAction) {
+            data.currentLoopAction.reset().fadeIn(0.15).play()
+          }
+        }
+      }, Math.round(clipDuration) + 120)
     }
   }
 
@@ -460,6 +485,13 @@ export class WeaponSystem3D {
     Object.values(this.weaponModels).forEach((m) => {
       if (m.mixer) m.mixer.update(dt)
     })
+
+    // Cancel inspect when aiming or reloading
+    if (isAiming || isReloading) {
+      this.inspectTimer = 0
+    } else if (this.inspectTimer > 0) {
+      this.inspectTimer = Math.max(0, this.inspectTimer - dt)
+    }
 
     // Handle Reload Animation Transitions for active weapon
     const activeData = this.weaponModels[this.activeModelKey]
@@ -506,6 +538,18 @@ export class WeaponSystem3D {
     const idleBobX = Math.sin(this.idleTimer * 1.5) * 0.002 * bobFactor
     const idleBobY = Math.cos(this.idleTimer * 3.0) * 0.002 * bobFactor
 
+    // Procedural weapon inspect 3D rotation curve (smooth bell curve)
+    let inspectTiltX = 0
+    let inspectTiltY = 0
+    let inspectTiltZ = 0
+    if (this.inspectTimer > 0 && !isAiming && !isReloading) {
+      const t = Math.max(0, this.inspectTimer / 2.4)
+      const curve = Math.sin(t * Math.PI)
+      inspectTiltX = -0.05 * curve
+      inspectTiltY = 0.16 * curve
+      inspectTiltZ = 0.12 * curve
+    }
+
     // Coordinates calibrated per active weapon model:
     const activeConfig = activeData?.config || WEAPON_MODELS.ak74u
     const hipBase = activeConfig.hipPos
@@ -524,10 +568,10 @@ export class WeaponSystem3D {
     this.gunGroup.position.y = THREE.MathUtils.lerp(hipY, adsY, this.adsProgress)
     this.gunGroup.position.z = THREE.MathUtils.lerp(hipZ, adsZ, this.adsProgress)
 
-    // Rotation interpolation for realistic handling
-    const hipRotX = this.recoil * 0.12 - this.swayY * 0.8
-    const hipRotY = (Math.random() - 0.5) * this.recoil * 0.02 + this.swayX * 1.0
-    const hipRotZ = -this.swayX * 0.8
+    // Rotation interpolation for realistic handling + inspect tilt
+    const hipRotX = this.recoil * 0.12 - this.swayY * 0.8 + inspectTiltX
+    const hipRotY = (Math.random() - 0.5) * this.recoil * 0.02 + this.swayX * 1.0 + inspectTiltY
+    const hipRotZ = -this.swayX * 0.8 + inspectTiltZ
 
     const adsRotX = adsBaseRot[0] + this.recoil * 0.02 - this.swayY * 0.08
     const adsRotY = adsBaseRot[1] + this.swayX * 0.08
