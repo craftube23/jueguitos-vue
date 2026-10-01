@@ -111,10 +111,14 @@ export class BotAI3D {
     // Buy Phase - stationary in spawn
     if (phase === 'BUY_PHASE') return
 
-    // Update vertical elevation based on ground/stairs/ramps
-    const groundY = this.probeGround(bot.pos.x, bot.pos.z)
-    bot.pos.y = groundY + 1.7
-    bot.onGround = true
+    // Update vertical elevation based on ground/stairs/ramps (throttled every 0.1s for extreme FPS boost)
+    bot.groundCheckTimer = (bot.groundCheckTimer || 0) - dt
+    if (bot.groundCheckTimer <= 0) {
+      bot.groundCheckTimer = 0.08 + Math.random() * 0.04
+      const groundY = this.probeGround(bot.pos.x, bot.pos.z)
+      bot.pos.y = groundY + 1.7
+      bot.onGround = true
+    }
 
     // Practice Range Dummy bot behavior
     if (bot.isDummy) {
@@ -158,18 +162,24 @@ export class BotAI3D {
     const angleToEnemy = Math.atan2(closestEnemy.pos.x - bot.pos.x, closestEnemy.pos.z - bot.pos.z)
     bot.yaw = angleToEnemy
 
-    // Line of Sight Check
-    let hasLineOfSight = true
-    if (this.meshColliders && this.meshColliders.length > 0) {
-      const botEye = new THREE.Vector3(bot.pos.x, (bot.pos.y || 1.7) + 0.3, bot.pos.z)
-      const enemyEye = new THREE.Vector3(closestEnemy.pos.x, (closestEnemy.pos.y || 1.7) + 0.3, closestEnemy.pos.z)
-      const dir = new THREE.Vector3().subVectors(enemyEye, botEye).normalize()
-      this.raycaster.set(botEye, dir)
-      const hits = this.raycaster.intersectObjects(this.meshColliders, false)
-      if (hits.length > 0 && hits[0].distance < distToEnemy - 0.4) {
-        hasLineOfSight = false
+    // Line of Sight Check (throttled every 0.12s to prevent per-frame raycasting bottlenecks)
+    bot.losTimer = (bot.losTimer || 0) - dt
+    if (bot.losTimer <= 0) {
+      bot.losTimer = 0.10 + Math.random() * 0.05
+      let hasLineOfSight = true
+      if (this.meshColliders && this.meshColliders.length > 0 && distToEnemy < 40.0) {
+        const botEye = new THREE.Vector3(bot.pos.x, (bot.pos.y || 1.7) + 0.3, bot.pos.z)
+        const enemyEye = new THREE.Vector3(closestEnemy.pos.x, (closestEnemy.pos.y || 1.7) + 0.3, closestEnemy.pos.z)
+        const dir = new THREE.Vector3().subVectors(enemyEye, botEye).normalize()
+        this.raycaster.set(botEye, dir)
+        const hits = this.raycaster.intersectObjects(this.meshColliders, false)
+        if (hits.length > 0 && hits[0].distance < distToEnemy - 0.4) {
+          hasLineOfSight = false
+        }
       }
+      bot.cachedHasLOS = hasLineOfSight
     }
+    const hasLineOfSight = bot.cachedHasLOS !== undefined ? bot.cachedHasLOS : true
 
     // Combat & Engagement
     if (hasLineOfSight && distToEnemy < 28.0 && phase === 'ROUND_ACTIVE') {

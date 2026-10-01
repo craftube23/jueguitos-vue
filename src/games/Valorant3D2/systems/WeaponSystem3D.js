@@ -606,6 +606,7 @@ export class WeaponSystem3D {
     let closestHit = null
     let hitTarget = null
     let isHeadshot = false
+    let isLegshot = false
 
     const maxReach = isMelee ? (wep.range || 3.2) : wallHitDist
 
