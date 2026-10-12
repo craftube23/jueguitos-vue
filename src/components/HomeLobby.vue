@@ -24,6 +24,17 @@ const featuredGame = ref({
 
 const games = [
   {
+    id: 'cyber_katana',
+    title: 'Cyber Katana Zero',
+    category: 'Acción Slasher / Tiempo Bala',
+    desc: 'Combate ninja ultrarrápido estilo Katana ZERO. Cámara lenta en tiempo bala, desvío de proyectiles con espada, combos de dash & slash y mejoras de arsenal.',
+    icon: '🗡️',
+    badge: '¡NUEVO! · Épico',
+    rating: '5.0 ⭐',
+    difficulty: 'Reflejos Extremos / Combo',
+    tags: ['Katana Slasher', 'Tiempo Bala', 'Combos', 'Acción']
+  },
+  {
     id: 'valoran3d2.0',
     title: '1v1.LOL 3D: Battle Arena',
     category: 'Shooter 3D / Duelos 1v1',

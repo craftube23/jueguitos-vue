@@ -1,15 +1,18 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, defineAsyncComponent, onMounted } from 'vue'
 import Navbar from './components/Navbar.vue'
 import HomeLobby from './components/HomeLobby.vue'
-import ValorantGame from './games/Valorant2D/ValorantGame.vue'
-import Valorant3D2 from './games/Valorant3D2/Valorant3D2.vue'
-import TacticalGame from './games/TacticalBreach/TacticalGame.vue'
-import SurvivorGame from './games/AbyssSurvivor/SurvivorGame.vue'
-import TiendaGame from './games/TiendaTycoon/TiendaGame.vue'
-import SpaceGame from './games/SpaceDefender/SpaceGame.vue'
-import FightGame from './games/ShadowClash/FightGame.vue'
-import RacingGame from './games/TurboRacing/RacingGame.vue'
+
+// Ultra-fast Lazy-Loaded Game Engines (Code-Splitting for Netlify performance)
+const Valorant3D2 = defineAsyncComponent(() => import('./games/Valorant3D2/Valorant3D2.vue'))
+const ValorantGame = defineAsyncComponent(() => import('./games/Valorant2D/ValorantGame.vue'))
+const TacticalGame = defineAsyncComponent(() => import('./games/TacticalBreach/TacticalGame.vue'))
+const SurvivorGame = defineAsyncComponent(() => import('./games/AbyssSurvivor/SurvivorGame.vue'))
+const TiendaGame = defineAsyncComponent(() => import('./games/TiendaTycoon/TiendaGame.vue'))
+const SpaceGame = defineAsyncComponent(() => import('./games/SpaceDefender/SpaceGame.vue'))
+const FightGame = defineAsyncComponent(() => import('./games/ShadowClash/FightGame.vue'))
+const RacingGame = defineAsyncComponent(() => import('./games/TurboRacing/RacingGame.vue'))
+const CyberKatana = defineAsyncComponent(() => import('./games/CyberKatana/CyberKatana.vue'))
 
 const activeGame = ref('home')
 
@@ -17,6 +20,16 @@ const setGame = (gameId) => {
   activeGame.value = gameId
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
+
+onMounted(() => {
+  // If user opens a shared multiplayer room link, open Valorant 3D directly
+  try {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('v3droom') || params.get('room')) {
+      activeGame.value = 'valoran3d2.0'
+    }
+  } catch (e) {}
+})
 </script>
 
 <template>
@@ -32,6 +45,7 @@ const setGame = (gameId) => {
 
       <transition name="fade-slide" mode="out-in">
         <HomeLobby v-if="activeGame === 'home'" key="home" @selectGame="setGame" />
+        <CyberKatana v-else-if="activeGame === 'cyber_katana' || activeGame === 'katana'" key="cyber_katana" />
         <Valorant3D2 v-else-if="activeGame === 'valoran3d2.0' || activeGame === 'valorant3d2'" key="valorant3d2" />
         <ValorantGame v-else-if="activeGame === 'valorant'" key="valorant" />
         <TacticalGame v-else-if="activeGame === 'tactical'" key="tactical" />

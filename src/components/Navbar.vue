@@ -7,6 +7,7 @@ defineEmits(['changeGame'])
 
 const gamesList = [
   { id: 'home', title: 'Inicio', icon: '🏠' },
+  { id: 'cyber_katana', title: 'Cyber Katana', icon: '🗡️' },
   { id: 'valoran3d2.0', title: '1v1.LOL 3D', icon: '⚔️' },
   { id: 'valorant', title: 'Valorant 2D', icon: '💣' },
   { id: 'tactical', title: 'Tactical Breach', icon: '🎯' },

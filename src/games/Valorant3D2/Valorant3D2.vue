@@ -10,9 +10,43 @@ import { DamageSystem, PLAYER_STATES } from './systems/DamageSystem.js'
 import { PlayerController3D } from './systems/PlayerController3D.js'
 import { WeaponSystem3D } from './systems/WeaponSystem3D.js'
 import { AbilitySystem3D } from './systems/AbilitySystem3D.js'
+import { PickupSystem3D, PICKUP_TYPES } from './systems/PickupSystem3D.js'
 import { BotAI3D } from './systems/BotAI3D.js'
 import { NetworkSystem } from './systems/NetworkSystem.js'
 import { buildTacticalArena } from './systems/MapBuilder3D.js'
+
+// --- MAPS DATA (3D) ---
+const MAPS_3D = [
+  {
+    id: 'kasbah_temple',
+    name: 'TEMPLO CIBERNÉTICO KASBAH',
+    theme: 'desert_oasis',
+    desc: 'Oasis desértico futurista con arcos de arenisca dorada, santuario celestial y bóveda de obeliscos de radianita.',
+    icon: '🏜️'
+  },
+  {
+    id: 'sector_radian',
+    name: 'SECTOR RADIAN-9',
+    theme: 'cyber_tech',
+    desc: 'Complejo nocturno de alta tecnología con reactor de fusión, pasarelas elevadas y patio industrial.',
+    icon: '⚡'
+  },
+  {
+    id: 'glacier_cryo',
+    name: 'ESTACIÓN GLACIAR: CRYODOCK-7',
+    theme: 'glacier_cryo',
+    desc: 'Estación de investigación criogénica ártica con losas de hielo azul, puente de titanio suspendido, reactor subcero y niebla helada.',
+    icon: '❄️'
+  },
+  {
+    id: 'colossus_megacity',
+    name: 'VALLE COLOSO: MEGACIUDAD 3D',
+    theme: 'colossus_megacity',
+    desc: 'Megamapa colosal de 180m x 180m con monolito central de 32m, reactores cuánticos en Sitio A, megadocks en Sitio B, autopistas aéreas y rascacielos.',
+    icon: '🏙️'
+  }
+]
+const selectedMapId = ref('kasbah_temple')
 
 // --- GAME STATE ---
 const gameMode = ref('MENU') // 'MENU', 'AGENT_SELECT', 'IN_GAME', 'MULTIPLAYER_LOBBY', 'PRACTICE'
@@ -35,6 +69,11 @@ function showEconomyNotification(msg) {
 }
 
 function toggleBuyMenu() {
+  if (match.phase !== 'BUY_PHASE' && gameMode.value !== 'PRACTICE') {
+    match.announcement = '🔒 LA TIENDA SOLO ESTÁ DISPONIBLE EN FASE DE COMPRA'
+    soundManager.play('deny')
+    return
+  }
   showBuyMenu.value = !showBuyMenu.value
   if (showBuyMenu.value) {
     if (document.pointerLockElement) {
@@ -63,6 +102,21 @@ const infiniteAmmo = ref(false)
 const infiniteAbilities = ref(false)
 const godMode = ref(false)
 
+// Cooldown System for 1v1.LOL Abilities
+const abilityCooldowns = reactive({
+  C: 0,
+  Q: 0,
+  E: 0,
+  X: 0
+})
+
+const ABILITY_MAX_COOLDOWNS = {
+  C: 10.0, // Smoke Grenade: 10s cooldown
+  Q: 1.6,  // Ramp Build: 1.6s cooldown (prevents building flood)
+  E: 6.0,  // Grapple Hook: 6s cooldown
+  X: 25.0  // Launch Pad + Shield: 25s cooldown
+}
+
 // Settings
 const settings = reactive({
   volume: 0.6,
@@ -79,7 +133,7 @@ const customSettings = reactive({
   allyBotCount: 0,  // 0 to 4
   maxRounds: 5,     // First to 5
   roundDuration: 90,
-  startingCredits: 5000,
+  startingCredits: 800,
   infiniteAmmo: false
 })
 
@@ -95,6 +149,23 @@ const match = reactive({
   announcement: ''
 })
 
+// Match Finished Screen & Lobby Transition State
+const matchFinishedData = reactive({
+  active: false,
+  winner: null, // 'attackers', 'defenders', null/draw
+  scoreAtk: 0,
+  scoreDef: 0,
+  isVictory: false,
+  isDraw: false,
+  title: '',
+  subtitle: '',
+  timer: 6,
+  kills: 0,
+  deaths: 0,
+  kdRatio: '0.0'
+})
+let matchFinishedInterval = null
+
 // 3D Player State
 const player = reactive({
   id: 'player_local',
@@ -109,19 +180,19 @@ const player = reactive({
   height: 1.7,
   crouching: false,
   onGround: true,
-  health: 100,
-  maxHealth: 100,
-  armor: 50,
+  health: 150,
+  maxHealth: 150,
+  armor: 0,
   maxArmor: 50,
-  credits: 5000,
-  primaryWeapon: 'ak74u',
-  primaryAmmo: 25,
-  primaryReserveAmmo: 75,
+  credits: 800,
+  primaryWeapon: 'classic',
+  primaryAmmo: 12,
+  primaryReserveAmmo: 36,
   meleeWeapon: 'knife',
   currentSlot: 'primary',
-  weapon: 'ak74u',
-  ammo: 25,
-  reserveAmmo: 75,
+  weapon: 'classic',
+  ammo: 12,
+  reserveAmmo: 36,
   isReloading: false,
   reloadTimer: 0,
   shootCooldown: 0,
@@ -132,6 +203,12 @@ const player = reactive({
   blindAlpha: 0,
   ultPoints: 0,
   requiredUltPoints: 7,
+  abilityCharges: {
+    C: 0,
+    Q: 0,
+    E: 0,
+    X: 0
+  },
   kills: 0,
   deaths: 0,
   assists: 0
@@ -252,11 +329,14 @@ let renderer = null
 let animFrameId = null
 let lastTime = 0
 let ambientDust = null
+let currentSkyDome = null
+let dirLight = null
 
 // Modular Systems
 let playerController = null
 let weaponSystem = null
 let abilitySystem = null
+let pickupSystem = null
 let botAI = null
 let networkSystem = null
 let characterModelTemplate = null
@@ -273,6 +353,7 @@ const joinCodeInput = ref('')
 const roomPlayerList = ref([])
 const isHost = ref(false)
 const availableRooms = ref([])
+const networkStatus = ref('CONNECTING')
 const lobbyChatInput = ref('')
 const lobbyChatMessages = ref([])
 const inGameChatOpen = ref(false)
@@ -288,10 +369,27 @@ onMounted(() => {
     resetRound(true)
     lastTime = performance.now()
     animFrameId = requestAnimationFrame(gameLoop)
+
+    // Check URL query parameters for direct room join
+    try {
+      const params = new URLSearchParams(window.location.search)
+      const urlRoom = params.get('v3droom') || params.get('room')
+      if (urlRoom) {
+        joinCodeInput.value = urlRoom
+        activeTab.value = 'multiplayer'
+        showEconomyNotification(`🔑 Código cargado desde enlace: ${urlRoom.slice(0, 8)}...`)
+      }
+    } catch (e) {}
   })
 })
 
 onUnmounted(() => {
+  if (document.pointerLockElement) {
+    document.exitPointerLock()
+  }
+  if (navigator.keyboard?.unlock) {
+    navigator.keyboard.unlock()
+  }
   if (animFrameId) cancelAnimationFrame(animFrameId)
   if (renderer) renderer.dispose()
   if (networkSystem) networkSystem.leaveRoom()
@@ -311,7 +409,7 @@ function initThreeJS() {
   scene.fog = new THREE.Fog(0x0b132b, 45, 160)
 
   // 2. Camera
-  camera = new THREE.PerspectiveCamera(settings.fov, width / height, 0.1, 1000)
+  camera = new THREE.PerspectiveCamera(settings.fov, width / height, 0.05, 1000)
   camera.position.set(player.pos.x, player.pos.y, player.pos.z)
 
   // 3. Lighting (Rich Tactical Illumination)
@@ -322,7 +420,7 @@ function initThreeJS() {
   hemiLight.position.set(0, 50, 0)
   scene.add(hemiLight)
 
-  const dirLight = new THREE.DirectionalLight(0xffedd5, 1.9)
+  dirLight = new THREE.DirectionalLight(0xffedd5, 1.9)
   dirLight.position.set(30, 50, 20)
   dirLight.castShadow = true
   dirLight.shadow.mapSize.width = 2048
@@ -337,21 +435,25 @@ function initThreeJS() {
   dirLight.shadow.normalBias = 0.04
   scene.add(dirLight)
 
-  // 4. Build Atmosphere & Procedural 2-Floor Tactical Arena (SECTOR RADIAN-9)
-  buildAtmosphere()
-  const arenaData = buildTacticalArena(scene)
-  Object.assign(MAP_3D, arenaData)
+  // 4. Build Atmosphere & Tactical Arena 3D
+  rebuildMap3D(selectedMapId.value)
 
   // 5. Initialize Systems
   playerController = new PlayerController3D(camera, scene, container)
-  playerController.setMeshColliders(arenaData.meshColliders)
-  playerController.setColliders(arenaData.wallsAABB)
+  playerController.setBounds(MAP_3D.bounds)
+  playerController.setMeshColliders(MAP_3D.meshColliders)
+  playerController.setColliders(MAP_3D.wallsAABB)
   weaponSystem = new WeaponSystem3D(scene, camera)
-  weaponSystem.setMeshColliders(arenaData.meshColliders)
+  weaponSystem.setMeshColliders(MAP_3D.meshColliders)
   abilitySystem = new AbilitySystem3D(scene, camera)
+  abilitySystem.setPlayerController(playerController)
+  abilitySystem.setMeshColliders(MAP_3D.meshColliders)
+  pickupSystem = new PickupSystem3D(scene)
+  pickupSystem.loadMapPickups(selectedMapId.value)
   botAI = new BotAI3D(scene)
-  botAI.setMeshColliders(arenaData.meshColliders)
-  botAI.setColliders(arenaData.wallsAABB)
+  botAI.setBounds(MAP_3D.bounds)
+  botAI.setMeshColliders(MAP_3D.meshColliders)
+  botAI.setColliders(MAP_3D.wallsAABB)
 
   // Load 3D Military Character Model (eddy_militar_1.glb)
   const charLoader = new GLTFLoader()
@@ -392,41 +494,136 @@ function initThreeJS() {
   window.addEventListener('resize', onWindowResize)
 }
 
+function rebuildMap3D(mapId) {
+  if (!scene) return
+  selectedMapId.value = mapId
+  const arenaData = buildTacticalArena(scene, mapId)
+  Object.assign(MAP_3D, arenaData)
+
+  const isColossus = (mapId === 'colossus_megacity')
+  if (isColossus) {
+    scene.fog = new THREE.Fog(0x020617, 80, 450)
+    scene.background = new THREE.Color(0x020617)
+  } else if (mapId === 'glacier_cryo') {
+    scene.fog = new THREE.Fog(0x082f49, 45, 180)
+    scene.background = new THREE.Color(0x082f49)
+  } else {
+    scene.fog = new THREE.Fog(0x0b132b, 45, 160)
+    scene.background = new THREE.Color(0x0b132b)
+  }
+
+  buildAtmosphere()
+
+  if (dirLight) {
+    const shadowSize = isColossus ? 100 : 38
+    dirLight.shadow.camera.left = -shadowSize
+    dirLight.shadow.camera.right = shadowSize
+    dirLight.shadow.camera.top = shadowSize
+    dirLight.shadow.camera.bottom = -shadowSize
+    dirLight.shadow.camera.far = isColossus ? 300 : 150
+    dirLight.shadow.camera.updateProjectionMatrix()
+  }
+
+  if (playerController) {
+    playerController.setBounds(arenaData.bounds)
+    playerController.setMeshColliders(arenaData.meshColliders)
+    playerController.setColliders(arenaData.wallsAABB)
+  }
+  if (weaponSystem) {
+    weaponSystem.setMeshColliders(arenaData.meshColliders)
+  }
+  if (abilitySystem) {
+    abilitySystem.setMeshColliders(arenaData.meshColliders)
+  }
+  if (pickupSystem) {
+    pickupSystem.loadMapPickups(mapId)
+  }
+  if (botAI) {
+    botAI.setBounds(arenaData.bounds)
+    botAI.setMeshColliders(arenaData.meshColliders)
+    botAI.setColliders(arenaData.wallsAABB)
+  }
+}
+
+function selectLobbyMap(mapId) {
+  selectedMapId.value = mapId
+  updateCustomLobbySetting('mapId', mapId)
+  rebuildMap3D(mapId)
+}
+
 function buildAtmosphere() {
+  if (!scene) return
+  if (currentSkyDome) {
+    scene.remove(currentSkyDome)
+  }
+  if (ambientDust) {
+    scene.remove(ambientDust)
+  }
+
+  const isKasbah = (selectedMapId.value === 'kasbah_temple')
+  const isGlacier = (selectedMapId.value === 'glacier_cryo')
+  const isColossus = (selectedMapId.value === 'colossus_megacity')
+
   // Atmospheric Sky Dome with Tactical Gradient
   const skyCanvas = document.createElement('canvas')
   skyCanvas.width = 512
   skyCanvas.height = 512
   const skyCtx = skyCanvas.getContext('2d')
   const grad = skyCtx.createLinearGradient(0, 0, 0, 512)
-  grad.addColorStop(0, '#040814')    // Deep zenith
-  grad.addColorStop(0.5, '#0b192e')  // Mid twilight
-  grad.addColorStop(0.85, '#1e3a5f') // Horizon glow
-  grad.addColorStop(1.0, '#38bdf8')  // Horizon accent line
+
+  if (isKasbah) {
+    // Warm Sunset Desert Sky
+    grad.addColorStop(0, '#1e1b4b')    // Deep indigo zenith
+    grad.addColorStop(0.4, '#581c87')  // Royal purple twilight
+    grad.addColorStop(0.75, '#c2410c') // Sunset amber
+    grad.addColorStop(1.0, '#fbbf24')  // Warm golden horizon
+  } else if (isGlacier) {
+    // Sub-zero Arctic Aurora Sky
+    grad.addColorStop(0, '#020617')    // Sub-zero deep arctic zenith
+    grad.addColorStop(0.35, '#082f49') // Aurora navy
+    grad.addColorStop(0.7, '#0369a1')  // Glacial cyan glow
+    grad.addColorStop(1.0, '#7dd3fc')  // Frosted horizon accent
+  } else if (isColossus) {
+    // Megacity Cyberpunk Cosmic Twilight
+    grad.addColorStop(0, '#020617')    // Obsidian cosmic black zenith
+    grad.addColorStop(0.35, '#1e1b4b') // Electric violet mid-sky
+    grad.addColorStop(0.7, '#0f172a')  // Cyber slate horizon
+    grad.addColorStop(0.92, '#06b6d4') // Cyan skyline backlight
+    grad.addColorStop(1.0, '#ec4899')  // Neon magenta horizon rim
+  } else {
+    // Cyber Twilight Sky
+    grad.addColorStop(0, '#040814')    // Deep zenith
+    grad.addColorStop(0.5, '#0b192e')  // Mid twilight
+    grad.addColorStop(0.85, '#1e3a5f') // Horizon glow
+    grad.addColorStop(1.0, '#38bdf8')  // Horizon accent line
+  }
+
   skyCtx.fillStyle = grad
   skyCtx.fillRect(0, 0, 512, 512)
 
   const skyTex = new THREE.CanvasTexture(skyCanvas)
-  const skyGeo = new THREE.SphereGeometry(250, 32, 16)
+  const skyRadius = isColossus ? 380 : 250
+  const skyGeo = new THREE.SphereGeometry(skyRadius, 32, 16)
   const skyMat = new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide })
-  const skyDome = new THREE.Mesh(skyGeo, skyMat)
-  scene.add(skyDome)
+  currentSkyDome = new THREE.Mesh(skyGeo, skyMat)
+  scene.add(currentSkyDome)
 
-  // Floating Radianite Dust Particles (Atmospheric Motes)
-  const dustCount = 120
+  // Floating Radianite Dust / Arctic Snow Particles
+  const dustCount = isColossus ? 280 : (isGlacier ? 160 : 120)
+  const dustSpread = isColossus ? 160 : 60
   const dustGeo = new THREE.BufferGeometry()
   const dustPositions = new Float32Array(dustCount * 3)
   for (let i = 0; i < dustCount; i++) {
-    dustPositions[i * 3] = (Math.random() - 0.5) * 60
-    dustPositions[i * 3 + 1] = Math.random() * 8 + 0.5
-    dustPositions[i * 3 + 2] = (Math.random() - 0.5) * 60
+    dustPositions[i * 3] = (Math.random() - 0.5) * dustSpread
+    dustPositions[i * 3 + 1] = Math.random() * (isColossus ? 14 : 8) + 0.5
+    dustPositions[i * 3 + 2] = (Math.random() - 0.5) * dustSpread
   }
   dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3))
   const dustMat = new THREE.PointsMaterial({
-    color: 0x38bdf8,
-    size: 0.12,
+    color: isKasbah ? 0xfbbf24 : (isGlacier ? 0xbae6fd : 0x38bdf8),
+    size: isGlacier ? 0.18 : (isColossus ? 0.22 : 0.14),
     transparent: true,
-    opacity: 0.55,
+    opacity: isGlacier ? 0.85 : 0.65,
     blending: THREE.AdditiveBlending
   })
   ambientDust = new THREE.Points(dustGeo, dustMat)
@@ -477,39 +674,72 @@ function gameLoop(now) {
 
 function updateGame3D(dt) {
   if (match.phase === 'BUY_PHASE') {
-    match.timer -= dt
-    if (match.timer <= 0) {
-      match.phase = 'ROUND_ACTIVE'
-      match.timer = 90
-      match.announcement = '¡DUELO INICIADO! ¡ELIMINA AL EQUIPO RIVAL!'
-      soundManager.play('ult_activate')
-      if (showBuyMenu.value) {
-        showBuyMenu.value = false
-        setTimeout(requestPointerLock, 60)
+    if (playerController) playerController.freezeMovement = true
+    if (MAP_3D.setBarriersActive) MAP_3D.setBarriersActive(true)
+    if (!isOnline.value || isHost.value) {
+      match.timer -= dt
+      if (match.timer <= 0) {
+        match.phase = 'ROUND_ACTIVE'
+        match.timer = 90
+        match.announcement = '¡DUELO INICIADO! ¡BARRERAS DESACTIVADAS!'
+        soundManager.play('ult_activate')
+        if (playerController) playerController.freezeMovement = false
+        if (MAP_3D.setBarriersActive) MAP_3D.setBarriersActive(false)
+        if (showBuyMenu.value) {
+          showBuyMenu.value = false
+          setTimeout(requestPointerLock, 60)
+        }
+        if (isOnline.value && isHost.value && networkSystem) {
+          networkSystem.broadcastRoundSync(roomCode.value, {
+            phase: 'ROUND_ACTIVE',
+            timer: 90,
+            announcement: '¡DUELO INICIADO! ¡BARRERAS DESACTIVADAS!',
+            scoreAtk: match.scoreAtk,
+            scoreDef: match.scoreDef,
+            round: match.round
+          })
+        }
       }
     }
   } else if (match.phase === 'ROUND_ACTIVE') {
-    match.timer -= dt
-    if (match.timer <= 0) {
-      const redAlive = players.value.filter(p => p.team === 'attackers' && p.alive).length
-      const blueAlive = players.value.filter(p => p.team === 'defenders' && p.alive).length
-      if (redAlive > blueAlive) {
-        endRound('attackers', '¡Tiempo agotado! Equipo Rojo gana por mayor número de supervivientes.')
-      } else if (blueAlive > redAlive) {
-        endRound('defenders', '¡Tiempo agotado! Equipo Azul gana por mayor número de supervivientes.')
-      } else {
-        endRound('defenders', '¡Tiempo agotado! Duelo empatado.')
+    if (playerController) playerController.freezeMovement = false
+    if (MAP_3D.setBarriersActive) MAP_3D.setBarriersActive(false)
+    if (!isOnline.value || isHost.value) {
+      match.timer -= dt
+      if (match.timer <= 0) {
+        const redAlive = players.value.filter(p => p.team === 'attackers' && p.alive).length
+        const blueAlive = players.value.filter(p => p.team === 'defenders' && p.alive).length
+        if (redAlive > blueAlive) {
+          endRound('attackers', '¡Tiempo agotado! Equipo Rojo gana por mayor número de supervivientes.')
+        } else if (blueAlive > redAlive) {
+          endRound('defenders', '¡Tiempo agotado! Equipo Azul gana por mayor número de supervivientes.')
+        } else {
+          endRound('defenders', '¡Tiempo agotado! Duelo empatado.')
+        }
       }
     }
   } else if (match.phase === 'ROUND_ENDED') {
-    match.timer -= dt
-    if (match.timer <= 0) {
-      match.round++
-      if (match.scoreAtk >= match.maxRounds || match.scoreDef >= match.maxRounds) {
-        match.announcement = match.scoreAtk > match.scoreDef ? '🏆 ¡VICTORIA FINAL DEL EQUIPO ROJO!' : '🏆 ¡VICTORIA FINAL DEL EQUIPO AZUL!'
-        gameMode.value = 'MENU'
-      } else {
-        resetRound(false)
+    if (playerController) playerController.freezeMovement = true
+    if (!isOnline.value || isHost.value) {
+      match.timer -= dt
+      if (match.timer <= 0) {
+        if (match.scoreAtk >= match.maxRounds || match.scoreDef >= match.maxRounds) {
+          const finalWinner = match.scoreAtk > match.scoreDef ? 'attackers' : (match.scoreDef > match.scoreAtk ? 'defenders' : null)
+          triggerMatchFinished(finalWinner)
+        } else {
+          match.round++
+          resetRound(false)
+          if (isOnline.value && isHost.value && networkSystem) {
+            networkSystem.broadcastRoundSync(roomCode.value, {
+              phase: 'BUY_PHASE',
+              timer: 15,
+              announcement: 'FASE DE COMPRA - SELECCIONA TU ARSENAL [B]',
+              scoreAtk: match.scoreAtk,
+              scoreDef: match.scoreDef,
+              round: match.round
+            })
+          }
+        }
       }
     }
   }
@@ -544,17 +774,29 @@ function updateGame3D(dt) {
     }
 
     // Update Abilities
-    abilitySystem.update(dt, player)
+    abilitySystem.update(dt, player, players.value)
 
     // Update Bots AI & 3D Meshes while spectating
     players.value.forEach(bot => {
       if (bot.id !== player.id && !bot.isRemotePlayer) {
         botAI.updateBot(bot, dt, player, match.phase, MAP_3D, (shooter, target) => {
-          weaponSystem.spawnTracer(new THREE.Vector3(shooter.pos.x, shooter.pos.y, shooter.pos.z), new THREE.Vector3(target.pos.x, target.pos.y, target.pos.z))
-          if (target.id === player.id) return
-          const res = DamageSystem.applyDamage(target, 25, false, false, 'bullet')
-          if (res.killed) {
-            handlePlayerKilled3D(target, shooter.id, 'Vandal', false)
+          const dist = Math.hypot(target.pos.x - shooter.pos.x, target.pos.z - shooter.pos.z)
+          const accuracy = Math.max(0.25, 0.65 - (dist / 35.0) * 0.3)
+          const hit = Math.random() < accuracy
+          const targetHeadY = (target.pos.y || 1.7)
+
+          if (hit) {
+            const targetPoint = new THREE.Vector3(target.pos.x, targetHeadY - 0.3, target.pos.z)
+            weaponSystem.spawnTracer(new THREE.Vector3(shooter.pos.x, (shooter.pos.y || 1.7) + 0.3, shooter.pos.z), targetPoint)
+            if (target.id === player.id) return
+            const res = DamageSystem.applyDamage(target, 25, false, false, 'bullet')
+            if (res.killed) {
+              handlePlayerKilled3D(target, shooter.id, 'Vandal', false)
+            }
+          } else {
+            const missOffset = new THREE.Vector3((Math.random() - 0.5) * 1.8, (Math.random() - 0.5) * 1.4, (Math.random() - 0.5) * 1.8)
+            const targetPoint = new THREE.Vector3(target.pos.x, targetHeadY, target.pos.z).add(missOffset)
+            weaponSystem.spawnTracer(new THREE.Vector3(shooter.pos.x, (shooter.pos.y || 1.7) + 0.3, shooter.pos.z), targetPoint)
           }
         }, players.value)
       }
@@ -596,8 +838,8 @@ function updateGame3D(dt) {
   }
 
   const isSniper = wep.category === WEAPON_CATEGORIES.SNIPERS
-  const reloadProgress = player.isReloading ? (1.0 - player.reloadTimer / (wep.reloadTime || 2.2)) : 0
-  weaponSystem.update(dt, player.isReloading, reloadProgress, isAiming.value, settings.fov, isSniper)
+  const reloadProgress = player.isReloading ? (1.0 - player.reloadTimer / (wep.reloadTime || 2.8)) : 0
+  weaponSystem.update(dt, player.isReloading, reloadProgress, isAiming.value, settings.fov, isSniper, wep.reloadTime || 2.8)
   if (isThirdPerson.value && weaponSystem && weaponSystem.gunGroup) {
     weaponSystem.gunGroup.visible = false
   }
@@ -611,23 +853,51 @@ function updateGame3D(dt) {
     triggerFire()
   }
 
-  // Update Abilities
-  abilitySystem.update(dt, player)
+  // Update Abilities & Cooldowns
+  if (abilityCooldowns.C > 0) abilityCooldowns.C = Math.max(0, abilityCooldowns.C - dt)
+  if (abilityCooldowns.Q > 0) abilityCooldowns.Q = Math.max(0, abilityCooldowns.Q - dt)
+  if (abilityCooldowns.E > 0) abilityCooldowns.E = Math.max(0, abilityCooldowns.E - dt)
+  if (abilityCooldowns.X > 0) abilityCooldowns.X = Math.max(0, abilityCooldowns.X - dt)
+
+  abilitySystem.update(dt, player, players.value)
+
+  // Update Interactive Map Pickups (Abilities, HP, Shields)
+  if (pickupSystem) {
+    pickupSystem.update(dt, player, (pickupType) => {
+      showEconomyNotification(`✨ ¡Recogiste ${pickupType.icon} ${pickupType.name}! (${pickupType.desc})`)
+    }, players.value)
+  }
 
   // Update Bots AI (Hunter Team Deathmatch mode)
-  players.value.forEach(bot => {
-    if (bot.id !== player.id && !bot.isRemotePlayer) {
-      botAI.updateBot(bot, dt, player, match.phase, MAP_3D, (shooter, target) => {
-        weaponSystem.spawnTracer(new THREE.Vector3(shooter.pos.x, shooter.pos.y, shooter.pos.z), new THREE.Vector3(target.pos.x, target.pos.y, target.pos.z))
-        if (!godMode.value) {
-          const res = DamageSystem.applyDamage(target, 25, false, false, 'bullet')
-          if (res.killed) {
-            handlePlayerKilled3D(target, shooter.id, 'Vandal', false)
+  if (!isOnline.value || isHost.value) {
+    players.value.forEach(bot => {
+      if (bot.id !== player.id && !bot.isRemotePlayer && !bot.isDummy) {
+        botAI.updateBot(bot, dt, player, match.phase, MAP_3D, (shooter, target) => {
+          const dist = Math.hypot(target.pos.x - shooter.pos.x, target.pos.z - shooter.pos.z)
+          const isTargetMoving = (target.id === player.id && playerController) ? (Math.hypot(playerController.velocity.x, playerController.velocity.z) > 1.2) : false
+          // Human-like accuracy: drops with distance and target movement
+          const accuracy = Math.max(0.20, 0.60 - (dist / 35.0) * 0.28 - (isTargetMoving ? 0.20 : 0))
+          const hit = Math.random() < accuracy
+          const targetHeadY = (target.pos.y || 1.7)
+
+          if (hit) {
+            const targetPoint = new THREE.Vector3(target.pos.x, targetHeadY - 0.3, target.pos.z)
+            weaponSystem.spawnTracer(new THREE.Vector3(shooter.pos.x, (shooter.pos.y || 1.7) + 0.3, shooter.pos.z), targetPoint)
+            if (!godMode.value || target.id !== player.id) {
+              const res = DamageSystem.applyDamage(target, 25, false, false, 'bullet')
+              if (res.killed) {
+                handlePlayerKilled3D(target, shooter.id, 'Vandal', false)
+              }
+            }
+          } else {
+            const missOffset = new THREE.Vector3((Math.random() - 0.5) * 1.8, (Math.random() - 0.5) * 1.4, (Math.random() - 0.5) * 1.8)
+            const targetPoint = new THREE.Vector3(target.pos.x, targetHeadY, target.pos.z).add(missOffset)
+            weaponSystem.spawnTracer(new THREE.Vector3(shooter.pos.x, (shooter.pos.y || 1.7) + 0.3, shooter.pos.z), targetPoint)
           }
-        }
-      }, players.value)
-    }
-  })
+        }, players.value)
+      }
+    })
+  }
 
   // Update 3D Meshes
   updatePlayer3DMeshes(dt)
@@ -644,12 +914,26 @@ function updateGame3D(dt) {
       onGround: playerController.onGround,
       health: player.health,
       armor: player.armor,
-      weapon: player.weapon
+      weapon: player.weapon,
+      alive: player.alive,
+      team: player.team,
+      agentId: player.agentId,
+      name: player.name,
+      crouching: player.crouching,
+      onGround: player.onGround
     })
   }
 }
 
 function updatePlayer3DMeshes(dt = 0.016) {
+  // Clean up obsolete/disconnected player meshes from 3D scene
+  const activeIds = new Set(players.value.map(p => p.id))
+  for (const [id, m] of playerMeshes.entries()) {
+    if (!activeIds.has(id)) {
+      scene.remove(m)
+      playerMeshes.delete(id)
+    }
+  }
   players.value.forEach(p => {
     const isLocal = (p.id === player.id)
     if (isLocal && !isThirdPerson.value) {
@@ -836,9 +1120,16 @@ function updatePlayer3DMeshes(dt = 0.016) {
       nameSprite.scale.set(1.8, 0.5, 1.0)
       nameSprite.position.set(0, 2.22, 0)
       mesh.add(nameSprite)
+      mesh.userData.nameSprite = nameSprite
 
       scene.add(mesh)
       playerMeshes.set(p.id, mesh)
+    }
+
+    // Only show floating nameplate above teammates (allies), NEVER above enemies
+    const isAlly = (p.team === player.team)
+    if (mesh.userData.nameSprite) {
+      mesh.userData.nameSprite.visible = isAlly && !isLocal
     }
 
     const eyeH = p.crouching ? 1.1 : 1.7
@@ -977,7 +1268,8 @@ function renderRadar() {
   ctx.fillStyle = 'rgba(15, 23, 42, 0.92)'
   ctx.fillRect(0, 0, w, h)
 
-  const scale = 2.2
+  const mapMaxX = MAP_3D.bounds ? Math.max(MAP_3D.bounds.maxX, Math.abs(MAP_3D.bounds.minX)) : 32
+  const scale = (mapMaxX > 40) ? ((w / 2 - 12) / mapMaxX) : 2.2
   const cx = w / 2
   const cy = h / 2
 
@@ -997,18 +1289,28 @@ function renderRadar() {
   ctx.strokeStyle = '#00f3ff'
   ctx.lineWidth = 1.5
 
-  // Skybridge (Mid)
-  const sb = MAP_3D.skybridge || { x: 0, z: 0, width: 5, depth: 16 }
-  const sbRx = cx + (sb.x - sb.width / 2) * scale
-  const sbRy = cy + (sb.z - sb.depth / 2) * scale
-  ctx.fillRect(sbRx, sbRy, sb.width * scale, sb.depth * scale)
-  ctx.strokeRect(sbRx, sbRy, sb.width * scale, sb.depth * scale)
+  // Skybridge / Mid Plaza
+  if (MAP_3D.skybridge) {
+    const sb = MAP_3D.skybridge
+    const sbRx = cx + (sb.x - sb.width / 2) * scale
+    const sbRy = cy + (sb.z - sb.depth / 2) * scale
+    ctx.fillRect(sbRx, sbRy, sb.width * scale, sb.depth * scale)
+    ctx.strokeRect(sbRx, sbRy, sb.width * scale, sb.depth * scale)
+  }
 
-  // Heaven A & B Balconies
-  ctx.fillRect(cx + 6 * scale, cy - 19 * scale, 12 * scale, 6 * scale)
-  ctx.strokeRect(cx + 6 * scale, cy - 19 * scale, 12 * scale, 6 * scale)
-  ctx.fillRect(cx + 6 * scale, cy + 13 * scale, 12 * scale, 6 * scale)
-  ctx.strokeRect(cx + 6 * scale, cy + 13 * scale, 12 * scale, 6 * scale)
+  if (mapMaxX <= 40) {
+    // Heaven A & B Balconies for Kasbah / Glacier / Radian
+    ctx.fillRect(cx + 6 * scale, cy - 19 * scale, 12 * scale, 6 * scale)
+    ctx.strokeRect(cx + 6 * scale, cy - 19 * scale, 12 * scale, 6 * scale)
+    ctx.fillRect(cx + 6 * scale, cy + 13 * scale, 12 * scale, 6 * scale)
+    ctx.strokeRect(cx + 6 * scale, cy + 13 * scale, 12 * scale, 6 * scale)
+  } else {
+    // Twin Highways for Colossus (North at Z=-26, South at Z=+26)
+    ctx.fillRect(cx - 55 * scale, cy - 29 * scale, 110 * scale, 6 * scale)
+    ctx.strokeRect(cx - 55 * scale, cy - 29 * scale, 110 * scale, 6 * scale)
+    ctx.fillRect(cx - 55 * scale, cy + 23 * scale, 110 * scale, 6 * scale)
+    ctx.strokeRect(cx - 55 * scale, cy + 23 * scale, 110 * scale, 6 * scale)
+  }
 
   // 3. Draw Green Plant Zones (Site A Top, Site B Bottom)
   const drawPlantZone = (site, label) => {
@@ -1044,8 +1346,23 @@ function renderRadar() {
     ctx.fill()
   })
 
-  // 4. Draw Spike if Dropped or Planted
-  // 4. Draw Live Players (Red vs Blue)
+  // 4. Draw Active Ability / Buff Pickups on Radar
+  if (pickupSystem && pickupSystem.pickups) {
+    pickupSystem.pickups.forEach(p => {
+      if (!p.active) return
+      const rx = cx + p.basePos.x * scale
+      const ry = cy + p.basePos.z * scale
+      ctx.fillStyle = p.type.hexColor || '#38bdf8'
+      ctx.beginPath()
+      ctx.arc(rx, ry, 3.2, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.strokeStyle = '#ffffff'
+      ctx.lineWidth = 1.0
+      ctx.stroke()
+    })
+  }
+
+  // 5. Draw Live Players (Red vs Blue)
   players.value.forEach(p => {
     if (!p.alive) return
     const isMe = p.id === player.id
@@ -1068,33 +1385,96 @@ function renderRadar() {
   })
 }
 
+function getPlayerSpawnSlot(targetPlayer) {
+  if (!targetPlayer) return { x: 0, y: 1.7, z: 0 }
+  const team = targetPlayer.team || 'attackers'
+  const isAtk = team === 'attackers'
+  const slots = isAtk ? MAP_3D.spawnAtkSlots : MAP_3D.spawnDefSlots
+
+  const pool = (roomPlayerList.value && roomPlayerList.value.length > 0)
+    ? roomPlayerList.value
+    : players.value
+
+  const sameTeamHumans = pool
+    .filter(p => p.team === team && !p.id?.startsWith('ally_') && !p.id?.startsWith('enemy_') && !p.id?.startsWith('dummy_') && !p.id?.startsWith('online_bot_'))
+    .sort((a, b) => (a.id || '').localeCompare(b.id || ''))
+
+  let idx = sameTeamHumans.findIndex(p => p.id === targetPlayer.id)
+
+  if (idx === -1) {
+    let hash = 0
+    const str = targetPlayer.id || targetPlayer.name || '0'
+    for (let i = 0; i < str.length; i++) hash = (hash * 31 + str.charCodeAt(i)) & 0xffffffff
+    idx = Math.abs(hash) % slots.length
+  } else {
+    idx = idx % slots.length
+  }
+
+  return slots[idx] || slots[0]
+}
+
 function resetRound(fullReset = false) {
-  if (fullReset) {
-    match.scoreAtk = 0
-    match.scoreDef = 0
-    match.round = 1
-    player.credits = customSettings.startingCredits || 5000
-    player.kills = 0
-    player.deaths = 0
+  if (fullReset || match.round === 1) {
+    if (fullReset) {
+      match.scoreAtk = 0
+      match.scoreDef = 0
+      match.round = 1
+      player.kills = 0
+      player.deaths = 0
+      players.value.forEach(p => {
+        p.kills = 0
+        p.deaths = 0
+      })
+    }
+    player.credits = customSettings.startingCredits || 800
     players.value.forEach(p => {
-      p.credits = customSettings.startingCredits || 5000
-      p.kills = 0
-      p.deaths = 0
+      p.credits = customSettings.startingCredits || 800
     })
+    player.primaryWeapon = 'classic'
+    player.weapon = 'classic'
+    player.currentSlot = 'primary'
+    player.primaryAmmo = 12
+    player.primaryReserveAmmo = 36
   }
 
   match.phase = 'BUY_PHASE'
   match.timer = 15
   match.winner = null
-  match.announcement = 'FASE DE COMPRA - SELECCIONA TU ARSENAL [B]'
+  match.announcement = match.round === 1 ? 'RONDA 1: PISTOLAS // COMPRA TÁCTICA [B]' : 'FASE DE COMPRA - SELECCIONA TU ARSENAL [B]'
 
   player.alive = true
-  player.health = 100
-  player.armor = 50
-  player.ammo = 25
-  player.reserveAmmo = 75
+  player.health = 150
+  player.maxHealth = 150
+  player.armor = 0
+  player.maxArmor = 50
+
+  const wep = WEAPONS[player.weapon] || WEAPONS.classic
+  player.ammo = wep.isMelee ? 1 : (wep.magazineSize || 12)
+  player.reserveAmmo = wep.isMelee ? 0 : (wep.reserveAmmo || 36)
   isSpectating.value = false
   spectateIndex.value = 0
+
+  if (abilitySystem) {
+    abilitySystem.clearRoundStructures()
+  }
+
+  // Reset ability charges (0 by default, collect in map!)
+  if (!player.abilityCharges) {
+    player.abilityCharges = reactive({ C: 0, Q: 0, E: 0, X: 0 })
+  }
+  player.abilityCharges.C = infiniteAbilities.value ? 99 : 0
+  player.abilityCharges.Q = infiniteAbilities.value ? 99 : 0
+  player.abilityCharges.E = infiniteAbilities.value ? 99 : 0
+  player.abilityCharges.X = infiniteAbilities.value ? 99 : 0
+
+  if (pickupSystem) {
+    pickupSystem.resetRoundPickups(selectedMapId.value)
+  }
+
+  abilityCooldowns.C = 0
+  abilityCooldowns.Q = 0
+  abilityCooldowns.E = 0
+  abilityCooldowns.X = 0
 
   if (weaponSystem && weaponSystem.gunGroup) {
     weaponSystem.gunGroup.visible = true
@@ -1103,8 +1483,10 @@ function resetRound(fullReset = false) {
     }
   }
 
-  const mySlots = player.team === 'attackers' ? MAP_3D.spawnAtkSlots : MAP_3D.spawnDefSlots
-  const mySpawn = mySlots[2]
+  const mySpawn = getPlayerSpawnSlot(player)
+  player.pos.x = mySpawn.x
+  player.pos.y = mySpawn.y
+  player.pos.z = mySpawn.z
 
   if (playerController) {
     playerController.position.set(mySpawn.x, mySpawn.y, mySpawn.z)
@@ -1119,8 +1501,45 @@ function resetRound(fullReset = false) {
 
 function setup3DBots() {
   const previousPlayers = [...players.value]
+  const remotePlayers = previousPlayers.filter(p => p.isRemotePlayer && p.id !== player.id)
   players.value = [player]
   const botAgents = ['sova', 'phoenix', 'reyna', 'sage', 'chamber', 'omen']
+  const isRound1 = (match.round === 1)
+
+  function getBotEquipment(existing) {
+    if (isRound1) {
+      return {
+        weapon: 'classic',
+        armor: 0,
+        credits: customSettings.startingCredits || 800
+      }
+    }
+    let creds = existing?.credits !== undefined ? existing.credits : 800
+    let weapon = 'classic'
+    let armor = 0
+
+    // Economy AI for bots: upgrade based on funds
+    if (creds >= 3400) {
+      weapon = Math.random() > 0.4 ? 'ak74u' : 'm4a1'
+      creds -= (weapon === 'ak74u' ? 3400 : 3200)
+    } else if (creds >= 2100) {
+      weapon = Math.random() > 0.5 ? 'benelli_m4' : 'kriss_vector'
+      creds -= (weapon === 'benelli_m4' ? 2100 : 1800)
+    } else if (creds >= 1800) {
+      weapon = 'kriss_vector'
+      creds -= 1800
+    }
+
+    if (creds >= 1200) {
+      armor = 50
+      creds -= 1200
+    } else if (creds >= 500) {
+      armor = 25
+      creds -= 500
+    }
+
+    return { weapon, armor, credits: creds }
+  }
 
   if (gameMode.value === 'PRACTICE') {
     for (let i = 0; i < 4; i++) {
@@ -1132,12 +1551,12 @@ function setup3DBots() {
         pos: { x: (i % 2 === 0 ? -4 : 4), y: 1.7, z: -14 + Math.floor(i / 2) * 4 },
         initialZ: -14 + Math.floor(i / 2) * 4,
         radius: 0.6,
-        health: 100,
-        armor: 50,
+        health: 150,
+        armor: 0,
         alive: true,
         isDummy: true,
         strafing: i % 2 === 1,
-        credits: 5000,
+        credits: 800,
         kills: 0,
         deaths: 0
       })
@@ -1145,9 +1564,46 @@ function setup3DBots() {
     return
   }
 
-  // If online multiplayer without bots or bots disabled
-  if (isOnline.value && (!customSettings.enableBots || customSettings.enemyBotCount === 0)) {
-    return
+  // If online multiplayer: preserve and reset existing remote players with unique individual slots
+  if (isOnline.value) {
+    if (remotePlayers.length > 0) {
+      remotePlayers.forEach(rp => {
+        rp.alive = true
+        rp.health = 150
+        rp.armor = rp.armor || 0
+        const slot = getPlayerSpawnSlot(rp)
+        rp.pos.x = slot.x
+        rp.pos.y = slot.y
+        rp.pos.z = slot.z
+        rp.yaw = rp.team === 'attackers' ? Math.PI / 2 : -Math.PI / 2
+        players.value.push(rp)
+      })
+    } else if (roomPlayerList.value && roomPlayerList.value.length > 0) {
+      roomPlayerList.value.forEach(p => {
+        if (p.id !== player.id) {
+          const slot = getPlayerSpawnSlot(p)
+          players.value.push({
+            id: p.id,
+            name: p.name || 'Operador',
+            team: p.team || (player.team === 'attackers' ? 'defenders' : 'attackers'),
+            agentId: p.agentId || 'jett',
+            pos: { x: slot.x, y: slot.y, z: slot.z },
+            yaw: p.team === 'attackers' ? Math.PI / 2 : -Math.PI / 2,
+            pitch: 0,
+            radius: 0.6,
+            health: 150,
+            armor: 0,
+            alive: true,
+            weapon: p.weapon || (isRound1 ? 'classic' : 'ak74u'),
+            isRemotePlayer: true
+          })
+        }
+      })
+    }
+
+    if (!customSettings.enableBots || customSettings.enemyBotCount === 0) {
+      return
+    }
   }
 
   // If bots are disabled in custom match
@@ -1158,53 +1614,56 @@ function setup3DBots() {
   const mySlots = player.team === 'attackers' ? MAP_3D.spawnAtkSlots : MAP_3D.spawnDefSlots
   const enemySlots = player.team === 'attackers' ? MAP_3D.spawnDefSlots : MAP_3D.spawnAtkSlots
 
-  // Local player sits at slot 2
-  const mySpawn = mySlots[2]
-  player.pos.x = mySpawn.x
-  player.pos.y = mySpawn.y
-  player.pos.z = mySpawn.z
-
-  // Spawn Allies based on custom match settings
+  // Spawn Allies without overlapping human players (offset from humans)
   const numAllies = Math.max(0, Math.min(customSettings.allyBotCount, 4))
-  const allySlotIndices = [0, 1, 3, 4]
+  const humanAlliesCount = players.value.filter(p => p.team === player.team && !p.id.startsWith('ally_')).length
+
   for (let i = 0; i < numAllies; i++) {
-    const slot = mySlots[allySlotIndices[i]]
+    const slotIdx = (humanAlliesCount + i) % mySlots.length
+    const slot = mySlots[slotIdx]
     const existing = previousPlayers.find(p => p.id === `ally_${i}`)
+    const botEq = getBotEquipment(existing)
     players.value.push({
       id: `ally_${i}`,
       name: `Aliado ${i + 1}`,
       team: player.team,
       agentId: botAgents[i % botAgents.length],
       pos: { x: slot.x, y: slot.y, z: slot.z },
+      yaw: player.team === 'attackers' ? Math.PI / 2 : -Math.PI / 2,
       radius: 0.6,
-      health: 100,
-      armor: existing?.armor || 50,
+      health: 150,
+      armor: botEq.armor,
       alive: true,
-      weapon: existing?.weapon || 'ak74u',
-      credits: existing?.credits !== undefined ? existing.credits : (customSettings.startingCredits || 5000),
+      weapon: botEq.weapon,
+      credits: botEq.credits,
       kills: existing?.kills || 0,
       deaths: existing?.deaths || 0
     })
   }
 
-  // Spawn Enemies based on custom match settings (e.g. 1 for 1v1 duel)
+  // Spawn Enemies without overlapping human enemies (offset from humans)
   const numEnemies = Math.max(0, Math.min(customSettings.enemyBotCount, 5))
   const enemyTeam = player.team === 'attackers' ? 'defenders' : 'attackers'
+  const humanEnemiesCount = players.value.filter(p => p.team === enemyTeam && !p.id.startsWith('enemy_') && !p.id.startsWith('online_bot_')).length
+
   for (let i = 0; i < numEnemies; i++) {
-    const slot = enemySlots[i]
+    const slotIdx = (humanEnemiesCount + i) % enemySlots.length
+    const slot = enemySlots[slotIdx]
     const existing = previousPlayers.find(p => p.id === `enemy_${i}`)
+    const botEq = getBotEquipment(existing)
     players.value.push({
       id: `enemy_${i}`,
       name: numEnemies === 1 ? 'Rival 1v1' : `Rival ${i + 1}`,
       team: enemyTeam,
       agentId: botAgents[(i + 2) % botAgents.length],
       pos: { x: slot.x, y: slot.y, z: slot.z },
+      yaw: enemyTeam === 'attackers' ? Math.PI / 2 : -Math.PI / 2,
       radius: 0.6,
-      health: 100,
-      armor: existing?.armor || 50,
+      health: 150,
+      armor: botEq.armor,
       alive: true,
-      weapon: existing?.weapon || 'ak74u',
-      credits: existing?.credits !== undefined ? existing.credits : (customSettings.startingCredits || 5000),
+      weapon: botEq.weapon,
+      credits: botEq.credits,
       kills: existing?.kills || 0,
       deaths: existing?.deaths || 0
     })
@@ -1219,21 +1678,37 @@ function endRound(winningTeam, message) {
   if (winningTeam === 'attackers') match.scoreAtk++
   else match.scoreDef++
 
-  // Economy Bonus for Round Result
+  if (abilitySystem) {
+    abilitySystem.clearRoundStructures()
+  }
+
+  // Economy Bonus for Round Result (Balanced Rewards)
   const won = player.team === winningTeam
-  const roundBonus = won ? 3000 : 1900
+  const roundBonus = won ? 2200 : 1400
   player.credits = Math.min(9000, (player.credits || 0) + roundBonus)
-  showEconomyNotification(won ? '+ $3000 🏆 RONDA GANADA' : '+ $1900 🛡️ BONIFICACIÓN DE DERROTA')
+  showEconomyNotification(won ? '+ $2200 🏆 RONDA GANADA' : '+ $1400 🛡️ BONIFICACIÓN DE DERROTA')
 
   // Award bots
   players.value.forEach(p => {
     if (p.id !== player.id) {
-      const b = (p.team === winningTeam) ? 3000 : 1900
+      const b = (p.team === winningTeam) ? 2200 : 1400
       p.credits = Math.min(9000, (p.credits || 0) + b)
     }
   })
 
   soundManager.play('round_won')
+
+  if (isOnline.value && isHost.value && networkSystem) {
+    networkSystem.broadcastRoundSync(roomCode.value, {
+      phase: 'ROUND_ENDED',
+      timer: 5.0,
+      winner: winningTeam,
+      announcement: message,
+      scoreAtk: match.scoreAtk,
+      scoreDef: match.scoreDef,
+      round: match.round
+    })
+  }
 }
 
 function handlePlayerKilled3D(victim, killerId, weaponName, isHeadshot) {
@@ -1243,7 +1718,7 @@ function handlePlayerKilled3D(victim, killerId, weaponName, isHeadshot) {
   const killer = players.value.find(p => p.id === killerId)
   if (killer) {
     killer.kills++
-    const killBonus = isHeadshot ? 400 : 300
+    const killBonus = isHeadshot ? 300 : 200
     killer.credits = Math.min(9000, (killer.credits || 0) + killBonus)
     if (killer.id === player.id) {
       player.credits = killer.credits
@@ -1302,7 +1777,7 @@ function reloadWeapon3D(p) {
   soundManager.play('buy')
 }
 
-// --- INPUT LISTENERS ---
+// --- INPUT LISTENERS & POINTER LOCK SAFEGUARDS ---
 function setupEventListeners() {
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('keyup', onKeyUp)
@@ -1310,6 +1785,9 @@ function setupEventListeners() {
   window.addEventListener('mousedown', onMouseDown)
   window.addEventListener('mouseup', onMouseUp)
   window.addEventListener('wheel', onWheel, { passive: false })
+  window.addEventListener('blur', onWindowBlur)
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  window.addEventListener('beforeunload', onBeforeUnload)
   document.addEventListener('pointerlockchange', onPointerLockChange)
 }
 
@@ -1320,7 +1798,36 @@ function removeEventListeners() {
   window.removeEventListener('mousedown', onMouseDown)
   window.removeEventListener('mouseup', onMouseUp)
   window.removeEventListener('wheel', onWheel)
+  window.removeEventListener('blur', onWindowBlur)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+  window.removeEventListener('beforeunload', onBeforeUnload)
   document.removeEventListener('pointerlockchange', onPointerLockChange)
+}
+
+function onWindowBlur() {
+  if (document.pointerLockElement) {
+    document.exitPointerLock()
+  }
+  isPointerLocked.value = false
+  // Clear all pressed keys so player doesn't get stuck walking/crouching
+  Object.keys(keys).forEach(k => { keys[k] = false })
+  mouse.isDown = false
+  mouse.rightDown = false
+}
+
+function onVisibilityChange() {
+  if (document.hidden) {
+    onWindowBlur()
+  }
+}
+
+function onBeforeUnload() {
+  if (document.pointerLockElement) {
+    document.exitPointerLock()
+  }
+  if (navigator.keyboard?.unlock) {
+    navigator.keyboard.unlock()
+  }
 }
 
 function requestPointerLock() {
@@ -1331,7 +1838,20 @@ function requestPointerLock() {
 }
 
 function onPointerLockChange() {
-  isPointerLocked.value = document.pointerLockElement === threeCanvasRef.value
+  const isLocked = document.pointerLockElement === threeCanvasRef.value
+  isPointerLocked.value = isLocked
+  if (isLocked) {
+    if (navigator.keyboard?.lock) {
+      navigator.keyboard.lock(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'KeyR', 'KeyC', 'KeyZ', 'ControlLeft', 'ControlRight', 'ShiftLeft', 'Tab', 'Space']).catch(() => {})
+    }
+  } else {
+    mouse.isDown = false
+    mouse.rightDown = false
+    Object.keys(keys).forEach(k => { keys[k] = false })
+    if (navigator.keyboard?.unlock) {
+      navigator.keyboard.unlock()
+    }
+  }
 }
 
 function onMouseMove(e) {
@@ -1359,6 +1879,18 @@ function triggerFire() {
     if (killed) handlePlayerKilled3D(target, player.id, wep.name, isHeadshot)
     if (isOnline.value) networkSystem.sendHit(roomCode.value, target.id, dmg, wep.name, isHeadshot, player.name)
   }, isAiming.value)
+
+  if (isOnline.value && networkSystem && networkSystem.connected && camera) {
+    const dir = new THREE.Vector3(0, 0, -1).applyEuler(camera.rotation)
+    const origin = new THREE.Vector3(player.pos.x, player.pos.y, player.pos.z)
+    const end = origin.clone().add(dir.multiplyScalar(wep.range || 80))
+    networkSystem.sendGameEvent(roomCode.value, {
+      type: 'shoot',
+      sound: wep.sound || 'vandal',
+      start: { x: origin.x, y: origin.y, z: origin.z },
+      end: { x: end.x, y: end.y, z: end.z }
+    })
+  }
 }
 
 function onMouseDown(e) {
@@ -1383,8 +1915,20 @@ function onMouseUp(e) {
 }
 
 function onKeyDown(e) {
+  // Prevent browser native shortcuts (Ctrl+W to close tab, Ctrl+R to reload, Ctrl+S to save, Tab) while playing
+  if (isPointerLocked.value || gameMode.value === 'IN_GAME' || gameMode.value === 'PRACTICE') {
+    if (e.ctrlKey || e.metaKey || e.altKey) {
+      if (['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyR', 'KeyQ', 'KeyE', 'KeyC', 'KeyZ', 'KeyP', 'KeyT', 'KeyN', 'KeyU'].includes(e.code) || e.key.toLowerCase() === 'w') {
+        e.preventDefault()
+      }
+    }
+    if (e.code === 'Tab') {
+      e.preventDefault()
+      showScoreboard.value = true
+    }
+  }
+
   keys[e.code] = true
-  if (e.code === 'Tab') { e.preventDefault(); showScoreboard.value = true }
 
   if (e.code === 'Escape') {
     if (showBuyMenu.value) {
@@ -1424,12 +1968,50 @@ function onKeyDown(e) {
 
   if (e.code === 'KeyR') reloadWeapon3D(player)
   if (e.code === 'KeyV') isThirdPerson.value = !isThirdPerson.value
-  if (e.code === 'KeyC') abilitySystem.cast(player, 'C', players.value, (msg) => match.announcement = msg)
-  if (e.code === 'KeyQ') abilitySystem.cast(player, 'Q', players.value, (msg) => match.announcement = msg)
-  if (e.code === 'KeyE') abilitySystem.cast(player, 'E', players.value, (msg) => match.announcement = msg)
-  if (e.code === 'KeyX' && (player.ultPoints >= player.requiredUltPoints || infiniteAbilities.value)) {
-    abilitySystem.cast(player, 'X', players.value, (msg) => match.announcement = msg)
-    if (!infiniteAbilities.value) player.ultPoints = 0
+  if (e.code === 'KeyC') castAbility('C')
+  if (e.code === 'KeyQ') castAbility('Q')
+  if (e.code === 'KeyE') castAbility('E')
+  if (e.code === 'KeyX') castAbility('X')
+}
+
+function castAbility(slot) {
+  if (!player.alive || match.phase === 'BUY_PHASE') return
+
+  if (!infiniteAbilities.value) {
+    if (!player.abilityCharges) {
+      player.abilityCharges = reactive({ C: 0, Q: 0, E: 0, X: 0 })
+    }
+    const currentCharges = player.abilityCharges[slot] || 0
+    if (currentCharges <= 0) {
+      showEconomyNotification(`❌ ¡SIN CARGAS DE [${slot}]! Recoge orbes en el mapa.`)
+      soundManager.play('deny')
+      return
+    }
+    if (abilityCooldowns[slot] > 0) {
+      showEconomyNotification(`⏳ HABILIDAD [${slot}] EN ENFRIAMIENTO (${abilityCooldowns[slot].toFixed(1)}s)`)
+      soundManager.play('deny')
+      return
+    }
+  }
+
+  abilitySystem.cast(player, slot, players.value, (msg) => match.announcement = msg)
+
+  if (!infiniteAbilities.value) {
+    player.abilityCharges[slot] = Math.max(0, (player.abilityCharges[slot] || 1) - 1)
+    abilityCooldowns[slot] = (slot === 'Q') ? 0.3 : 0.8 // Short delay to prevent accidental multi-activation
+  }
+
+  if (isOnline.value && networkSystem && networkSystem.connected && camera) {
+    const dir = new THREE.Vector3(0, 0, -1).applyEuler(camera.rotation)
+    networkSystem.sendGameEvent(roomCode.value, {
+      type: 'ability_cast',
+      key: slot,
+      agentId: player.agentId,
+      pos: { x: player.pos.x, y: player.pos.y, z: player.pos.z },
+      dir: { x: dir.x, y: dir.y, z: dir.z },
+      team: player.team,
+      casterId: player.id
+    })
   }
 }
 
@@ -1438,7 +2020,92 @@ function onKeyUp(e) {
   if (e.code === 'Tab') showScoreboard.value = false
 }
 
+function triggerMatchFinished(winnerTeam, isNetworkEvent = false) {
+  if (matchFinishedData.active) return
+  if (document.pointerLockElement) {
+    try { document.exitPointerLock() } catch (e) {}
+  }
+  isPointerLocked.value = false
+
+  const isVictory = !!winnerTeam && player.team === winnerTeam
+  const isDraw = !winnerTeam || match.scoreAtk === match.scoreDef
+
+  matchFinishedData.active = true
+  matchFinishedData.winner = winnerTeam
+  matchFinishedData.scoreAtk = match.scoreAtk
+  matchFinishedData.scoreDef = match.scoreDef
+  matchFinishedData.isVictory = isVictory
+  matchFinishedData.isDraw = isDraw
+  matchFinishedData.title = isDraw ? '🤝 ¡EMPATE FINAL!' : (isVictory ? '🏆 ¡VICTORIA!' : '💀 ¡DERROTA!')
+  matchFinishedData.subtitle = isDraw
+    ? `Duelo concluido con marcador igualado (${match.scoreAtk} - ${match.scoreDef})`
+    : (isVictory
+      ? `¡Excelente combate! Tu equipo dominó la partida (${player.team === 'attackers' ? match.scoreAtk : match.scoreDef} - ${player.team === 'attackers' ? match.scoreDef : match.scoreAtk})`
+      : `El equipo rival se llevó la victoria (${player.team === 'attackers' ? match.scoreDef : match.scoreAtk} - ${player.team === 'attackers' ? match.scoreAtk : match.scoreDef})`)
+  matchFinishedData.kills = player.kills || 0
+  matchFinishedData.deaths = player.deaths || 0
+  matchFinishedData.kdRatio = player.deaths > 0 ? (player.kills / player.deaths).toFixed(2) : (player.kills > 0 ? player.kills.toFixed(1) : '0.0')
+  matchFinishedData.timer = 6
+
+  soundManager.play(isVictory ? 'round_won' : (isDraw ? 'buy' : 'deny'))
+
+  // Broadcast to room if online host
+  if (isOnline.value && isHost.value && !isNetworkEvent && networkSystem) {
+    networkSystem.endMatch(roomCode.value, {
+      winner: winnerTeam,
+      scoreAtk: match.scoreAtk,
+      scoreDef: match.scoreDef
+    })
+  }
+
+  if (matchFinishedInterval) clearInterval(matchFinishedInterval)
+  matchFinishedInterval = setInterval(() => {
+    matchFinishedData.timer--
+    if (matchFinishedData.timer <= 0) {
+      returnToLobbyAfterMatch()
+    }
+  }, 1000)
+}
+
+function returnToLobbyAfterMatch() {
+  if (matchFinishedInterval) {
+    clearInterval(matchFinishedInterval)
+    matchFinishedInterval = null
+  }
+  matchFinishedData.active = false
+
+  if (document.pointerLockElement) {
+    try { document.exitPointerLock() } catch (e) {}
+  }
+  isPointerLocked.value = false
+
+  if (abilitySystem) {
+    abilitySystem.clearRoundStructures()
+  }
+
+  // Reset match scores and round state
+  match.scoreAtk = 0
+  match.scoreDef = 0
+  match.round = 1
+  match.phase = 'BUY_PHASE'
+  match.timer = 15
+  match.winner = null
+  match.announcement = ''
+
+  if (isOnline.value) {
+    gameMode.value = 'MULTIPLAYER_LOBBY'
+    activeTab.value = 'multiplayer'
+    showEconomyNotification('🎮 Regresando al lobby de la sala...')
+  } else {
+    gameMode.value = 'MENU'
+  }
+}
+
 function setupNetworkListeners() {
+  networkSystem.on('network_status', (status) => {
+    networkStatus.value = status
+  })
+
   networkSystem.on('rooms_list', (rooms) => {
     availableRooms.value = rooms || []
   })
@@ -1446,30 +2113,40 @@ function setupNetworkListeners() {
   networkSystem.on('room_joined', ({ room, player: p }) => {
     roomCode.value = room.id
     isHost.value = p.isHost
-    roomPlayerList.value = room.players || []
+    roomPlayerList.value = [...(room.players || [])]
     if (room.customConfig) {
       Object.assign(customSettings, room.customConfig)
       match.maxRounds = room.customConfig.maxRounds || 5
       infiniteAmmo.value = !!room.customConfig.infiniteAmmo
       infiniteAbilities.value = !!room.customConfig.infiniteAbilities
+      if (room.customConfig.mapId && room.customConfig.mapId !== selectedMapId.value) {
+        selectedMapId.value = room.customConfig.mapId
+        rebuildMap3D(room.customConfig.mapId)
+      }
     }
     player.id = p.id
     player.team = p.team
+    if (p.name) player.name = p.name
     gameMode.value = 'MULTIPLAYER_LOBBY'
   })
 
   networkSystem.on('room_updated', (room) => {
-    roomPlayerList.value = room.players || []
+    roomPlayerList.value = [...(room.players || [])]
     if (room.customConfig) {
       Object.assign(customSettings, room.customConfig)
       match.maxRounds = room.customConfig.maxRounds || 5
       infiniteAmmo.value = !!room.customConfig.infiniteAmmo
       infiniteAbilities.value = !!room.customConfig.infiniteAbilities
+      if (room.customConfig.mapId && room.customConfig.mapId !== selectedMapId.value) {
+        selectedMapId.value = room.customConfig.mapId
+        rebuildMap3D(room.customConfig.mapId)
+      }
     }
-    const me = room.players.find(p => p.id === player.id)
+    const me = room.players?.find(p => p.id === player.id)
     if (me) {
       player.team = me.team
-      isHost.value = me.isHost
+      player.name = me.name
+      isHost.value = !!me.isHost
     }
   })
 
@@ -1481,6 +2158,9 @@ function setupNetworkListeners() {
       match.maxRounds = room.customConfig.maxRounds || 5
       infiniteAmmo.value = !!room.customConfig.infiniteAmmo
       infiniteAbilities.value = !!room.customConfig.infiniteAbilities
+      if (room.customConfig.mapId && room.customConfig.mapId !== selectedMapId.value) {
+        rebuildMap3D(room.customConfig.mapId)
+      }
     }
     setupOnlinePlayers(room)
     resetRound(true)
@@ -1490,20 +2170,25 @@ function setupNetworkListeners() {
   networkSystem.on('player_moved', (data) => {
     if (!isOnline.value || data.id === player.id) return
     let target = players.value.find(p => p.id === data.id)
+    const roomPlayerData = roomPlayerList.value?.find(p => p.id === data.id)
+    const resolvedTeam = data.team || roomPlayerData?.team || (player.team === 'attackers' ? 'defenders' : 'attackers')
+
     if (!target) {
       target = {
         id: data.id,
-        name: data.name || 'Operador',
-        team: data.team || 'defenders',
-        agentId: data.agentId || 'phoenix',
+        name: data.name || roomPlayerData?.name || 'Operador',
+        team: resolvedTeam,
+        agentId: data.agentId || roomPlayerData?.agentId || 'jett',
         pos: { x: data.x || 0, y: data.y || 1.7, z: data.z || 0 },
         yaw: data.yaw || 0,
         pitch: data.pitch || 0,
         radius: 0.6,
-        health: data.health || 100,
-        armor: data.armor || 50,
+        health: data.health !== undefined ? data.health : 100,
+        armor: data.armor !== undefined ? data.armor : 50,
         alive: data.alive !== false,
-        weapon: data.weapon || 'vandal',
+        weapon: data.weapon || 'ak74u',
+        crouching: !!data.crouching,
+        onGround: data.onGround !== false,
         isRemotePlayer: true
       }
       players.value.push(target)
@@ -1513,9 +2198,14 @@ function setupNetworkListeners() {
       target.pos.z = data.z
       target.yaw = data.yaw
       target.pitch = data.pitch
-      target.health = data.health
-      target.armor = data.armor
-      target.weapon = data.weapon
+      target.health = data.health !== undefined ? data.health : target.health
+      target.armor = data.armor !== undefined ? data.armor : target.armor
+      target.weapon = data.weapon || target.weapon
+      if (data.team) target.team = data.team
+      if (data.name) target.name = data.name
+      if (data.agentId) target.agentId = data.agentId
+      if (data.crouching !== undefined) target.crouching = data.crouching
+      if (data.onGround !== undefined) target.onGround = data.onGround
       if (data.alive !== undefined) target.alive = data.alive
     }
   })
@@ -1542,8 +2232,11 @@ function setupNetworkListeners() {
     } else {
       const target = players.value.find(p => p.id === targetId)
       if (target) {
-        DamageSystem.applyDamage(target, damage, headshot, false, 'bullet')
+        const res = DamageSystem.applyDamage(target, damage, headshot, false, 'bullet')
         soundManager.play(headshot ? 'headshot' : 'hit')
+        if (res.killed) {
+          handlePlayerKilled3D(target, shooterId, weapon, headshot)
+        }
       }
     }
   })
@@ -1556,6 +2249,49 @@ function setupNetworkListeners() {
         new THREE.Vector3(event.end.x, event.end.y, event.end.z)
       )
       soundManager.play(event.sound || 'vandal')
+    } else if (event.type === 'ability_cast') {
+      const dummyCaster = {
+        id: event.casterId,
+        agentId: event.agentId,
+        team: event.team,
+        pos: event.pos,
+        maxHealth: 100
+      }
+      abilitySystem.castRemote(dummyCaster, event.key, event.pos, event.dir, players.value)
+    }
+  })
+
+  networkSystem.on('round_sync', (data) => {
+    if (!data) return
+    if (data.scoreAtk !== undefined) match.scoreAtk = data.scoreAtk
+    if (data.scoreDef !== undefined) match.scoreDef = data.scoreDef
+    if (data.round !== undefined) match.round = data.round
+    if (data.winner !== undefined) match.winner = data.winner
+    if (data.announcement) match.announcement = data.announcement
+    if (data.timer !== undefined) match.timer = data.timer
+
+    if (data.phase && data.phase !== match.phase) {
+      match.phase = data.phase
+      if (data.phase === 'BUY_PHASE') {
+        resetRound(false)
+      } else if (data.phase === 'ROUND_ACTIVE') {
+        if (playerController) playerController.freezeMovement = false
+        if (MAP_3D.setBarriersActive) MAP_3D.setBarriersActive(false)
+        if (showBuyMenu.value) {
+          showBuyMenu.value = false
+          setTimeout(requestPointerLock, 60)
+        }
+      } else if (data.phase === 'ROUND_ENDED') {
+        if (playerController) playerController.freezeMovement = true
+      }
+    }
+  })
+
+  networkSystem.on('match_finished', (data) => {
+    if (data) {
+      if (data.scoreAtk !== undefined) match.scoreAtk = data.scoreAtk
+      if (data.scoreDef !== undefined) match.scoreDef = data.scoreDef
+      triggerMatchFinished(data.winner, true)
     }
   })
 
@@ -1563,6 +2299,54 @@ function setupNetworkListeners() {
     lobbyChatMessages.value.push(msg)
     chatMessages.value.push(msg)
   })
+
+  networkSystem.on('kicked_from_room', (data) => {
+    if (document.pointerLockElement) document.exitPointerLock()
+    isPointerLocked.value = false
+    isOnline.value = false
+    gameMode.value = 'MENU'
+    roomCode.value = ''
+    roomPlayerList.value = []
+    showEconomyNotification(data?.reason || '⚠️ Has sido expulsado de la sala por el anfitrión.')
+  })
+
+  networkSystem.on('player_left', (data) => {
+    if (data && data.id) {
+      roomPlayerList.value = roomPlayerList.value.filter(p => p.id !== data.id)
+      players.value = players.value.filter(p => p.id !== data.id)
+      const mesh = playerMeshes.get(data.id)
+      if (mesh) {
+        scene.remove(mesh)
+        playerMeshes.delete(data.id)
+      }
+      showEconomyNotification(`🚪 ${data.name || 'Un jugador'} salió de la sala.`)
+    }
+  })
+
+  networkSystem.on('player_kicked', (data) => {
+    if (data && data.id) {
+      roomPlayerList.value = roomPlayerList.value.filter(p => p.id !== data.id)
+      players.value = players.value.filter(p => p.id !== data.id)
+      const mesh = playerMeshes.get(data.id)
+      if (mesh) {
+        scene.remove(mesh)
+        playerMeshes.delete(data.id)
+      }
+    }
+  })
+}
+
+function kickPlayerFromRoom(targetId, targetName) {
+  if (!isHost.value || !targetId || targetId === player.id) return
+  networkSystem.kickPlayer(roomCode.value, targetId)
+  roomPlayerList.value = roomPlayerList.value.filter(p => p.id !== targetId)
+  players.value = players.value.filter(p => p.id !== targetId)
+  const mesh = playerMeshes.get(targetId)
+  if (mesh) {
+    scene.remove(mesh)
+    playerMeshes.delete(targetId)
+  }
+  showEconomyNotification(`🚫 ${targetName || 'Jugador'} ha sido expulsado de la sala.`)
 }
 
 function updateCustomLobbySetting(key, val) {
@@ -1623,14 +2407,28 @@ function sendLobbyChat() {
 }
 
 function leaveLobby() {
-  networkSystem.leaveRoom()
+  networkSystem.leaveRoom(true)
   isOnline.value = false
   gameMode.value = 'MENU'
+  roomCode.value = ''
+  roomPlayerList.value = []
+  showEconomyNotification('🚪 Has salido de la sala.')
 }
 
 function copyRoomCode() {
-  if (navigator.clipboard) {
+  if (navigator.clipboard && roomCode.value) {
     navigator.clipboard.writeText(roomCode.value)
+    showEconomyNotification('📋 ¡CÓDIGO DE SALA COPIADO!')
+  }
+}
+
+function copyRoomLink() {
+  if (roomCode.value) {
+    const url = `${window.location.origin}${window.location.pathname}?v3droom=${encodeURIComponent(roomCode.value)}`
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url)
+    }
+    showEconomyNotification('🔗 ¡ENLACE DIRECTO COPIADO!')
   }
 }
 
@@ -1644,23 +2442,24 @@ function setupOnlinePlayers(room) {
   player.team = myRoomData.team || player.team
   player.credits = cfg.startingCredits || 5000
 
-  const mySlots = player.team === 'attackers' ? MAP_3D.spawnAtkSlots : MAP_3D.spawnDefSlots
-  const mySpawn = mySlots[2]
+  const mySpawn = getPlayerSpawnSlot(player)
   player.pos.x = mySpawn.x
   player.pos.y = mySpawn.y
   player.pos.z = mySpawn.z
 
-  players.value.push(player)
+  if (playerController) {
+    playerController.position.set(mySpawn.x, mySpawn.y, mySpawn.z)
+    playerController.velocity.set(0, 0, 0)
+    playerController.yaw = player.team === 'attackers' ? Math.PI / 2 : -Math.PI / 2
+    playerController.pitch = 0
+  }
 
-  let atkSlotIdx = 0
-  let defSlotIdx = 0
+  players.value.push(player)
 
   roomPlayers.forEach(p => {
     if (p.id !== player.id) {
       const isAtk = p.team === 'attackers'
-      const slot = isAtk
-        ? MAP_3D.spawnAtkSlots[(atkSlotIdx++) % MAP_3D.spawnAtkSlots.length]
-        : MAP_3D.spawnDefSlots[(defSlotIdx++) % MAP_3D.spawnDefSlots.length]
+      const slot = getPlayerSpawnSlot(p)
 
       players.value.push({
         id: p.id,
@@ -1720,7 +2519,7 @@ function start1v1Duel() {
   customSettings.allyBotCount = 0
   customSettings.maxRounds = 5
   match.maxRounds = 5
-  player.credits = 5000
+  player.credits = customSettings.startingCredits || 800
   gameMode.value = 'IN_GAME'
   resetRound(true)
   setTimeout(requestPointerLock, 100)
@@ -1729,7 +2528,7 @@ function start1v1Duel() {
 function startCustomMatch() {
   customSettings.gameType = 'CUSTOM_MATCH'
   match.maxRounds = customSettings.maxRounds
-  player.credits = customSettings.startingCredits
+  player.credits = customSettings.startingCredits || 800
   gameMode.value = 'IN_GAME'
   resetRound(true)
   setTimeout(requestPointerLock, 100)
@@ -1741,6 +2540,7 @@ function startStandardGame() {
   customSettings.enemyBotCount = 5
   customSettings.allyBotCount = 4
   match.maxRounds = 13
+  player.credits = 800
   gameMode.value = 'IN_GAME'
   resetRound(true)
   setTimeout(requestPointerLock, 100)
@@ -1806,6 +2606,30 @@ function buyItem(item) {
 
       <!-- PLAY / 1V1 TAB -->
       <div v-if="activeTab === 'play'" class="tab-content">
+        <!-- Quick Map Selection Bar -->
+        <div class="quick-map-bar" style="margin-bottom: 20px; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 12px; padding: 14px 20px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 0.95rem; color: #38bdf8;">
+              <span>🗺️ MAPA SELECCIONADO:</span>
+              <span style="color: #f8fafc; text-shadow: 0 0 10px rgba(56,189,248,0.5);">{{ MAPS_3D.find(m => m.id === selectedMapId)?.name || 'TEMPLO CIBERNÉTICO KASBAH' }}</span>
+            </div>
+            <span style="font-size: 0.8rem; color: #94a3b8;">{{ MAPS_3D.find(m => m.id === selectedMapId)?.desc }}</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px;">
+            <button 
+              v-for="m in MAPS_3D" 
+              :key="'play_map_' + m.id" 
+              class="btn-opt" 
+              :class="{ active: selectedMapId === m.id }" 
+              @click="rebuildMap3D(m.id)"
+              style="padding: 10px 14px; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 800; font-size: 0.85rem; border-radius: 8px; cursor: pointer; transition: all 0.2s ease;"
+            >
+              <span style="font-size: 1.2rem;">{{ m.icon }}</span>
+              <span>{{ m.name }}</span>
+            </button>
+          </div>
+        </div>
+
         <div class="modes-grid-duels">
           <!-- 1v1 Duel Mode Card -->
           <div class="mode-card featured-1v1" @click="start1v1Duel">
@@ -1843,6 +2667,24 @@ function buyItem(item) {
           </div>
 
           <div class="custom-options-grid">
+            <!-- Tactical 3D Map Selector -->
+            <div class="custom-opt-item" style="grid-column: 1 / -1;">
+              <label class="opt-label">🗺️ SELECCIONAR MAPA TÁCTICO 3D:</label>
+              <div class="opt-btn-group" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px;">
+                <button 
+                  v-for="m in MAPS_3D" 
+                  :key="'cust_map_' + m.id" 
+                  class="btn-opt" 
+                  :class="{ active: selectedMapId === m.id }" 
+                  @click="rebuildMap3D(m.id)"
+                  style="padding: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 800;"
+                >
+                  <span>{{ m.icon }}</span>
+                  <span>{{ m.name }}</span>
+                </button>
+              </div>
+            </div>
+
             <!-- Toggle Bots -->
             <div class="custom-opt-item">
               <label class="opt-label">🤖 ¿INCLUIR BOTS EN LA PARTIDA?</label>
@@ -1939,50 +2781,50 @@ function buyItem(item) {
         </div>
       </div>
 
-      <!-- TACTICAL ABILITIES TAB (UNIVERSAL KIT) -->
+      <!-- TACTICAL ABILITIES TAB (1V1.LOL KIT) -->
       <div v-if="activeTab === 'abilities'" class="tab-content agents-grid">
-        <div class="agent-card">
-          <div class="agent-card-header" style="border-color: #38bdf8;">
-            <span class="agent-avatar">⚡</span>
-            <div>
-              <h4>Dash de Impulso</h4>
-              <span class="agent-role">Tecla [E] · Movilidad</span>
-            </div>
-          </div>
-          <p class="agent-desc">Impúlsate 12 metros hacia adelante a gran velocidad en la dirección donde miras. Ideal para esquivar ráfagas de disparos o reposicionarte.</p>
-        </div>
-
-        <div class="agent-card">
-          <div class="agent-card-header" style="border-color: #a855f7;">
-            <span class="agent-avatar">💨</span>
-            <div>
-              <h4>Super Salto Vertical</h4>
-              <span class="agent-role">Tecla [Q] · Altura</span>
-            </div>
-          </div>
-          <p class="agent-desc">Propúlsate hacia arriba instantáneamente para subir a plataformas altas, pasarelas y sorprender a tus rivales desde el aire.</p>
-        </div>
-
         <div class="agent-card">
           <div class="agent-card-header" style="border-color: #64748b;">
             <span class="agent-avatar">☁️</span>
             <div>
-              <h4>Granada de Humo</h4>
-              <span class="agent-role">Tecla [C] · Cobertura</span>
+              <h4>Nube de Humo Táctica</h4>
+              <span class="agent-role">Tecla [C] · Cobertura y Despiste</span>
             </div>
           </div>
-          <p class="agent-desc">Despliega una cortina esférica de humo que bloquea por completo la visión enemiga durante 5 segundos para cruzar zonas peligrosas.</p>
+          <p class="agent-desc">Lanza una granada táctica que genera una densa nube esférica de humo de 8 metros de diámetro, bloqueando completamente la línea de visión del rival durante 8 segundos.</p>
+        </div>
+
+        <div class="agent-card">
+          <div class="agent-card-header" style="border-color: #00f3ff;">
+            <span class="agent-avatar">🪜</span>
+            <div>
+              <h4>Construir Rampa 1v1</h4>
+              <span class="agent-role">Tecla [Q] · Construcción / High Ground</span>
+            </div>
+          </div>
+          <p class="agent-desc">Construye instantáneamente una rampa/escalera de combate sólida y transitable frente a ti. ¡Sube por ella para ganar la altura y disparar desde arriba como en 1v1.LOL!</p>
+        </div>
+
+        <div class="agent-card">
+          <div class="agent-card-header" style="border-color: #38bdf8;">
+            <span class="agent-avatar">⚡</span>
+            <div>
+              <h4>Gancho de Agarre / Impulso</h4>
+              <span class="agent-role">Tecla [E] · Movilidad y Enganche</span>
+            </div>
+          </div>
+          <p class="agent-desc">Dispara un cable de energía a toda velocidad que se aferra a muros y plataformas para impulsarte velozmente hacia ellos (o te da un impulso aéreo si apuntas al cielo).</p>
         </div>
 
         <div class="agent-card">
           <div class="agent-card-header" style="border-color: #f59e0b;">
-            <span class="agent-avatar">🌪️</span>
+            <span class="agent-avatar">🚀</span>
             <div>
-              <h4>Sobretensión Definitiva</h4>
-              <span class="agent-role">Tecla [X] · Modo Máximo</span>
+              <h4>Plataforma de Salto + Súper Escudo</h4>
+              <span class="agent-role">Tecla [X] · Lanzador +50 Armadura</span>
             </div>
           </div>
-          <p class="agent-desc">Sobrecarga tus sistemas de combate con máxima adrenalina para dominar el duelo 1v1.</p>
+          <p class="agent-desc">Despliega una plataforma cinética bajo tus pies que te catapulta por los aires para hacer jugadas aéreas, y te restaura instantáneamente +50 puntos de escudo táctico.</p>
         </div>
       </div>
 
@@ -2042,7 +2884,7 @@ function buyItem(item) {
               <h3>UNIRSE A SALA</h3>
               <p>Ingresa el código de 6 caracteres de una sala existente para entrar a la partida.</p>
               <div class="join-input-row">
-                <input v-model="joinCodeInput" type="text" class="mp-input code-input" placeholder="CÓDIGO (EJ: AB12CD)" maxlength="8" />
+                <input v-model="joinCodeInput" type="text" class="mp-input code-input" placeholder="PEGA EL CÓDIGO DE SALA AQUÍ..." maxlength="64" />
                 <button class="btn-join" @click="joinMultiplayerRoom(joinCodeInput)">UNIRSE</button>
               </div>
             </div>
@@ -2074,12 +2916,19 @@ function buyItem(item) {
       <div class="lobby-header">
         <div class="lobby-title-wrap">
           <span class="lobby-tag">LOBBY MULTIJUGADOR 3D</span>
-          <h2>SECTOR RADIAN-9 // PRE-PARTIDA</h2>
+          <h2>{{ (MAPS_3D.find(m => m.id === selectedMapId)?.name || 'MAPA TÁCTICO 3D').toUpperCase() }} // PRE-PARTIDA</h2>
         </div>
-        <div class="lobby-code-box" @click="copyRoomCode">
-          <span class="code-label">CÓDIGO DE SALA:</span>
-          <span class="code-val">{{ roomCode }}</span>
-          <span class="copy-hint">📋 Copiar</span>
+        <div class="lobby-header-right" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <div class="net-badge" :style="{ color: networkStatus === 'CONNECTED' ? '#4ade80' : '#facc15' }" style="font-size: 0.75rem; padding: 6px 12px; border-radius: 6px; font-weight: 800; display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1);">
+            <span>{{ networkStatus === 'CONNECTED' ? '🟢' : '🟡' }}</span>
+            <span>{{ networkStatus === 'CONNECTED' ? 'EN LÍNEA (CLOUD REALTIME)' : 'CONECTANDO...' }}</span>
+          </div>
+          <div class="lobby-code-box" style="display: flex; align-items: center; gap: 8px;">
+            <span class="code-label">SALA:</span>
+            <span class="code-val" style="font-size: 0.85rem; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ roomCode }}</span>
+            <button class="btn-copy-sm" @click="copyRoomCode" title="Copiar código de sala" style="background: #3b82f6; border: none; color: #fff; padding: 4px 8px; border-radius: 4px; font-weight: 700; cursor: pointer;">📋 Código</button>
+            <button class="btn-copy-sm" @click="copyRoomLink" title="Copiar enlace para entrar directo" style="background: #10b981; border: none; color: #fff; padding: 4px 8px; border-radius: 4px; font-weight: 700; cursor: pointer;">🔗 Enlace</button>
+          </div>
         </div>
       </div>
 
@@ -2107,6 +2956,14 @@ function buyItem(item) {
                 <span class="p-agent-name">{{ AGENTS[p.agentId]?.name || 'Jett' }}</span>
               </div>
               <span class="ready-dot" :class="{ locked: p.isLocked }">{{ p.isLocked ? 'LISTO' : 'ELIGE' }}</span>
+              <button 
+                v-if="isHost && p.id !== player.id" 
+                class="btn-kick-player" 
+                title="Expulsar jugador de la sala" 
+                @click.stop="kickPlayerFromRoom(p.id, p.name)"
+              >
+                ❌ Expulsar
+              </button>
             </div>
           </div>
         </div>
@@ -2134,6 +2991,14 @@ function buyItem(item) {
                 <span class="p-agent-name">{{ AGENTS[p.agentId]?.name || 'Reyna' }}</span>
               </div>
               <span class="ready-dot" :class="{ locked: p.isLocked }">{{ p.isLocked ? 'LISTO' : 'ELIGE' }}</span>
+              <button 
+                v-if="isHost && p.id !== player.id" 
+                class="btn-kick-player" 
+                title="Expulsar jugador de la sala" 
+                @click.stop="kickPlayerFromRoom(p.id, p.name)"
+              >
+                ❌ Expulsar
+              </button>
             </div>
           </div>
         </div>
@@ -2150,6 +3015,25 @@ function buyItem(item) {
         </div>
 
         <div class="lobby-config-grid">
+          <!-- Selector de Mapa Táctico 3D -->
+          <div class="lobby-config-item" style="grid-column: 1 / -1;">
+            <span class="cfg-title">🗺️ MAPA TÁCTICO 3D SELECCIONADO:</span>
+            <div class="cfg-buttons" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px;">
+              <button 
+                v-for="m in MAPS_3D" 
+                :key="'mp_map_' + m.id"
+                class="btn-cfg-opt"
+                :class="{ active: selectedMapId === m.id, 'is-guest': !isHost }"
+                :disabled="!isHost"
+                @click="selectLobbyMap(m.id)"
+                style="padding: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 800;"
+              >
+                <span>{{ m.icon }}</span>
+                <span>{{ m.name }}</span>
+              </button>
+            </div>
+          </div>
+
           <!-- Rondas para Ganar -->
           <div class="lobby-config-item">
             <span class="cfg-title">🏆 RONDAS PARA GANAR:</span>
@@ -2279,36 +3163,160 @@ function buyItem(item) {
         🖱️ HAZ CLIC AQUÍ PARA BLOQUEAR EL RATÓN Y APUNTAR EN 3D (FPS)
       </div>
 
-      <!-- 3D Crosshair (Hides during ADS or when dead) -->
-      <div v-if="player.alive && !isAiming" class="crosshair-wrap">
-        <div class="crosshair-dot" :style="{ backgroundColor: settings.crosshairColor }"></div>
-        <div class="crosshair-bar bar-top" :style="{ backgroundColor: settings.crosshairColor, transform: `translateY(-${5 + crosshairSpread * 14}px)` }"></div>
-        <div class="crosshair-bar bar-bottom" :style="{ backgroundColor: settings.crosshairColor, transform: `translateY(${5 + crosshairSpread * 14}px)` }"></div>
-        <div class="crosshair-bar bar-left" :style="{ backgroundColor: settings.crosshairColor, transform: `translateX(-${5 + crosshairSpread * 14}px)` }"></div>
-        <div class="crosshair-bar bar-right" :style="{ backgroundColor: settings.crosshairColor, transform: `translateX(${5 + crosshairSpread * 14}px)` }"></div>
+      <!-- UNIQUE WEAPON CROSSHAIRS (HIPFIRE) -->
+      <div v-if="player.alive && !isAiming" class="crosshair-wrap" :class="`crosshair-${player.weapon || 'ak74u'}`">
+        <!-- 1. CLASSIC PISTOL: Minimal Tactical 4-Dot/Bar -->
+        <template v-if="player.weapon === 'classic'">
+          <div class="ch-dot" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc' }"></div>
+          <div class="classic-bar classic-t" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc', transform: `translateY(-${4 + crosshairSpread * 10}px)` }"></div>
+          <div class="classic-bar classic-b" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc', transform: `translateY(${4 + crosshairSpread * 10}px)` }"></div>
+          <div class="classic-bar classic-l" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc', transform: `translateX(-${4 + crosshairSpread * 10}px)` }"></div>
+          <div class="classic-bar classic-r" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc', transform: `translateX(${4 + crosshairSpread * 10}px)` }"></div>
+        </template>
+
+        <!-- 2. KRISS VECTOR (SMG): Pulsating Holo Ring & Center Dot -->
+        <template v-else-if="player.weapon === 'kriss_vector'">
+          <div class="ch-dot vector-dot" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc' }"></div>
+          <div class="vector-ring" :style="{ borderColor: settings.crosshairColor || '#00ffcc', width: `${24 + crosshairSpread * 20}px`, height: `${24 + crosshairSpread * 20}px` }"></div>
+          <div class="vector-tick tick-t" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc', transform: `translateY(-${14 + crosshairSpread * 10}px)` }"></div>
+          <div class="vector-tick tick-b" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc', transform: `translateY(${14 + crosshairSpread * 10}px)` }"></div>
+          <div class="vector-tick tick-l" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc', transform: `translateX(-${14 + crosshairSpread * 10}px)` }"></div>
+          <div class="vector-tick tick-r" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc', transform: `translateX(${14 + crosshairSpread * 10}px)` }"></div>
+        </template>
+
+        <!-- 3. BENELLI M4 (SHOTGUN): 8-Pellet Spread Circle & Corner Prongs -->
+        <template v-else-if="player.weapon === 'benelli_m4'">
+          <div class="shotgun-ch-ring" :style="{ borderColor: settings.crosshairColor || '#00ffcc', width: `${36 + crosshairSpread * 24}px`, height: `${36 + crosshairSpread * 24}px` }"></div>
+          <div class="ch-dot shotgun-ch-dot" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc' }"></div>
+          <div class="shotgun-corner corner-tl" :style="{ borderColor: settings.crosshairColor || '#00ffcc', transform: `translate(-${20 + crosshairSpread * 12}px, -${20 + crosshairSpread * 12}px)` }"></div>
+          <div class="shotgun-corner corner-tr" :style="{ borderColor: settings.crosshairColor || '#00ffcc', transform: `translate(${20 + crosshairSpread * 12}px, -${20 + crosshairSpread * 12}px)` }"></div>
+          <div class="shotgun-corner corner-bl" :style="{ borderColor: settings.crosshairColor || '#00ffcc', transform: `translate(-${20 + crosshairSpread * 12}px, ${20 + crosshairSpread * 12}px)` }"></div>
+          <div class="shotgun-corner corner-br" :style="{ borderColor: settings.crosshairColor || '#00ffcc', transform: `translate(${20 + crosshairSpread * 12}px, ${20 + crosshairSpread * 12}px)` }"></div>
+        </template>
+
+        <!-- 4. M4A1 (CARBINE): Modern Tactical Framing Brackets -->
+        <template v-else-if="player.weapon === 'm4a1'">
+          <div class="ch-dot m4-dot" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc' }"></div>
+          <div class="m4-bracket brk-tl" :style="{ borderColor: settings.crosshairColor || '#00ffcc', transform: `translate(-${7 + crosshairSpread * 14}px, -${7 + crosshairSpread * 14}px)` }"></div>
+          <div class="m4-bracket brk-tr" :style="{ borderColor: settings.crosshairColor || '#00ffcc', transform: `translate(${7 + crosshairSpread * 14}px, -${7 + crosshairSpread * 14}px)` }"></div>
+          <div class="m4-bracket brk-bl" :style="{ borderColor: settings.crosshairColor || '#00ffcc', transform: `translate(-${7 + crosshairSpread * 14}px, ${7 + crosshairSpread * 14}px)` }"></div>
+          <div class="m4-bracket brk-br" :style="{ borderColor: settings.crosshairColor || '#00ffcc', transform: `translate(${7 + crosshairSpread * 14}px, ${7 + crosshairSpread * 14}px)` }"></div>
+        </template>
+
+        <!-- 5. AK-74U (HEAVY RIFLE): Russian T-Bar Crosshair (Open Headshot View) -->
+        <template v-else-if="player.weapon === 'ak74u'">
+          <div class="ch-dot ak-dot" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc' }"></div>
+          <div class="ak-bar ak-l" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc', transform: `translateX(-${6 + crosshairSpread * 15}px)` }"></div>
+          <div class="ak-bar ak-r" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc', transform: `translateX(${6 + crosshairSpread * 15}px)` }"></div>
+          <div class="ak-bar ak-b" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc', transform: `translateY(${6 + crosshairSpread * 15}px)` }"></div>
+        </template>
+
+        <!-- 6. AWP SNIPER: Wide Inaccurate Hipfire Brackets -->
+        <template v-else-if="player.weapon === 'sniper'">
+          <div class="ch-dot sniper-dot" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc' }"></div>
+          <div class="sniper-bracket s-left" :style="{ borderColor: settings.crosshairColor || '#00ffcc', transform: `translateX(-${24 + crosshairSpread * 24}px)` }"></div>
+          <div class="sniper-bracket s-right" :style="{ borderColor: settings.crosshairColor || '#00ffcc', transform: `translateX(${24 + crosshairSpread * 24}px)` }"></div>
+          <div class="sniper-bracket s-top" :style="{ borderColor: settings.crosshairColor || '#00ffcc', transform: `translateY(-${24 + crosshairSpread * 24}px)` }"></div>
+          <div class="sniper-bracket s-bottom" :style="{ borderColor: settings.crosshairColor || '#00ffcc', transform: `translateY(${24 + crosshairSpread * 24}px)` }"></div>
+        </template>
+
+        <!-- 7. KNIFE: Melee Slash Crosshair -->
+        <template v-else-if="player.weapon === 'knife'">
+          <div class="knife-dot" :style="{ backgroundColor: settings.crosshairColor || '#00ffcc' }"></div>
+          <div class="knife-arc arc-left" :style="{ borderColor: settings.crosshairColor || '#00ffcc' }"></div>
+          <div class="knife-arc arc-right" :style="{ borderColor: settings.crosshairColor || '#00ffcc' }"></div>
+        </template>
+
+        <!-- Hitmarker -->
         <div v-if="hitmarkerActive" class="hitmarker" :class="{ headshot: hitmarkerHeadshot }">✕</div>
       </div>
 
-      <!-- Tactical Sniper Scope Fullscreen Overlay (For Operator / Marshal) -->
-      <div v-if="player.alive && isAiming && (WEAPONS[player.weapon]?.category === WEAPON_CATEGORIES.SNIPERS)" class="sniper-scope-overlay">
-        <div class="scope-reticle">
+      <!-- UNIQUE WEAPON ADS OPTICS (RIGHT CLICK AIMING) -->
+      <!-- 1. AWP SNIPER SCOPE: Fullscreen High-Tech Military Long-Range Scope -->
+      <div v-if="player.alive && isAiming && player.weapon === 'sniper'" class="sniper-scope-overlay">
+        <div class="scope-housing">
           <div class="scope-cross-h"></div>
           <div class="scope-cross-v"></div>
           <div class="scope-center-dot"></div>
-          <div class="scope-range-ring"></div>
+          <div class="scope-ring-outer"></div>
+          <div class="scope-ring-inner"></div>
+          
+          <!-- Distance rangefinder & mil marks -->
+          <div class="scope-mil-marks">
+            <span class="mil-label label-heading">AZM 084° // RNG 450M</span>
+            <span class="mil-label label-ammo">AWP .338 LAPUA MAG</span>
+            <div class="mil-line ml-1"></div>
+            <div class="mil-line ml-2"></div>
+            <div class="mil-line ml-3"></div>
+            <div class="mil-line ml-4"></div>
+          </div>
         </div>
         <div v-if="hitmarkerActive" class="hitmarker scope-hit" :class="{ headshot: hitmarkerHeadshot }">✕</div>
       </div>
 
-      <!-- Tactical ADS Optic Focus Vignette & Precision Reflex Reticle (For Rifles, SMGs, Pistols) -->
-      <div v-if="player.alive && isAiming && (WEAPONS[player.weapon]?.category !== WEAPON_CATEGORIES.SNIPERS)" class="ads-focus-overlay"></div>
-      <div v-if="player.alive && isAiming && (WEAPONS[player.weapon]?.category !== WEAPON_CATEGORIES.SNIPERS)" class="ads-reflex-reticle">
-        <div class="reflex-glow-ring"></div>
-        <div class="reflex-center-dot" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
-        <div class="reflex-side-notch notch-left"></div>
-        <div class="reflex-side-notch notch-right"></div>
-        <div class="reflex-bottom-post"></div>
-        <div v-if="hitmarkerActive" class="hitmarker" :class="{ headshot: hitmarkerHeadshot }">✕</div>
+      <!-- 2. M4A1 ACOG / REFLEX CHEVRON OPTIC -->
+      <div v-else-if="player.alive && isAiming && player.weapon === 'm4a1'" class="ads-view-container">
+        <div class="ads-focus-overlay"></div>
+        <div class="ads-optic-frame optic-m4a1">
+          <div class="m4-optic-glass">
+            <div class="m4-chevron-point" :style="{ borderBottomColor: settings.crosshairColor || '#00f3ff' }"></div>
+            <div class="m4-stadia-h" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+            <div class="m4-stadia-v" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+          </div>
+          <div v-if="hitmarkerActive" class="hitmarker" :class="{ headshot: hitmarkerHeadshot }">✕</div>
+        </div>
+      </div>
+
+      <!-- 3. KRISS VECTOR EOTECH HOLOGRAPHIC OPTIC -->
+      <div v-else-if="player.alive && isAiming && player.weapon === 'kriss_vector'" class="ads-view-container">
+        <div class="ads-focus-overlay"></div>
+        <div class="ads-optic-frame optic-vector">
+          <div class="vector-holo-ring" :style="{ borderColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="vector-holo-dot" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="vector-holo-post post-t" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="vector-holo-post post-b" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="vector-holo-post post-l" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="vector-holo-post post-r" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div v-if="hitmarkerActive" class="hitmarker" :class="{ headshot: hitmarkerHeadshot }">✕</div>
+        </div>
+      </div>
+
+      <!-- 4. AK-74U KOBRA T-POST PRISM OPTIC -->
+      <div v-else-if="player.alive && isAiming && player.weapon === 'ak74u'" class="ads-view-container">
+        <div class="ads-focus-overlay"></div>
+        <div class="ads-optic-frame optic-ak74u">
+          <div class="kobra-center-dot" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="kobra-arm arm-left" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="kobra-arm arm-right" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="kobra-post" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div v-if="hitmarkerActive" class="hitmarker" :class="{ headshot: hitmarkerHeadshot }">✕</div>
+        </div>
+      </div>
+
+      <!-- 5. BENELLI M4 TACTICAL COMBAT CHOKE OPTIC -->
+      <div v-else-if="player.alive && isAiming && player.weapon === 'benelli_m4'" class="ads-view-container">
+        <div class="ads-focus-overlay"></div>
+        <div class="ads-optic-frame optic-shotgun">
+          <div class="shotgun-tight-ring" :style="{ borderColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="shotgun-center-pellet" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="shotgun-choke-angle a-tl" :style="{ borderColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="shotgun-choke-angle a-tr" :style="{ borderColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="shotgun-choke-angle a-bl" :style="{ borderColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="shotgun-choke-angle a-br" :style="{ borderColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div v-if="hitmarkerActive" class="hitmarker" :class="{ headshot: hitmarkerHeadshot }">✕</div>
+        </div>
+      </div>
+
+      <!-- 6. CLASSIC PISTOL CLEAN MICRO REFLEX -->
+      <div v-else-if="player.alive && isAiming && player.weapon === 'classic'" class="ads-view-container">
+        <div class="ads-focus-overlay"></div>
+        <div class="ads-optic-frame optic-classic">
+          <div class="classic-ads-dot" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="classic-ads-ring" :style="{ borderColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="classic-ads-wing wing-l" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div class="classic-ads-wing wing-r" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
+          <div v-if="hitmarkerActive" class="hitmarker" :class="{ headshot: hitmarkerHeadshot }">✕</div>
+        </div>
       </div>
 
       <!-- Tactical Minimap Radar -->
@@ -2385,12 +3393,37 @@ function buyItem(item) {
         </div>
 
         <div class="hud-abilities">
-          <div class="ability-slot"><span class="key-badge">C</span><span class="ab-icon">☁️</span></div>
-          <div class="ability-slot"><span class="key-badge">Q</span><span class="ab-icon">✨</span></div>
-          <div class="ability-slot"><span class="key-badge">E</span><span class="ab-icon">⚡</span></div>
-          <div class="ability-slot ult-slot" :class="{ ready: player.ultPoints >= player.requiredUltPoints }">
+          <div class="ability-slot" :class="{ 'has-charges': (player.abilityCharges?.C || 0) > 0 || infiniteAbilities, 'no-charges': (player.abilityCharges?.C || 0) === 0 && !infiniteAbilities, 'on-cooldown': abilityCooldowns.C > 0 }" title="[C] Nube de Humo Táctica (Recoge orbes en el mapa)">
+            <span class="key-badge">C</span>
+            <span class="ab-icon">☁️</span>
+            <span class="charge-counter">{{ infiniteAbilities ? '∞' : `x${player.abilityCharges?.C || 0}` }}</span>
+            <div v-if="abilityCooldowns.C > 0" class="cooldown-overlay">
+              <span class="cd-timer">{{ Math.ceil(abilityCooldowns.C) }}s</span>
+            </div>
+          </div>
+          <div class="ability-slot" :class="{ 'has-charges': (player.abilityCharges?.Q || 0) > 0 || infiniteAbilities, 'no-charges': (player.abilityCharges?.Q || 0) === 0 && !infiniteAbilities, 'on-cooldown': abilityCooldowns.Q > 0 }" title="[Q] Construir Rampa 1v1 (Recoge orbes en el mapa)">
+            <span class="key-badge">Q</span>
+            <span class="ab-icon">🪜</span>
+            <span class="charge-counter">{{ infiniteAbilities ? '∞' : `x${player.abilityCharges?.Q || 0}` }}</span>
+            <div v-if="abilityCooldowns.Q > 0" class="cooldown-overlay">
+              <span class="cd-timer">{{ abilityCooldowns.Q >= 1 ? Math.ceil(abilityCooldowns.Q) : abilityCooldowns.Q.toFixed(1) }}s</span>
+            </div>
+          </div>
+          <div class="ability-slot" :class="{ 'has-charges': (player.abilityCharges?.E || 0) > 0 || infiniteAbilities, 'no-charges': (player.abilityCharges?.E || 0) === 0 && !infiniteAbilities, 'on-cooldown': abilityCooldowns.E > 0 }" title="[E] Gancho de Agarre / Impulso (Recoge orbes en el mapa)">
+            <span class="key-badge">E</span>
+            <span class="ab-icon">⚡</span>
+            <span class="charge-counter">{{ infiniteAbilities ? '∞' : `x${player.abilityCharges?.E || 0}` }}</span>
+            <div v-if="abilityCooldowns.E > 0" class="cooldown-overlay">
+              <span class="cd-timer">{{ Math.ceil(abilityCooldowns.E) }}s</span>
+            </div>
+          </div>
+          <div class="ability-slot ult-slot" :class="{ 'has-charges': (player.abilityCharges?.X || 0) > 0 || infiniteAbilities, 'no-charges': (player.abilityCharges?.X || 0) === 0 && !infiniteAbilities, 'on-cooldown': abilityCooldowns.X > 0 }" title="[X] Plataforma de Salto + Súper Escudo (Recoge orbes en el mapa)">
             <span class="key-badge">X</span>
-            <span class="ab-icon">🌪️</span>
+            <span class="ab-icon">🚀</span>
+            <span class="charge-counter">{{ infiniteAbilities ? '∞' : `x${player.abilityCharges?.X || 0}` }}</span>
+            <div v-if="abilityCooldowns.X > 0" class="cooldown-overlay">
+              <span class="cd-timer">{{ Math.ceil(abilityCooldowns.X) }}s</span>
+            </div>
           </div>
         </div>
 
@@ -2489,6 +3522,64 @@ function buyItem(item) {
               <span v-else class="badge-buy">COMPRAR [${{ shield.cost }}]</span>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MATCH FINISHED / GAME OVER OVERLAY (SENDS ALL PLAYERS BACK TO LOBBY) -->
+    <div v-if="matchFinishedData.active" class="match-finished-overlay" @click.stop>
+      <div class="match-finished-card" :class="{ 'victory-card': matchFinishedData.isVictory, 'defeat-card': !matchFinishedData.isVictory && !matchFinishedData.isDraw, 'draw-card': matchFinishedData.isDraw }">
+        <div class="mf-badge">
+          <span>⚔️ PARTIDA FINALIZADA ⚔️</span>
+        </div>
+        
+        <h1 class="mf-title">
+          <span v-if="matchFinishedData.isVictory" class="title-vic">🏆 ¡VICTORIA!</span>
+          <span v-else-if="matchFinishedData.isDraw" class="title-draw">🤝 ¡EMPATE!</span>
+          <span v-else class="title-def">💀 ¡DERROTA!</span>
+        </h1>
+        
+        <p class="mf-subtitle">{{ matchFinishedData.subtitle }}</p>
+
+        <!-- Final Match Scoreboard Showcase -->
+        <div class="mf-scores-box">
+          <div class="mf-team-col red-team" :class="{ winner: matchFinishedData.winner === 'attackers' }">
+            <span class="mf-team-name">🔴 EQUIPO ROJO</span>
+            <span class="mf-team-score">{{ matchFinishedData.scoreAtk }}</span>
+            <span v-if="matchFinishedData.winner === 'attackers'" class="mf-win-tag">GANADOR</span>
+          </div>
+          <div class="mf-vs">VS</div>
+          <div class="mf-team-col blue-team" :class="{ winner: matchFinishedData.winner === 'defenders' }">
+            <span class="mf-team-name">🔵 EQUIPO AZUL</span>
+            <span class="mf-team-score">{{ matchFinishedData.scoreDef }}</span>
+            <span v-if="matchFinishedData.winner === 'defenders'" class="mf-win-tag">GANADOR</span>
+          </div>
+        </div>
+
+        <!-- Player Performance Breakdown -->
+        <div class="mf-stats-row">
+          <div class="mf-stat-item">
+            <span class="mf-stat-label">🎯 BAJAS</span>
+            <span class="mf-stat-value text-green">{{ matchFinishedData.kills }}</span>
+          </div>
+          <div class="mf-stat-item">
+            <span class="mf-stat-label">💀 MUERTES</span>
+            <span class="mf-stat-value text-red">{{ matchFinishedData.deaths }}</span>
+          </div>
+          <div class="mf-stat-item">
+            <span class="mf-stat-label">⚖️ RATIO K/D</span>
+            <span class="mf-stat-value text-cyan">{{ matchFinishedData.kdRatio }}</span>
+          </div>
+        </div>
+
+        <!-- Return to Lobby Countdown & Action Button -->
+        <div class="mf-footer">
+          <div class="mf-countdown-tip">
+            ⏳ Regresando al lobby en <strong>{{ matchFinishedData.timer }}s</strong>...
+          </div>
+          <button class="btn-return-lobby" @click="returnToLobbyAfterMatch">
+            🚀 VOLVER AL LOBBY AHORA
+          </button>
         </div>
       </div>
     </div>
@@ -2711,7 +3802,10 @@ function buyItem(item) {
   pointer-events: auto;
 }
 
-/* CROSSHAIR */
+/* ==========================================================================
+   UNIQUE WEAPON CROSSHAIRS & ADS OPTICS (CUSTOM DESIGN PER WEAPON)
+   ========================================================================== */
+
 .crosshair-wrap {
   position: absolute;
   top: 50%;
@@ -2723,33 +3817,125 @@ function buyItem(item) {
   display: flex;
   align-items: center;
   justify-content: center;
+  z-index: 10;
 }
 
-.crosshair-dot {
+.ch-dot {
   position: absolute;
   width: 3px;
   height: 3px;
   border-radius: 50%;
-  box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.9), 0 0 4px currentColor;
 }
 
-.crosshair-bar {
+/* 1. CLASSIC PISTOL CROSSHAIR */
+.classic-bar {
   position: absolute;
-  background: #00ffcc;
   box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
-  transition: transform 0.05s ease-out;
+  transition: transform 0.04s ease-out;
 }
+.classic-t, .classic-b { width: 2px; height: 5px; }
+.classic-l, .classic-r { width: 5px; height: 2px; }
 
-.bar-top, .bar-bottom {
-  width: 2px;
-  height: 7px;
+/* 2. KRISS VECTOR HOLO CROSSHAIR */
+.vector-ring {
+  position: absolute;
+  border: 1.5px solid;
+  border-radius: 50%;
+  opacity: 0.85;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.8), inset 0 0 4px rgba(0, 0, 0, 0.6);
+  transition: width 0.04s ease-out, height 0.04s ease-out;
 }
+.vector-dot {
+  width: 4px;
+  height: 4px;
+}
+.vector-tick {
+  position: absolute;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+  transition: transform 0.04s ease-out;
+}
+.vector-tick.tick-t, .vector-tick.tick-b { width: 2px; height: 4px; }
+.vector-tick.tick-l, .vector-tick.tick-r { width: 4px; height: 2px; }
 
-.bar-left, .bar-right {
+/* 3. BENELLI M4 SHOTGUN SPREAD RING */
+.shotgun-ch-ring {
+  position: absolute;
+  border: 1.5px dashed;
+  border-radius: 50%;
+  opacity: 0.75;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+  transition: width 0.04s ease-out, height 0.04s ease-out;
+}
+.shotgun-ch-dot {
+  width: 4px;
+  height: 4px;
+}
+.shotgun-corner {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border: 2px solid;
+  transition: transform 0.04s ease-out;
+}
+.corner-tl { border-right: none; border-bottom: none; }
+.corner-tr { border-left: none; border-bottom: none; }
+.corner-bl { border-right: none; border-top: none; }
+.corner-br { border-left: none; border-top: none; }
+
+/* 4. M4A1 TACTICAL BRACKETS CROSSHAIR */
+.m4-dot { width: 3px; height: 3px; }
+.m4-bracket {
+  position: absolute;
   width: 7px;
-  height: 2px;
+  height: 7px;
+  border: 2px solid;
+  transition: transform 0.04s ease-out;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
 }
+.brk-tl { border-right: none; border-bottom: none; }
+.brk-tr { border-left: none; border-bottom: none; }
+.brk-bl { border-right: none; border-top: none; }
+.brk-br { border-left: none; border-top: none; }
 
+/* 5. AK-74U RUSSIAN T-SHAPED CROSSHAIR */
+.ak-dot { width: 3px; height: 3px; }
+.ak-bar {
+  position: absolute;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+  transition: transform 0.04s ease-out;
+}
+.ak-l, .ak-r { width: 8px; height: 2px; }
+.ak-b { width: 2px; height: 9px; }
+
+/* 6. SNIPER HIPFIRE WIDE BRACKETS */
+.sniper-dot { width: 4px; height: 4px; }
+.sniper-bracket {
+  position: absolute;
+  border: 1.5px solid;
+  transition: transform 0.04s ease-out;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+}
+.s-left, .s-right { width: 6px; height: 14px; }
+.s-left { border-right: none; }
+.s-right { border-left: none; }
+.s-top, .s-bottom { width: 14px; height: 6px; }
+.s-top { border-bottom: none; }
+.s-bottom { border-top: none; }
+
+/* 7. KNIFE MELEE SLASH CROSSHAIR */
+.knife-dot { width: 3px; height: 3px; }
+.knife-arc {
+  position: absolute;
+  width: 8px;
+  height: 14px;
+  border: 2px solid;
+  border-radius: 50%;
+}
+.arc-left { border-right: none; border-top: none; border-bottom: none; transform: translateX(-8px); }
+.arc-right { border-left: none; border-top: none; border-bottom: none; transform: translateX(8px); }
+
+/* HITMARKER FEEDBACK */
 .hitmarker {
   position: absolute;
   top: -14px;
@@ -2773,16 +3959,22 @@ function buyItem(item) {
   100% { transform: scale(1.0); }
 }
 
-/* ADS OPTIC FOCUS VIGNETTE */
+/* ==========================================================================
+   ADS OPTICS (RIGHT CLICK AIMING SIGHTS)
+   ========================================================================== */
+
+.ads-view-container {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 30;
+}
+
 .ads-focus-overlay {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+  inset: 0;
   pointer-events: none;
-  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 30%, rgba(15, 23, 42, 0.4) 65%, rgba(4, 8, 20, 0.8) 100%);
-  z-index: 4;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 25%, rgba(15, 23, 42, 0.45) 60%, rgba(4, 8, 20, 0.85) 100%);
   animation: adsFocusFadeIn 0.12s ease-out;
 }
 
@@ -2791,13 +3983,20 @@ function buyItem(item) {
   to { opacity: 1; }
 }
 
-/* SNIPER SCOPE OVERLAY */
+.ads-optic-frame {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 1. SNIPER AWP MILITARY SCOPE */
 .sniper-scope-overlay {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+  inset: 0;
   pointer-events: none;
   display: flex;
   align-items: center;
@@ -2806,13 +4005,13 @@ function buyItem(item) {
   z-index: 50;
 }
 
-.scope-reticle {
+.scope-housing {
   position: relative;
   width: 760px;
   height: 760px;
   border-radius: 50%;
   border: 3px solid rgba(239, 68, 68, 0.85);
-  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.9), 0 0 20px rgba(239, 68, 68, 0.4);
+  box-shadow: inset 0 0 50px rgba(0, 0, 0, 0.95), 0 0 20px rgba(239, 68, 68, 0.4);
 }
 
 .scope-cross-h {
@@ -2839,30 +4038,234 @@ function buyItem(item) {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: #ef4444;
-  box-shadow: 0 0 8px #ef4444;
+  box-shadow: 0 0 10px #ef4444, 0 0 20px #ef4444;
   transform: translate(-50%, -50%);
 }
 
-.scope-range-ring {
+.scope-ring-outer {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 160px;
-  height: 160px;
+  width: 240px;
+  height: 240px;
   border-radius: 50%;
-  border: 1px dashed rgba(239, 68, 68, 0.5);
+  border: 1px dashed rgba(239, 68, 68, 0.4);
   transform: translate(-50%, -50%);
 }
+
+.scope-ring-inner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  transform: translate(-50%, -50%);
+}
+
+.scope-mil-marks {
+  position: absolute;
+  inset: 0;
+}
+
+.mil-label {
+  position: absolute;
+  font-family: monospace;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: rgba(239, 68, 68, 0.8);
+  letter-spacing: 1px;
+}
+.label-heading { top: 22px; left: 50%; transform: translateX(-50%); }
+.label-ammo { bottom: 22px; left: 50%; transform: translateX(-50%); }
+
+.mil-line {
+  position: absolute;
+  left: 50%;
+  width: 14px;
+  height: 1.5px;
+  background: rgba(239, 68, 68, 0.7);
+  transform: translateX(-50%);
+}
+.ml-1 { top: 56%; width: 12px; }
+.ml-2 { top: 62%; width: 18px; }
+.ml-3 { top: 68%; width: 24px; }
+.ml-4 { top: 74%; width: 30px; }
 
 .scope-hit {
   top: 50% !important;
   left: 50% !important;
   transform: translate(-50%, -50%) !important;
 }
+
+/* 2. M4A1 ACOG / REFLEX CHEVRON */
+.optic-m4a1 {
+  width: 44px;
+  height: 44px;
+}
+.m4-optic-glass {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.m4-chevron-point {
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 9px solid #00f3ff;
+  filter: drop-shadow(0 0 6px currentColor);
+  margin-top: -6px;
+}
+.m4-stadia-h {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 28px;
+  height: 1.5px;
+  transform: translate(-50%, -50%);
+  opacity: 0.6;
+}
+.m4-stadia-v {
+  position: absolute;
+  top: 58%;
+  left: 50%;
+  width: 1.5px;
+  height: 14px;
+  transform: translateX(-50%);
+  opacity: 0.6;
+}
+
+/* 3. KRISS VECTOR EOTECH HOLOGRAPHIC SIGHT */
+.optic-vector {
+  width: 40px;
+  height: 40px;
+}
+.vector-holo-ring {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  border: 1.5px solid;
+  border-radius: 50%;
+  opacity: 0.85;
+  box-shadow: 0 0 10px currentColor;
+}
+.vector-holo-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  box-shadow: 0 0 8px currentColor, 0 0 16px currentColor;
+}
+.vector-holo-post {
+  position: absolute;
+  opacity: 0.75;
+}
+.post-t, .post-b { width: 1.5px; height: 5px; left: 50%; transform: translateX(-50%); }
+.post-t { top: 0; }
+.post-b { bottom: 0; }
+.post-l, .post-r { width: 5px; height: 1.5px; top: 50%; transform: translateY(-50%); }
+.post-l { left: 0; }
+.post-r { right: 0; }
+
+/* 4. AK-74U RUSSIAN KOBRA PRISM OPTIC */
+.optic-ak74u {
+  width: 36px;
+  height: 36px;
+}
+.kobra-center-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  box-shadow: 0 0 8px currentColor;
+}
+.kobra-arm {
+  position: absolute;
+  width: 8px;
+  height: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0.85;
+}
+.arm-left { left: 2px; }
+.arm-right { right: 2px; }
+.kobra-post {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  height: 10px;
+  transform: translateX(-50%);
+  opacity: 0.85;
+}
+
+/* 5. BENELLI M4 TACTICAL CHOKE SIGHT */
+.optic-shotgun {
+  width: 46px;
+  height: 46px;
+}
+.shotgun-tight-ring {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border: 1.5px solid;
+  border-radius: 50%;
+  opacity: 0.85;
+  box-shadow: 0 0 8px currentColor;
+}
+.shotgun-center-pellet {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  box-shadow: 0 0 10px currentColor;
+}
+.shotgun-choke-angle {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border: 2px solid;
+}
+.a-tl { top: 2px; left: 2px; border-right: none; border-bottom: none; }
+.a-tr { top: 2px; right: 2px; border-left: none; border-bottom: none; }
+.a-bl { bottom: 2px; left: 2px; border-right: none; border-top: none; }
+.a-br { bottom: 2px; right: 2px; border-left: none; border-top: none; }
+
+/* 6. CLASSIC PISTOL MICRO REFLEX */
+.optic-classic {
+  width: 30px;
+  height: 30px;
+}
+.classic-ads-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  box-shadow: 0 0 8px currentColor;
+}
+.classic-ads-ring {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border: 1px dashed;
+  border-radius: 50%;
+  opacity: 0.5;
+}
+.classic-ads-wing {
+  position: absolute;
+  width: 5px;
+  height: 1.5px;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0.7;
+}
+.wing-l { left: 0; }
+.wing-r { right: 0; }
 
 /* RADAR */
 .radar-container {
@@ -2994,18 +4397,64 @@ function buyItem(item) {
   font-size: 1.4rem;
 }
 
+.ability-slot.no-charges {
+  opacity: 0.40;
+  border: 1px dashed rgba(255, 255, 255, 0.18);
+  background: rgba(15, 23, 42, 0.6);
+  filter: grayscale(0.8);
+}
+
+.ability-slot.has-charges {
+  opacity: 1.0;
+  border-color: #38bdf8;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.35);
+  background: rgba(14, 116, 144, 0.25);
+  filter: none;
+}
+
+.charge-counter {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-size: 0.72rem;
+  font-weight: 900;
+  color: #38bdf8;
+  text-shadow: 0 0 4px rgba(56, 189, 248, 0.8);
+  letter-spacing: -0.5px;
+}
+
+.ability-slot.on-cooldown {
+  opacity: 0.65;
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.cooldown-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.85);
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+  backdrop-filter: blur(2px);
+}
+
+.cd-timer {
+  font-size: 0.85rem;
+  font-weight: 900;
+  color: #f87171;
+  text-shadow: 0 0 6px rgba(239, 68, 68, 0.8);
+  letter-spacing: -0.5px;
+}
+
 .key-badge {
   position: absolute;
   bottom: 2px;
-  right: 4px;
+  left: 4px;
   font-size: 0.65rem;
   font-weight: 800;
   color: #94a3b8;
-}
-
-.ult-slot.ready {
-  border-color: #38bdf8;
-  box-shadow: 0 0 12px rgba(56, 189, 248, 0.6);
 }
 
 /* INVENTORY SLOTS HUD */
@@ -3497,6 +4946,23 @@ function buyItem(item) {
 .p-agent-name { font-size: 0.75rem; color: #94a3b8; }
 .ready-dot { font-size: 0.7rem; font-weight: 800; background: rgba(239, 68, 68, 0.2); color: #ef4444; padding: 3px 8px; border-radius: 4px; }
 .ready-dot.locked { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+.btn-kick-player {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.6);
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-left: 4px;
+}
+.btn-kick-player:hover {
+  background: #ef4444;
+  color: #fff;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+}
 
 .lobby-agent-selection { margin-bottom: 16px; }
 .lobby-agent-selection h4 { font-size: 0.85rem; color: #94a3b8; margin-bottom: 8px; }
@@ -4014,6 +5480,208 @@ function buyItem(item) {
   width: 1.5px;
   height: 4px;
   background: rgba(0, 243, 255, 0.6);
+}
+
+/* MATCH FINISHED / GAME OVER OVERLAY */
+.match-finished-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 8, 20, 0.88);
+  backdrop-filter: blur(14px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: mfFadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes mfFadeIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.match-finished-card {
+  background: rgba(15, 23, 42, 0.95);
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-radius: 16px;
+  padding: 32px 40px;
+  max-width: 620px;
+  width: 90%;
+  text-align: center;
+  box-shadow: 0 0 50px rgba(0, 0, 0, 0.9), 0 0 30px rgba(56, 189, 248, 0.2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.match-finished-card.victory-card {
+  border-color: rgba(16, 185, 129, 0.7);
+  box-shadow: 0 0 50px rgba(0, 0, 0, 0.9), 0 0 35px rgba(16, 185, 129, 0.4);
+}
+
+.match-finished-card.defeat-card {
+  border-color: rgba(239, 68, 68, 0.7);
+  box-shadow: 0 0 50px rgba(0, 0, 0, 0.9), 0 0 35px rgba(239, 68, 68, 0.4);
+}
+
+.match-finished-card.draw-card {
+  border-color: rgba(56, 189, 248, 0.7);
+  box-shadow: 0 0 50px rgba(0, 0, 0, 0.9), 0 0 35px rgba(56, 189, 248, 0.3);
+}
+
+.mf-badge {
+  font-size: 0.8rem;
+  font-weight: 900;
+  letter-spacing: 3px;
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 4px 16px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.mf-title {
+  margin: 0;
+  font-size: 2.8rem;
+  font-weight: 900;
+  letter-spacing: 2px;
+}
+
+.title-vic {
+  color: #10b981;
+  text-shadow: 0 0 25px rgba(16, 185, 129, 0.8);
+}
+
+.title-def {
+  color: #ef4444;
+  text-shadow: 0 0 25px rgba(239, 68, 68, 0.8);
+}
+
+.title-draw {
+  color: #38bdf8;
+  text-shadow: 0 0 25px rgba(56, 189, 248, 0.8);
+}
+
+.mf-subtitle {
+  margin: 0;
+  color: #cbd5e1;
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+.mf-scores-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  background: rgba(30, 41, 59, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 16px 28px;
+  border-radius: 12px;
+  width: 100%;
+}
+
+.mf-team-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+}
+
+.mf-team-col.red-team .mf-team-name { color: #f87171; font-weight: 800; font-size: 0.95rem; }
+.mf-team-col.red-team .mf-team-score { color: #ef4444; font-size: 2.2rem; font-weight: 900; }
+
+.mf-team-col.blue-team .mf-team-name { color: #60a5fa; font-weight: 800; font-size: 0.95rem; }
+.mf-team-col.blue-team .mf-team-score { color: #3b82f6; font-size: 2.2rem; font-weight: 900; }
+
+.mf-win-tag {
+  font-size: 0.68rem;
+  font-weight: 900;
+  background: rgba(16, 185, 129, 0.25);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.5);
+  padding: 2px 8px;
+  border-radius: 6px;
+  letter-spacing: 1px;
+}
+
+.mf-vs {
+  font-size: 1.1rem;
+  font-weight: 900;
+  color: #64748b;
+  letter-spacing: 1px;
+}
+
+.mf-stats-row {
+  display: flex;
+  gap: 16px;
+  width: 100%;
+  justify-content: space-around;
+  background: rgba(15, 23, 42, 0.7);
+  padding: 12px 20px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.mf-stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mf-stat-label {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #94a3b8;
+}
+
+.mf-stat-value {
+  font-size: 1.4rem;
+  font-weight: 900;
+}
+
+.text-red {
+  color: #ef4444;
+}
+
+.mf-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin-top: 6px;
+}
+
+.mf-countdown-tip {
+  font-size: 0.9rem;
+  color: #94a3b8;
+}
+
+.mf-countdown-tip strong {
+  color: #38bdf8;
+}
+
+.btn-return-lobby {
+  background: linear-gradient(135deg, #ff4655, #b91c1c);
+  color: #fff;
+  border: none;
+  padding: 14px 32px;
+  border-radius: 8px;
+  font-weight: 900;
+  font-size: 1.05rem;
+  letter-spacing: 1px;
+  cursor: pointer;
+  box-shadow: 0 0 20px rgba(255, 70, 85, 0.5);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  width: 100%;
+}
+
+.btn-return-lobby:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 30px rgba(255, 70, 85, 0.8);
 }
 
 </style>

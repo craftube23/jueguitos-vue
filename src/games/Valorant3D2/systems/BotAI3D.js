@@ -9,6 +9,18 @@ export class BotAI3D {
     this.raycaster = new THREE.Raycaster()
     this.meshColliders = []
     this.wallsAABB = []
+    this.bounds = { minX: -29.5, maxX: 29.5, minZ: -29.5, maxZ: 29.5 }
+  }
+
+  setBounds(bounds) {
+    if (bounds) {
+      this.bounds = {
+        minX: bounds.minX !== undefined ? bounds.minX : -29.5,
+        maxX: bounds.maxX !== undefined ? bounds.maxX : 29.5,
+        minZ: bounds.minZ !== undefined ? bounds.minZ : -29.5,
+        maxZ: bounds.maxZ !== undefined ? bounds.maxZ : 29.5
+      }
+    }
   }
 
   setMeshColliders(meshList) {
@@ -26,39 +38,42 @@ export class BotAI3D {
     this.raycaster.set(probeOrigin, down)
     this.raycaster.far = 32.0
     const hits = this.raycaster.intersectObjects(this.meshColliders, false)
-    let bestY = 0
+    let bestGroundY = 0
     if (hits.length > 0) {
       for (const hit of hits) {
         const normal = hit.face ? hit.face.normal.clone() : new THREE.Vector3(0, 1, 0)
         normal.applyQuaternion(hit.object.getWorldQuaternion(new THREE.Quaternion()))
-        if (normal.y > 0.35 && hit.point.y > bestY) {
-          bestY = hit.point.y
+        if (normal.y > 0.35 && hit.point.y > bestGroundY) {
+          bestGroundY = hit.point.y
         }
       }
     }
-    return bestY
+    return Math.max(0, bestGroundY)
   }
 
   resolveMovement(currX, currZ, targetX, targetZ, radius = 0.55) {
     let px = targetX
     let pz = targetZ
     const r = radius
-    const bound = 29.5
+    const minX = (this.bounds?.minX !== undefined) ? this.bounds.minX : -29.5
+    const maxX = (this.bounds?.maxX !== undefined) ? this.bounds.maxX : 29.5
+    const minZ = (this.bounds?.minZ !== undefined) ? this.bounds.minZ : -29.5
+    const maxZ = (this.bounds?.maxZ !== undefined) ? this.bounds.maxZ : 29.5
 
     if (this.wallsAABB && this.wallsAABB.length > 0) {
       // 1. Resolve X movement
       let testX = px
       for (const w of this.wallsAABB) {
-        const minX = w.x - w.w / 2 - r
-        const maxX = w.x + w.w / 2 + r
-        const minZ = w.z - w.d / 2 - r
-        const maxZ = w.z + w.d / 2 + r
+        const bMinX = w.x - w.w / 2 - r
+        const bMaxX = w.x + w.w / 2 + r
+        const bMinZ = w.z - w.d / 2 - r
+        const bMaxZ = w.z + w.d / 2 + r
 
-        if (testX > minX && testX < maxX && currZ > minZ && currZ < maxZ) {
+        if (testX > bMinX && testX < bMaxX && currZ > bMinZ && currZ < bMaxZ) {
           if (targetX >= currX) {
-            testX = minX - 0.001
+            testX = bMinX - 0.001
           } else {
-            testX = maxX + 0.001
+            testX = bMaxX + 0.001
           }
         }
       }
@@ -67,16 +82,16 @@ export class BotAI3D {
       // 2. Resolve Z movement
       let testZ = pz
       for (const w of this.wallsAABB) {
-        const minX = w.x - w.w / 2 - r
-        const maxX = w.x + w.w / 2 + r
-        const minZ = w.z - w.d / 2 - r
-        const maxZ = w.z + w.d / 2 + r
+        const bMinX = w.x - w.w / 2 - r
+        const bMaxX = w.x + w.w / 2 + r
+        const bMinZ = w.z - w.d / 2 - r
+        const bMaxZ = w.z + w.d / 2 + r
 
-        if (px > minX && px < maxX && testZ > minZ && testZ < maxZ) {
+        if (px > bMinX && px < bMaxX && testZ > bMinZ && testZ < bMaxZ) {
           if (targetZ >= currZ) {
-            testZ = minZ - 0.001
+            testZ = bMinZ - 0.001
           } else {
-            testZ = maxZ + 0.001
+            testZ = bMaxZ + 0.001
           }
         }
       }
@@ -84,8 +99,8 @@ export class BotAI3D {
     }
 
     // Outer map perimeter containment
-    px = Math.max(-bound + r, Math.min(bound - r, px))
-    pz = Math.max(-bound + r, Math.min(bound - r, pz))
+    px = Math.max(minX + r, Math.min(maxX - r, px))
+    pz = Math.max(minZ + r, Math.min(maxZ - r, pz))
 
     return { x: px, z: pz }
   }
@@ -95,6 +110,15 @@ export class BotAI3D {
 
     // Buy Phase - stationary in spawn
     if (phase === 'BUY_PHASE') return
+
+    // Update vertical elevation based on ground/stairs/ramps (throttled every 0.1s for extreme FPS boost)
+    bot.groundCheckTimer = (bot.groundCheckTimer || 0) - dt
+    if (bot.groundCheckTimer <= 0) {
+      bot.groundCheckTimer = 0.08 + Math.random() * 0.04
+      const groundY = this.probeGround(bot.pos.x, bot.pos.z)
+      bot.pos.y = groundY + 1.7
+      bot.onGround = true
+    }
 
     // Practice Range Dummy bot behavior
     if (bot.isDummy) {
@@ -138,18 +162,24 @@ export class BotAI3D {
     const angleToEnemy = Math.atan2(closestEnemy.pos.x - bot.pos.x, closestEnemy.pos.z - bot.pos.z)
     bot.yaw = angleToEnemy
 
-    // Line of Sight Check
-    let hasLineOfSight = true
-    if (this.meshColliders && this.meshColliders.length > 0) {
-      const botEye = new THREE.Vector3(bot.pos.x, (bot.pos.y || 1.7) + 0.3, bot.pos.z)
-      const enemyEye = new THREE.Vector3(closestEnemy.pos.x, (closestEnemy.pos.y || 1.7) + 0.3, closestEnemy.pos.z)
-      const dir = new THREE.Vector3().subVectors(enemyEye, botEye).normalize()
-      this.raycaster.set(botEye, dir)
-      const hits = this.raycaster.intersectObjects(this.meshColliders, false)
-      if (hits.length > 0 && hits[0].distance < distToEnemy - 0.4) {
-        hasLineOfSight = false
+    // Line of Sight Check (throttled every 0.12s to prevent per-frame raycasting bottlenecks)
+    bot.losTimer = (bot.losTimer || 0) - dt
+    if (bot.losTimer <= 0) {
+      bot.losTimer = 0.10 + Math.random() * 0.05
+      let hasLineOfSight = true
+      if (this.meshColliders && this.meshColliders.length > 0 && distToEnemy < 40.0) {
+        const botEye = new THREE.Vector3(bot.pos.x, (bot.pos.y || 1.7) + 0.3, bot.pos.z)
+        const enemyEye = new THREE.Vector3(closestEnemy.pos.x, (closestEnemy.pos.y || 1.7) + 0.3, closestEnemy.pos.z)
+        const dir = new THREE.Vector3().subVectors(enemyEye, botEye).normalize()
+        this.raycaster.set(botEye, dir)
+        const hits = this.raycaster.intersectObjects(this.meshColliders, false)
+        if (hits.length > 0 && hits[0].distance < distToEnemy - 0.4) {
+          hasLineOfSight = false
+        }
       }
+      bot.cachedHasLOS = hasLineOfSight
     }
+    const hasLineOfSight = bot.cachedHasLOS !== undefined ? bot.cachedHasLOS : true
 
     // Combat & Engagement
     if (hasLineOfSight && distToEnemy < 28.0 && phase === 'ROUND_ACTIVE') {

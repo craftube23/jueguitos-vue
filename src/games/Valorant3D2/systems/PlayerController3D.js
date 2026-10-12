@@ -30,12 +30,42 @@ export class PlayerController3D {
     this.mouseSensitivity = 0.0022
     this.gunRecoil = 0
     this.walkBobTimer = 0
+    this.impulseVelocity = new THREE.Vector3()
 
     this.colliders = []
     this.meshColliders = []
+    this.bounds = { minX: -30.5, maxX: 30.5, minZ: -30.5, maxZ: 30.5 }
     this.currentFloorY = 0
     this.maxStepHeight = 0.75
     this.groundRaycaster = new THREE.Raycaster()
+  }
+
+  setBounds(bounds) {
+    if (bounds) {
+      this.bounds = {
+        minX: bounds.minX !== undefined ? bounds.minX : -30.5,
+        maxX: bounds.maxX !== undefined ? bounds.maxX : 30.5,
+        minZ: bounds.minZ !== undefined ? bounds.minZ : -30.5,
+        maxZ: bounds.maxZ !== undefined ? bounds.maxZ : 30.5
+      }
+    }
+  }
+
+  applyImpulse(vx, vy, vz) {
+    this.impulseVelocity.set(vx, 0, vz)
+    this.velocity.y = vy
+    this.onGround = false
+  }
+
+  addMeshCollider(mesh) {
+    if (mesh && !this.meshColliders.includes(mesh)) {
+      this.meshColliders.push(mesh)
+    }
+  }
+
+  removeMeshCollider(mesh) {
+    const idx = this.meshColliders.indexOf(mesh)
+    if (idx !== -1) this.meshColliders.splice(idx, 1)
   }
 
   setColliders(colliders) {
@@ -94,12 +124,14 @@ export class PlayerController3D {
     let moveX = 0
     let moveZ = 0
 
-    if (keys['KeyW']) { moveX += forward.x; moveZ += forward.z }
-    if (keys['KeyS']) { moveX -= forward.x; moveZ -= forward.z }
-    if (keys['KeyA']) { moveX -= right.x; moveZ -= right.z }
-    if (keys['KeyD']) { moveX += right.x; moveZ += right.z }
+    if (!this.freezeMovement) {
+      if (keys['KeyW']) { moveX += forward.x; moveZ += forward.z }
+      if (keys['KeyS']) { moveX -= forward.x; moveZ -= forward.z }
+      if (keys['KeyA']) { moveX -= right.x; moveZ -= right.z }
+      if (keys['KeyD']) { moveX += right.x; moveZ += right.z }
+    }
 
-    this.isCrouching = !!keys['ControlLeft'] || !!keys['ControlRight'] || !!keys['Control'] || !!keys['KeyC_crouch']
+    this.isCrouching = !this.freezeMovement && (!!keys['ControlLeft'] || !!keys['ControlRight'] || !!keys['Control'] || !!keys['KeyC_crouch'] || !!keys['KeyZ'])
     const isSilent = !!keys['ShiftLeft'] || !!keys['ShiftRight']
 
     let targetSpeed = this.walkSpeed
@@ -113,19 +145,29 @@ export class PlayerController3D {
     let moveDirX = 0
     let moveDirZ = 0
 
-    if (len > 0) {
+    if (len > 0 && !this.freezeMovement) {
       moveDirX = moveX / len
       moveDirZ = moveZ / len
       this.velocity.x = moveDirX * targetSpeed
       this.velocity.z = moveDirZ * targetSpeed
       this.walkBobTimer += dt * 10
     } else {
-      this.velocity.x *= 0.65
-      this.velocity.z *= 0.65
+      this.velocity.x = 0
+      this.velocity.z = 0
+    }
+
+    // Apply active momentum impulse (e.g. Grappling Hook / Impulse / Launch Pad)
+    if (this.impulseVelocity.lengthSq() > 0.01) {
+      this.velocity.x += this.impulseVelocity.x
+      this.velocity.z += this.impulseVelocity.z
+      this.impulseVelocity.x *= Math.max(0, 1 - 4.5 * dt)
+      this.impulseVelocity.z *= Math.max(0, 1 - 4.5 * dt)
+    } else {
+      this.impulseVelocity.set(0, 0, 0)
     }
 
     // 3. Jump and Gravity
-    if (keys['Space'] && this.onGround && !this.isCrouching) {
+    if (keys['Space'] && this.onGround && !this.isCrouching && !this.freezeMovement) {
       this.velocity.y = this.jumpForce
       this.onGround = false
     }
@@ -240,7 +282,10 @@ export class PlayerController3D {
     let px = targetX
     let pz = targetZ
     const r = this.radius
-    const bound = 30.5
+    const minX = (this.bounds?.minX !== undefined) ? this.bounds.minX : -30.5
+    const maxX = (this.bounds?.maxX !== undefined) ? this.bounds.maxX : 30.5
+    const minZ = (this.bounds?.minZ !== undefined) ? this.bounds.minZ : -30.5
+    const maxZ = (this.bounds?.maxZ !== undefined) ? this.bounds.maxZ : 30.5
 
     // 1. EXACT 3D MESH COLLISION (Checked at chest and head level to never snag on stairs)
     if (this.meshColliders && this.meshColliders.length > 0) {
@@ -317,11 +362,11 @@ export class PlayerController3D {
       }
     }
 
-    // 2. World Outer Boundary Limit (30.5m)
-    if (px < -bound + r) { px = -bound + r; this.velocity.x = Math.max(0, this.velocity.x) }
-    if (px > bound - r) { px = bound - r; this.velocity.x = Math.min(0, this.velocity.x) }
-    if (pz < -bound + r) { pz = -bound + r; this.velocity.z = Math.max(0, this.velocity.z) }
-    if (pz > bound - r) { pz = bound - r; this.velocity.z = Math.min(0, this.velocity.z) }
+    // 2. World Outer Boundary Limit (Dynamic map bounds)
+    if (px < minX + r) { px = minX + r; this.velocity.x = Math.max(0, this.velocity.x) }
+    if (px > maxX - r) { px = maxX - r; this.velocity.x = Math.min(0, this.velocity.x) }
+    if (pz < minZ + r) { pz = minZ + r; this.velocity.z = Math.max(0, this.velocity.z) }
+    if (pz > maxZ - r) { pz = maxZ - r; this.velocity.z = Math.min(0, this.velocity.z) }
 
     return { x: px, z: pz }
   }

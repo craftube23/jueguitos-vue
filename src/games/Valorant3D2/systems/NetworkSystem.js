@@ -1,61 +1,289 @@
 // src/games/Valorant3D2/systems/NetworkSystem.js
-import { Peer } from 'peerjs'
+import mqtt from 'mqtt'
+
+// High-speed public cloud WebSocket MQTT brokers with automatic fallback
+const MQTT_BROKERS = [
+  'wss://broker.hivemq.com:8884/mqtt',
+  'wss://broker.emqx.io:8084/mqtt'
+]
 
 export class NetworkSystem {
   constructor() {
-    this.peer = null
-    this.connections = [] // For host: list of DataConnections
-    this.hostConn = null   // For client: DataConnection to host
+    this.client = null
+    this.currentBrokerIndex = 0
     this.connected = false
     this.isHost = false
     this.currentRoom = null
     this.myPlayer = null
-    this.ping = 0
     this.listeners = new Map()
+    this.knownPublicRooms = new Map()
+    this.heartbeatInterval = null
+    this.joinRetryInterval = null
+    this.discoveryInterval = null
+    this.connectionStatus = 'DISCONNECTED' // 'CONNECTING', 'CONNECTED', 'ERROR'
+    this.subscribedTopics = new Set()
 
-    // BroadcastChannel local fallback
+    // Local mesh via BroadcastChannel
     this.bc = null
     if (typeof BroadcastChannel !== 'undefined') {
       try {
         this.bc = new BroadcastChannel('VALORANT3D_LOCAL_MESH')
         this.setupBroadcastChannel()
       } catch (e) {
-        console.warn('BroadcastChannel error:', e)
+        console.warn('BroadcastChannel notice:', e)
       }
     }
+
+    this.connect()
   }
 
   connect() {
-    // PeerJS initializes on room creation or join
-    this.connected = true
+    if (this.client && (this.client.connected || this.client.reconnecting)) return
+
+    const brokerUrl = MQTT_BROKERS[this.currentBrokerIndex % MQTT_BROKERS.length]
+    this.connectionStatus = 'CONNECTING'
+    this.emitInternal('network_status', 'CONNECTING')
+
+    const clientId = `v3d_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`
+
+    try {
+      this.client = mqtt.connect(brokerUrl, {
+        clientId,
+        clean: true,
+        connectTimeout: 5000,
+        reconnectPeriod: 2500,
+        keepalive: 30
+      })
+
+      this.client.on('connect', () => {
+        console.log(`✅ [Cloud Realtime] Conectado exitosamente al broker MQTT (${brokerUrl}) con ID: ${clientId}`)
+        this.connected = true
+        this.connectionStatus = 'CONNECTED'
+        this.emitInternal('network_status', 'CONNECTED')
+
+        // Subscribe to global lobby discovery
+        this.subscribeTopic('valo3d/global/lobby')
+
+        // Ask for active rooms
+        this.publishMessage('valo3d/global/get_rooms', { type: 'GET_ROOMS' })
+
+        // Resubscribe to current room topic if exists
+        if (this.currentRoom && this.currentRoom.id) {
+          this.subscribeRoomTopics(this.currentRoom.id)
+        }
+      })
+
+      this.client.on('message', (topic, message) => {
+        try {
+          const payload = JSON.parse(message.toString())
+          this.handleIncomingMqttMessage(topic, payload)
+        } catch (err) {
+          // ignore malformed payloads
+        }
+      })
+
+      this.client.on('error', (err) => {
+        console.warn('[Cloud Realtime] Aviso de conexión:', err?.message || err)
+        this.connectionStatus = 'CONNECTING'
+        this.emitInternal('network_status', 'CONNECTING')
+      })
+
+      this.client.on('offline', () => {
+        this.connected = false
+        this.connectionStatus = 'CONNECTING'
+        this.emitInternal('network_status', 'CONNECTING')
+      })
+
+      this.client.on('close', () => {
+        this.connected = false
+      })
+    } catch (e) {
+      console.warn('[Cloud Realtime] Error al inicializar MQTT:', e)
+    }
+
+    // Start discovery cleanup ticker (removes expired rooms)
+    if (!this.discoveryInterval) {
+      this.discoveryInterval = setInterval(() => {
+        const now = Date.now()
+        let changed = false
+        for (const [id, r] of this.knownPublicRooms.entries()) {
+          if (r.lastSeen && (now - r.lastSeen > 8000)) {
+            this.knownPublicRooms.delete(id)
+            changed = true
+          }
+        }
+        if (changed) {
+          this.emitInternal('rooms_list', Array.from(this.knownPublicRooms.values()))
+        }
+      }, 3000)
+    }
+  }
+
+  subscribeTopic(topic) {
+    if (!this.client || !this.connected) return
+    this.subscribedTopics.add(topic)
+    try {
+      this.client.subscribe(topic, { qos: 0 }, (err) => {
+        if (err) console.warn('Subscribe notice:', topic, err)
+      })
+    } catch (e) {}
+  }
+
+  unsubscribeTopic(topic) {
+    if (!this.client) return
+    this.subscribedTopics.delete(topic)
+    try {
+      this.client.unsubscribe(topic)
+    } catch (e) {}
+  }
+
+  publishMessage(topic, data) {
+    // 1. MQTT Cloud Publish
+    if (this.client && this.connected) {
+      try {
+        this.client.publish(topic, JSON.stringify(data), { qos: 0 })
+      } catch (e) {}
+    }
+    // 2. BroadcastChannel Local Mesh
+    if (this.bc) {
+      try {
+        this.bc.postMessage({ topic, data })
+      } catch (e) {}
+    }
   }
 
   setupBroadcastChannel() {
     if (!this.bc) return
     this.bc.onmessage = (e) => {
       const msg = e.data
-      if (!msg || !msg.type) return
+      if (!msg || !msg.topic || !msg.data) return
+      this.handleIncomingMqttMessage(msg.topic, msg.data)
+    }
+  }
 
-      if (msg.type === 'BC_ROOM_UPDATED' && this.currentRoom && this.currentRoom.id === msg.room.id) {
-        this.currentRoom = msg.room
-        this.emitInternal('room_updated', msg.room)
-      } else if (msg.type === 'BC_START_MATCH' && this.currentRoom && this.currentRoom.id === msg.roomId) {
-        this.currentRoom.status = 'in_game'
-        this.emitInternal('match_started', this.currentRoom)
-      } else if (msg.type === 'BC_PLAYER_SYNC' && this.currentRoom && this.currentRoom.id === msg.roomId) {
-        if (this.myPlayer && msg.data.id !== this.myPlayer.id) {
-          this.emitInternal('player_moved', msg.data)
+  subscribeRoomTopics(roomId) {
+    const clean = (roomId || '').trim().toUpperCase()
+    this.subscribeTopic(`valo3d/room/${clean}/#`)
+  }
+
+  handleIncomingMqttMessage(topic, payload) {
+    if (!payload || !payload.type) return
+
+    // --- GLOBAL LOBBY DISCOVERY ---
+    if (topic === 'valo3d/global/get_rooms') {
+      if (this.isHost && this.currentRoom && this.currentRoom.status === 'lobby') {
+        this.publishMessage('valo3d/global/lobby', {
+          type: 'ANNOUNCE_ROOM',
+          room: this.currentRoom,
+          lastSeen: Date.now()
+        })
+      }
+      return
+    }
+
+    if (topic === 'valo3d/global/lobby' && payload.type === 'ANNOUNCE_ROOM') {
+      if (payload.room && payload.room.id) {
+        this.knownPublicRooms.set(payload.room.id, {
+          ...payload.room,
+          lastSeen: Date.now(),
+          playerCount: payload.room.players?.length || 1
+        })
+        this.emitInternal('rooms_list', Array.from(this.knownPublicRooms.values()))
+      }
+      return
+    }
+
+    // Filter messages for my current room
+    if (!this.currentRoom || !this.currentRoom.id) return
+    const myRoomCode = this.currentRoom.id.toUpperCase()
+    const msgRoomCode = (payload.roomId || '').toUpperCase()
+
+    if (msgRoomCode && msgRoomCode !== myRoomCode) return
+
+    // --- HOST HANDLING INCOMING CLIENT REQUESTS ---
+    if (this.isHost) {
+      if (payload.type === 'JOIN_REQ') {
+        if (payload.player) {
+          const existsIdx = this.currentRoom.players.findIndex(p => p.id === payload.player.id)
+          if (existsIdx === -1) {
+            this.currentRoom.players.push(payload.player)
+          } else {
+            this.currentRoom.players[existsIdx] = payload.player
+          }
+          this.broadcastRoomUpdate()
         }
-      } else if (msg.type === 'BC_GAME_EVENT' && this.currentRoom && this.currentRoom.id === msg.roomId) {
-        if (this.myPlayer && msg.event.senderId !== this.myPlayer.id) {
-          this.emitInternal('game_event', msg.event)
+      } else if (payload.type === 'SWITCH_TEAM') {
+        const p = this.currentRoom.players.find(x => x.id === payload.playerId)
+        if (p) {
+          p.team = payload.targetTeam
+          this.broadcastRoomUpdate()
         }
-      } else if (msg.type === 'BC_PLAYER_HIT' && this.currentRoom && this.currentRoom.id === msg.roomId) {
-        this.emitInternal('player_took_damage', msg.data)
-      } else if (msg.type === 'BC_CHAT' && this.currentRoom && this.currentRoom.id === msg.roomId) {
-        this.emitInternal('chat_received', msg.chat)
+      } else if (payload.type === 'SELECT_AGENT') {
+        const p = this.currentRoom.players.find(x => x.id === payload.playerId)
+        if (p) {
+          p.agentId = payload.agentId
+          this.broadcastRoomUpdate()
+        }
+      } else if (payload.type === 'LOCK_AGENT') {
+        const p = this.currentRoom.players.find(x => x.id === payload.playerId)
+        if (p) {
+          p.isLocked = true
+          p.isReady = true
+          this.broadcastRoomUpdate()
+        }
+      } else if (payload.type === 'PLAYER_LEFT') {
+        this.currentRoom.players = this.currentRoom.players.filter(p => p.id !== payload.playerId)
+        this.broadcastRoomUpdate()
+        this.emitInternal('player_left', { id: payload.playerId, name: payload.playerName, isHost: payload.isHost })
       }
     }
+
+    // --- ALL PLAYERS (HOST & CLIENTS) HANDLING BROADCASTS ---
+    if (payload.type === 'ROOM_UPDATE') {
+      this.currentRoom = payload.room
+      if (this.joinRetryInterval) clearInterval(this.joinRetryInterval)
+      this.emitInternal('room_updated', payload.room)
+    } else if (payload.type === 'KICK_PLAYER') {
+      if (this.myPlayer && payload.targetPlayerId === this.myPlayer.id) {
+        this.leaveRoom(false)
+        this.emitInternal('kicked_from_room', { reason: 'Has sido expulsado de la sala por el anfitrión.' })
+      } else {
+        this.emitInternal('player_kicked', { id: payload.targetPlayerId })
+      }
+    } else if (payload.type === 'PLAYER_LEFT' && !this.isHost) {
+      this.emitInternal('player_left', { id: payload.playerId, name: payload.playerName, isHost: payload.isHost })
+    } else if (payload.type === 'START_MATCH') {
+      this.currentRoom = payload.room || this.currentRoom
+      this.currentRoom.status = 'in_game'
+      this.emitInternal('match_started', this.currentRoom)
+    } else if (payload.type === 'MATCH_FINISHED') {
+      if (this.currentRoom) this.currentRoom.status = 'lobby'
+      this.emitInternal('match_finished', payload.data)
+    } else if (payload.type === 'PLAYER_SYNC') {
+      if (this.myPlayer && payload.data.id !== this.myPlayer.id) {
+        this.emitInternal('player_moved', payload.data)
+      }
+    } else if (payload.type === 'GAME_EVENT') {
+      if (this.myPlayer && payload.event.senderId !== this.myPlayer.id) {
+        this.emitInternal('game_event', payload.event)
+      }
+    } else if (payload.type === 'PLAYER_HIT') {
+      this.emitInternal('player_took_damage', payload.data)
+    } else if (payload.type === 'ROUND_SYNC') {
+      this.emitInternal('round_sync', payload.data)
+    } else if (payload.type === 'CHAT') {
+      this.emitInternal('chat_received', payload.chat)
+    }
+  }
+
+  broadcastRoomUpdate() {
+    if (!this.currentRoom) return
+    this.publishMessage(`valo3d/room/${this.currentRoom.id}/events`, {
+      type: 'ROOM_UPDATE',
+      roomId: this.currentRoom.id,
+      room: this.currentRoom
+    })
+    this.emitInternal('room_updated', this.currentRoom)
   }
 
   on(event, cb) {
@@ -75,7 +303,7 @@ export class NetworkSystem {
   emitInternal(event, data) {
     if (this.listeners.has(event)) {
       for (const cb of this.listeners.get(event)) {
-        cb(data)
+        try { cb(data) } catch (err) { console.error('Listener error:', err) }
       }
     }
   }
@@ -91,15 +319,12 @@ export class NetworkSystem {
 
   // --- HOST: CREATE ROOM ---
   createRoom(roomName, playerName, team = 'attackers', customConfig = null) {
-    if (this.peer) {
-      try { this.peer.destroy() } catch (e) {}
-    }
+    this.connect()
+    if (this.heartbeatInterval) clearInterval(this.heartbeatInterval)
+    if (this.joinRetryInterval) clearInterval(this.joinRetryInterval)
 
     const roomId = this.generateCode()
-    const peerRoomId = `v3d_${roomId.toLowerCase()}`
-
     this.isHost = true
-    this.connections = []
 
     const hostPlayer = {
       id: `host_${Date.now()}`,
@@ -112,7 +337,7 @@ export class NetworkSystem {
       pos: { x: team === 'attackers' ? -26.0 : 26.0, y: 1.7, z: 0 },
       health: 100,
       armor: 50,
-      weapon: 'vandal'
+      weapon: 'ak74u'
     }
 
     const defaultCustomConfig = {
@@ -124,7 +349,8 @@ export class NetworkSystem {
       startingCredits: 5000,
       infiniteAmmo: false,
       infiniteAbilities: false,
-      buyPhaseDuration: 15
+      buyPhaseDuration: 15,
+      mapId: 'kasbah_temple'
     }
 
     const room = {
@@ -139,127 +365,32 @@ export class NetworkSystem {
     this.currentRoom = room
     this.myPlayer = hostPlayer
 
-    try {
-      this.peer = new Peer(peerRoomId, {
-        debug: 1,
-        config: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' }
-          ]
-        }
-      })
+    // Subscribe to room topic
+    this.subscribeRoomTopics(roomId)
 
-      this.peer.on('open', (id) => {
-        this.connected = true
-        this.emitInternal('room_joined', { room, player: hostPlayer })
-      })
-
-      this.peer.on('connection', (conn) => {
-        this.connections.push(conn)
-
-        conn.on('data', (data) => {
-          this.handleHostReceivedData(conn, data)
+    // Periodic lobby announcement & heartbeat (every 1.5s)
+    this.heartbeatInterval = setInterval(() => {
+      if (this.isHost && this.currentRoom && this.currentRoom.status === 'lobby') {
+        this.publishMessage('valo3d/global/lobby', {
+          type: 'ANNOUNCE_ROOM',
+          room: this.currentRoom,
+          lastSeen: Date.now()
         })
-
-        conn.on('close', () => {
-          this.connections = this.connections.filter(c => c !== conn)
-          if (conn.playerId && this.currentRoom) {
-            this.currentRoom.players = this.currentRoom.players.filter(p => p.id !== conn.playerId)
-            this.broadcastToAll({ type: 'ROOM_UPDATE', room: this.currentRoom })
-            this.emitInternal('room_updated', this.currentRoom)
-          }
-        })
-      })
-
-      this.peer.on('error', (err) => {
-        console.warn('PeerJS Host notice:', err)
-        // If error, still allow local broadcast
-        this.emitInternal('room_joined', { room, player: hostPlayer })
-      })
-    } catch (e) {
-      console.warn('Peer fallback error:', e)
-      this.emitInternal('room_joined', { room, player: hostPlayer })
-    }
-  }
-
-  handleHostReceivedData(conn, msg) {
-    if (!msg || !msg.type) return
-
-    if (msg.type === 'JOIN_REQ') {
-      conn.playerId = msg.player.id
-      const exists = this.currentRoom.players.find(p => p.id === msg.player.id)
-      if (!exists) {
-        this.currentRoom.players.push(msg.player)
+        this.broadcastRoomUpdate()
       }
-      // Send full room state to all clients
-      this.broadcastToAll({ type: 'ROOM_UPDATE', room: this.currentRoom })
-      this.emitInternal('room_updated', this.currentRoom)
-    } else if (msg.type === 'SWITCH_TEAM') {
-      const p = this.currentRoom.players.find(x => x.id === msg.playerId)
-      if (p) {
-        p.team = msg.targetTeam
-        this.broadcastToAll({ type: 'ROOM_UPDATE', room: this.currentRoom })
-        this.emitInternal('room_updated', this.currentRoom)
-      }
-    } else if (msg.type === 'SELECT_AGENT') {
-      const p = this.currentRoom.players.find(x => x.id === msg.playerId)
-      if (p) {
-        p.agentId = msg.agentId
-        this.broadcastToAll({ type: 'ROOM_UPDATE', room: this.currentRoom })
-        this.emitInternal('room_updated', this.currentRoom)
-      }
-    } else if (msg.type === 'LOCK_AGENT') {
-      const p = this.currentRoom.players.find(x => x.id === msg.playerId)
-      if (p) {
-        p.isLocked = true
-        p.isReady = true
-        this.broadcastToAll({ type: 'ROOM_UPDATE', room: this.currentRoom })
-        this.emitInternal('room_updated', this.currentRoom)
-      }
-    } else if (msg.type === 'PLAYER_SYNC') {
-      // Broadcast to other peers and fire locally
-      this.broadcastToAll(msg, conn)
-      this.emitInternal('player_moved', msg.data)
-    } else if (msg.type === 'GAME_EVENT') {
-      this.broadcastToAll(msg, conn)
-      this.emitInternal('game_event', msg.event)
-    } else if (msg.type === 'PLAYER_HIT') {
-      this.broadcastToAll(msg)
-      this.emitInternal('player_took_damage', msg.data)
-    } else if (msg.type === 'CHAT') {
-      this.broadcastToAll(msg)
-      this.emitInternal('chat_received', msg.chat)
-    }
-  }
+    }, 1500)
 
-  broadcastToAll(data, excludeConn = null) {
-    this.connections.forEach(c => {
-      if (c !== excludeConn && c.open) {
-        c.send(data)
-      }
-    })
-    // Local BroadcastChannel sync
-    if (this.bc) {
-      if (data.type === 'ROOM_UPDATE') this.bc.postMessage({ type: 'BC_ROOM_UPDATED', room: data.room })
-      else if (data.type === 'START_MATCH') this.bc.postMessage({ type: 'BC_START_MATCH', roomId: this.currentRoom?.id })
-      else if (data.type === 'PLAYER_SYNC') this.bc.postMessage({ type: 'BC_PLAYER_SYNC', roomId: this.currentRoom?.id, data: data.data })
-      else if (data.type === 'GAME_EVENT') this.bc.postMessage({ type: 'BC_GAME_EVENT', roomId: this.currentRoom?.id, event: data.event })
-      else if (data.type === 'PLAYER_HIT') this.bc.postMessage({ type: 'BC_PLAYER_HIT', roomId: this.currentRoom?.id, data: data.data })
-      else if (data.type === 'CHAT') this.bc.postMessage({ type: 'BC_CHAT', roomId: this.currentRoom?.id, chat: data.chat })
-    }
+    this.emitInternal('room_joined', { room, player: hostPlayer })
+    return room
   }
 
   // --- CLIENT: JOIN ROOM ---
   joinRoom(roomId, playerName, team = 'defenders') {
-    if (this.peer) {
-      try { this.peer.destroy() } catch (e) {}
-    }
+    this.connect()
+    if (this.heartbeatInterval) clearInterval(this.heartbeatInterval)
+    if (this.joinRetryInterval) clearInterval(this.joinRetryInterval)
 
     const cleanCode = (roomId || '').trim().toUpperCase()
-    const peerTargetId = `v3d_${cleanCode.toLowerCase()}`
-
     this.isHost = false
 
     const joinPlayer = {
@@ -273,7 +404,7 @@ export class NetworkSystem {
       pos: { x: team === 'attackers' ? -26.0 : 26.0, y: 1.7, z: 5.0 },
       health: 100,
       armor: 50,
-      weapon: 'vandal'
+      weapon: 'ak74u'
     }
 
     const placeholderRoom = {
@@ -291,103 +422,67 @@ export class NetworkSystem {
         startingCredits: 5000,
         infiniteAmmo: false,
         infiniteAbilities: false,
-        buyPhaseDuration: 15
+        buyPhaseDuration: 15,
+        mapId: 'kasbah_temple'
       }
     }
 
     this.currentRoom = placeholderRoom
     this.myPlayer = joinPlayer
 
-    try {
-      this.peer = new Peer({
-        debug: 1,
-        config: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' }
-          ]
-        }
+    // Subscribe to room topic
+    this.subscribeRoomTopics(cleanCode)
+
+    const sendJoinRequest = () => {
+      this.publishMessage(`valo3d/room/${cleanCode}/actions`, {
+        type: 'JOIN_REQ',
+        roomId: cleanCode,
+        player: joinPlayer
       })
-
-      this.peer.on('open', () => {
-        this.hostConn = this.peer.connect(peerTargetId, { reliable: true })
-
-        this.hostConn.on('open', () => {
-          this.connected = true
-          this.hostConn.send({
-            type: 'JOIN_REQ',
-            player: joinPlayer
-          })
-          this.emitInternal('room_joined', { room: this.currentRoom, player: joinPlayer })
-        })
-
-        this.hostConn.on('data', (data) => {
-          this.handleClientReceivedData(data)
-        })
-
-        this.hostConn.on('error', (err) => {
-          console.warn('Connection to host error:', err)
-          this.emitInternal('room_joined', { room: this.currentRoom, player: joinPlayer })
-        })
-      })
-
-      this.peer.on('error', (err) => {
-        console.warn('Peer client error:', err)
-        this.emitInternal('room_joined', { room: this.currentRoom, player: joinPlayer })
-      })
-    } catch (e) {
-      console.warn('Peer connect error:', e)
-      this.emitInternal('room_joined', { room: this.currentRoom, player: joinPlayer })
     }
-  }
 
-  handleClientReceivedData(msg) {
-    if (!msg || !msg.type) return
+    // Send join request immediately
+    sendJoinRequest()
 
-    if (msg.type === 'ROOM_UPDATE') {
-      this.currentRoom = msg.room
-      this.emitInternal('room_updated', msg.room)
-    } else if (msg.type === 'START_MATCH') {
-      this.currentRoom = msg.room || this.currentRoom
-      this.currentRoom.status = 'in_game'
-      this.emitInternal('match_started', this.currentRoom)
-    } else if (msg.type === 'PLAYER_SYNC') {
-      if (this.myPlayer && msg.data.id !== this.myPlayer.id) {
-        this.emitInternal('player_moved', msg.data)
+    // Retry sending join request every 800ms until room sync confirmed
+    this.joinRetryInterval = setInterval(() => {
+      if (!this.isHost && this.currentRoom && this.currentRoom.players.length <= 1) {
+        sendJoinRequest()
       }
-    } else if (msg.type === 'GAME_EVENT') {
-      if (this.myPlayer && msg.event.senderId !== this.myPlayer.id) {
-        this.emitInternal('game_event', msg.event)
-      }
-    } else if (msg.type === 'PLAYER_HIT') {
-      this.emitInternal('player_took_damage', msg.data)
-    } else if (msg.type === 'CHAT') {
-      this.emitInternal('chat_received', msg.chat)
-    }
+    }, 800)
+
+    this.emitInternal('room_joined', { room: placeholderRoom, player: joinPlayer })
   }
 
   switchTeam(roomId, targetTeam) {
     if (this.myPlayer) this.myPlayer.team = targetTeam
-    if (this.isHost) {
+    if (this.isHost && this.currentRoom) {
       const p = this.currentRoom.players.find(x => x.id === this.myPlayer.id)
       if (p) p.team = targetTeam
-      this.broadcastToAll({ type: 'ROOM_UPDATE', room: this.currentRoom })
-      this.emitInternal('room_updated', this.currentRoom)
-    } else if (this.hostConn && this.hostConn.open) {
-      this.hostConn.send({ type: 'SWITCH_TEAM', playerId: this.myPlayer.id, targetTeam })
+      this.broadcastRoomUpdate()
+    } else {
+      this.publishMessage(`valo3d/room/${roomId}/actions`, {
+        type: 'SWITCH_TEAM',
+        roomId,
+        playerId: this.myPlayer?.id,
+        targetTeam
+      })
     }
   }
 
   selectAgent(roomId, agentId) {
     if (this.myPlayer) this.myPlayer.agentId = agentId
-    if (this.isHost) {
+    if (this.isHost && this.currentRoom) {
       const p = this.currentRoom.players.find(x => x.id === this.myPlayer.id)
       if (p) p.agentId = agentId
-      this.broadcastToAll({ type: 'ROOM_UPDATE', room: this.currentRoom })
-      this.emitInternal('room_updated', this.currentRoom)
-    } else if (this.hostConn && this.hostConn.open) {
-      this.hostConn.send({ type: 'SELECT_AGENT', playerId: this.myPlayer.id, agentId })
+      this.broadcastRoomUpdate()
+    } else {
+      this.publishMessage(`valo3d/room/${roomId}/actions`, {
+        type: 'SELECT_AGENT',
+        roomId,
+        playerId: this.myPlayer?.id,
+        agentId
+      })
     }
   }
 
@@ -396,56 +491,74 @@ export class NetworkSystem {
       this.myPlayer.isLocked = true
       this.myPlayer.isReady = true
     }
-    if (this.isHost) {
+    if (this.isHost && this.currentRoom) {
       const p = this.currentRoom.players.find(x => x.id === this.myPlayer.id)
       if (p) {
         p.isLocked = true
         p.isReady = true
       }
-      this.broadcastToAll({ type: 'ROOM_UPDATE', room: this.currentRoom })
-      this.emitInternal('room_updated', this.currentRoom)
-    } else if (this.hostConn && this.hostConn.open) {
-      this.hostConn.send({ type: 'LOCK_AGENT', playerId: this.myPlayer.id })
+      this.broadcastRoomUpdate()
+    } else {
+      this.publishMessage(`valo3d/room/${roomId}/actions`, {
+        type: 'LOCK_AGENT',
+        roomId,
+        playerId: this.myPlayer?.id
+      })
     }
   }
 
   updateRoomConfig(roomId, newConfig) {
     if (this.isHost && this.currentRoom) {
       this.currentRoom.customConfig = { ...(this.currentRoom.customConfig || {}), ...newConfig }
-      this.broadcastToAll({ type: 'ROOM_UPDATE', room: this.currentRoom })
-      this.emitInternal('room_updated', this.currentRoom)
+      this.broadcastRoomUpdate()
     }
   }
 
   startMatch(roomId) {
     if (this.isHost && this.currentRoom) {
       this.currentRoom.status = 'in_game'
-      this.broadcastToAll({ type: 'START_MATCH', room: this.currentRoom })
+      this.publishMessage(`valo3d/room/${roomId}/events`, {
+        type: 'START_MATCH',
+        roomId,
+        room: this.currentRoom
+      })
       this.emitInternal('match_started', this.currentRoom)
     }
   }
 
-  syncPlayer(roomId, data) {
-    const payload = { type: 'PLAYER_SYNC', data: { id: this.myPlayer?.id || 'local', ...data } }
-    if (this.isHost) {
-      this.broadcastToAll(payload)
-    } else if (this.hostConn && this.hostConn.open) {
-      this.hostConn.send(payload)
+  endMatch(roomId, matchData) {
+    if (this.isHost && this.currentRoom) {
+      this.currentRoom.status = 'lobby'
+      this.publishMessage(`valo3d/room/${roomId}/events`, {
+        type: 'MATCH_FINISHED',
+        roomId,
+        data: matchData
+      })
+      this.broadcastRoomUpdate()
+      this.emitInternal('match_finished', matchData)
     }
+  }
+
+  syncPlayer(roomId, data) {
+    this.publishMessage(`valo3d/room/${roomId}/sync`, {
+      type: 'PLAYER_SYNC',
+      roomId,
+      data: { id: this.myPlayer?.id || 'local', ...data }
+    })
   }
 
   sendGameEvent(roomId, event) {
-    const payload = { type: 'GAME_EVENT', event: { senderId: this.myPlayer?.id || 'local', ...event } }
-    if (this.isHost) {
-      this.broadcastToAll(payload)
-    } else if (this.hostConn && this.hostConn.open) {
-      this.hostConn.send(payload)
-    }
+    this.publishMessage(`valo3d/room/${roomId}/events`, {
+      type: 'GAME_EVENT',
+      roomId,
+      event: { senderId: this.myPlayer?.id || 'local', ...event }
+    })
   }
 
   sendHit(roomId, targetId, damage, weapon, headshot, killerName) {
-    const payload = {
+    this.publishMessage(`valo3d/room/${roomId}/hits`, {
       type: 'PLAYER_HIT',
+      roomId,
       data: {
         targetId,
         damage,
@@ -454,12 +567,15 @@ export class NetworkSystem {
         headshot,
         killerName: killerName || 'Operador'
       }
-    }
-    if (this.isHost) {
-      this.broadcastToAll(payload)
-    } else if (this.hostConn && this.hostConn.open) {
-      this.hostConn.send(payload)
-    }
+    })
+  }
+
+  broadcastRoundSync(roomId, roundData) {
+    this.publishMessage(`valo3d/room/${roomId}/rounds`, {
+      type: 'ROUND_SYNC',
+      roomId,
+      data: roundData
+    })
   }
 
   sendChat(roomId, text, teamOnly = false) {
@@ -471,26 +587,43 @@ export class NetworkSystem {
       teamOnly,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
-    const payload = { type: 'CHAT', chat }
-    if (this.isHost) {
-      this.broadcastToAll(payload)
-      this.emitInternal('chat_received', chat)
-    } else if (this.hostConn && this.hostConn.open) {
-      this.hostConn.send(payload)
-    }
+    this.publishMessage(`valo3d/room/${roomId}/chat`, {
+      type: 'CHAT',
+      roomId,
+      chat
+    })
+    this.emitInternal('chat_received', chat)
   }
 
-  leaveRoom() {
-    if (this.hostConn) {
-      try { this.hostConn.close() } catch (e) {}
-      this.hostConn = null
+  kickPlayer(roomId, targetPlayerId) {
+    if (!this.isHost || !this.currentRoom) return
+    const cleanRoom = (roomId || this.currentRoom.id).trim().toUpperCase()
+    this.currentRoom.players = this.currentRoom.players.filter(p => p.id !== targetPlayerId)
+    this.publishMessage(`valo3d/room/${cleanRoom}/actions`, {
+      type: 'KICK_PLAYER',
+      roomId: cleanRoom,
+      targetPlayerId
+    })
+    this.broadcastRoomUpdate()
+  }
+
+  leaveRoom(notify = true) {
+    if (notify && this.currentRoom && this.myPlayer) {
+      const cleanRoom = this.currentRoom.id.trim().toUpperCase()
+      this.publishMessage(`valo3d/room/${cleanRoom}/actions`, {
+        type: 'PLAYER_LEFT',
+        roomId: cleanRoom,
+        playerId: this.myPlayer.id,
+        playerName: this.myPlayer.name,
+        isHost: this.isHost
+      })
     }
-    if (this.peer) {
-      try { this.peer.destroy() } catch (e) {}
-      this.peer = null
+    if (this.heartbeatInterval) clearInterval(this.heartbeatInterval)
+    if (this.joinRetryInterval) clearInterval(this.joinRetryInterval)
+    if (this.currentRoom && this.currentRoom.id) {
+      this.unsubscribeTopic(`valo3d/room/${this.currentRoom.id}/#`)
     }
-    this.connections = []
     this.currentRoom = null
-    this.myPlayer = null
+    this.isHost = false
   }
 }

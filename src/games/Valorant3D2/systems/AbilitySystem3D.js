@@ -7,253 +7,644 @@ export class AbilitySystem3D {
   constructor(scene, camera) {
     this.scene = scene
     this.camera = camera
+    this.playerController = null
+    this.meshColliders = []
+
+    // Active 1v1.LOL 3D Structures & VFX
     this.smokes = []
-    this.fires = []
-    this.walls = []
-    this.reconArrows = []
-    this.sonarPulses = []
-    this.beams = []
-    this.soulOrbs = []
-    this.turrets = []
+    this.ramps = []
+    this.grappleCables = []
+    this.launchPads = []
+    this.dashTrails = []
+    this.updraftVortices = []
+    this.healingAuras = []
   }
 
+  setPlayerController(pc) {
+    this.playerController = pc
+  }
+
+  setMeshColliders(meshList) {
+    this.meshColliders = meshList || []
+  }
+
+  // --- LOCAL 1V1.LOL ABILITY CAST ---
   cast(player, key, targets = [], onAnnouncement) {
+    if (key === 'C') {
+      // ====================================================
+      // 1. [C] NUBE DE HUMO TÁCTICA (SMOKE GRENADE) - MANTENIDA
+      // ====================================================
+      const forward = new THREE.Vector3(0, 0, -1).applyEuler(this.camera.rotation)
+      const targetPos = new THREE.Vector3(player.pos.x, player.pos.y, player.pos.z).addScaledVector(forward, 7)
+      this.spawnSmoke(targetPos, 4.5, 0x64748b, 7.5)
+      soundManager.play('flash')
+      if (onAnnouncement) onAnnouncement('☁️ ¡NUBE DE HUMO TÁCTICA DESPLEGADA!')
+    } else if (key === 'Q') {
+      // ====================================================
+      // 2. [Q] CONSTRUIR RAMPA / ESCALERA 1V1 (RAMP BUILD)
+      // ====================================================
+      this.spawnRamp(player)
+      soundManager.play('buy')
+      if (onAnnouncement) onAnnouncement('🪜 ¡RAMPA 1v1 CONSTRUIDA (HIGH GROUND)!')
+    } else if (key === 'E') {
+      // ====================================================
+      // 3. [E] GANCHO DE AGARRE / IMPULSO AÉREO (GRAPPLER)
+      // ====================================================
+      this.castGrappleHook(player)
+      if (onAnnouncement) onAnnouncement('⚡ ¡GANCHO DE AGARRE / IMPULSO AÉREO!')
+    } else if (key === 'X') {
+      // ====================================================
+      // 4. [X] LANZADOR / PLATAFORMA DE SALTO + ESCUDO
+      // ====================================================
+      this.spawnLaunchPad(player)
+      if (onAnnouncement) onAnnouncement('🚀 ¡PLATAFORMA DE SALTO + 50 ESCUDO ACTIVADO!')
+    }
+  }
+
+  // ====================================================
+  // 1. [C] SMOKE GRENADE (Nube de humo táctica)
+  // ====================================================
+  spawnSmoke(pos, radius = 4.5, color = 0x64748b, duration = 8.0) {
+    const smokeGroup = new THREE.Group()
+
+    // Outer Translucent Cloud Sphere
+    const outerGeo = new THREE.SphereGeometry(radius, 24, 24)
+    const outerMat = new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.9,
+      metalness: 0.1,
+      transparent: true,
+      opacity: 0.88,
+      depthWrite: false
+    })
+    const outerMesh = new THREE.Mesh(outerGeo, outerMat)
+    outerMesh.position.y = radius * 0.75
+    smokeGroup.add(outerMesh)
+
+    // Inner Core Dark Smoke
+    const innerGeo = new THREE.SphereGeometry(radius * 0.7, 16, 16)
+    const innerMat = new THREE.MeshBasicMaterial({
+      color: 0x1e293b,
+      transparent: true,
+      opacity: 0.95
+    })
+    const innerMesh = new THREE.Mesh(innerGeo, innerMat)
+    innerMesh.position.y = radius * 0.75
+    smokeGroup.add(innerMesh)
+
+    // Swirling Ground Dust Ring
+    const ringGeo = new THREE.RingGeometry(radius * 0.2, radius * 1.1, 32)
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0x94a3b8,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.6
+    })
+    const ringMesh = new THREE.Mesh(ringGeo, ringMat)
+    ringMesh.rotation.x = -Math.PI / 2
+    ringMesh.position.y = 0.08
+    smokeGroup.add(ringMesh)
+
+    smokeGroup.position.set(pos.x, 0, pos.z)
+    smokeGroup.scale.set(0.1, 0.1, 0.1)
+    this.scene.add(smokeGroup)
+
+    this.smokes.push({
+      group: smokeGroup,
+      ringMesh,
+      targetScale: 1.0,
+      currentScale: 0.1,
+      life: duration,
+      maxLife: duration
+    })
+  }
+
+  // ====================================================
+  // 2. [Q] 1V1.LOL RAMP BUILD (Escalera sólida 3D)
+  // ====================================================
+  spawnRamp(player) {
+    const rampGroup = new THREE.Group()
+    const numSteps = 8
+    const rampWidth = 3.6
+    const rampLength = 5.2
+    const rampHeight = 3.2
+    const stepDepth = (rampLength / numSteps) * 1.05
+    const stepHeight = rampHeight / numSteps
+
+    const woodCanvas = document.createElement('canvas')
+    woodCanvas.width = 256
+    woodCanvas.height = 256
+    const ctx = woodCanvas.getContext('2d')
+    ctx.fillStyle = '#78350f'
+    ctx.fillRect(0, 0, 256, 256)
+    ctx.fillStyle = '#92400e'
+    for (let y = 0; y < 256; y += 32) {
+      ctx.fillRect(0, y + 2, 256, 28)
+    }
+    ctx.strokeStyle = '#f59e0b'
+    ctx.lineWidth = 4
+    ctx.strokeRect(4, 4, 248, 248)
+    const woodTex = new THREE.CanvasTexture(woodCanvas)
+    woodTex.wrapS = THREE.RepeatWrapping
+    woodTex.wrapT = THREE.RepeatWrapping
+
+    const plankMat = new THREE.MeshStandardMaterial({
+      map: woodTex,
+      roughness: 0.65,
+      metalness: 0.2
+    })
+    const edgeMat = new THREE.MeshBasicMaterial({ color: 0x00f3ff })
+
+    const yaw = (this.playerController ? this.playerController.yaw : player.yaw) || 0
+    const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw)
+
+    const startY = Math.max(0, (player.pos.y || 1.7) - (this.playerController ? this.playerController.currentEyeHeight : 1.7))
+    const startX = player.pos.x + forward.x * 1.2
+    const startZ = player.pos.z + forward.z * 1.2
+
+    const colliders = []
+
+    for (let i = 0; i < numSteps; i++) {
+      const curH = stepHeight * (i + 1)
+      const distAlong = (i + 0.5) * (rampLength / numSteps)
+      const sx = startX + forward.x * distAlong
+      const sz = startZ + forward.z * distAlong
+      const sy = startY + curH / 2
+
+      const stepGeo = new THREE.BoxGeometry(rampWidth, curH, stepDepth)
+      const stepMesh = new THREE.Mesh(stepGeo, plankMat)
+      stepMesh.position.set(sx, sy, sz)
+      stepMesh.rotation.y = yaw
+      stepMesh.castShadow = true
+      stepMesh.receiveShadow = true
+      rampGroup.add(stepMesh)
+      colliders.push(stepMesh)
+
+      // Glowing cyan neon edge
+      const edgeGeo = new THREE.BoxGeometry(rampWidth * 0.98, 0.03, 0.06)
+      const edge = new THREE.Mesh(edgeGeo, edgeMat)
+      edge.position.set(sx, startY + curH + 0.01, sz + (stepDepth / 2) * 0.9)
+      edge.rotation.y = yaw
+      rampGroup.add(edge)
+    }
+
+    // Top landing platform (0.9m extension)
+    const topX = startX + forward.x * (rampLength + 0.45)
+    const topZ = startZ + forward.z * (rampLength + 0.45)
+    const topGeo = new THREE.BoxGeometry(rampWidth, 0.25, 0.9)
+    const topMesh = new THREE.Mesh(topGeo, plankMat)
+    topMesh.position.set(topX, startY + rampHeight - 0.125, topZ)
+    topMesh.rotation.y = yaw
+    topMesh.castShadow = true
+    topMesh.receiveShadow = true
+    rampGroup.add(topMesh)
+    colliders.push(topMesh)
+
+    this.scene.add(rampGroup)
+
+    // Register colliders with playerController, scene, and meshColliders
+    colliders.forEach(c => {
+      if (this.meshColliders && !this.meshColliders.includes(c)) this.meshColliders.push(c)
+      if (this.playerController) this.playerController.addMeshCollider(c)
+    })
+
+    this.ramps.push({
+      group: rampGroup,
+      colliders,
+      plankMat,
+      edgeMat,
+      life: 12.0,
+      maxLife: 12.0
+    })
+
+    // Brief holographic pop-in effect
+    this.spawnHoloBuildBox(new THREE.Vector3(startX + forward.x * 2.5, startY + 1.5, startZ + forward.z * 2.5), rampWidth, rampHeight, rampLength, yaw)
+  }
+
+  spawnHoloBuildBox(pos, w, h, d, yaw) {
+    const boxGeo = new THREE.BoxGeometry(w, h, d)
+    const boxMat = new THREE.MeshBasicMaterial({ color: 0x00f3ff, wireframe: true, transparent: true, opacity: 0.85 })
+    const box = new THREE.Mesh(boxGeo, boxMat)
+    box.position.copy(pos)
+    box.rotation.y = yaw
+    this.scene.add(box)
+    setTimeout(() => {
+      this.scene.remove(box)
+      boxGeo.dispose()
+      boxMat.dispose()
+    }, 180)
+  }
+
+  // ====================================================
+  // 3. [E] 1V1.LOL GRAPPLING HOOK (Gancho acrobático)
+  // ====================================================
+  castGrappleHook(player) {
     const forward = new THREE.Vector3(0, 0, -1).applyEuler(this.camera.rotation)
-    const pos = new THREE.Vector3(player.pos.x, player.pos.y, player.pos.z)
-    const agent = player.agentId || 'gladiator'
+    const headPos = this.camera.position.clone()
+    const raycaster = new THREE.Raycaster(headPos, forward, 0.2, 45.0)
 
-    if (agent === 'gladiator' || agent === 'jett' || agent === '1v1' || !['phoenix', 'sova', 'reyna', 'sage', 'chamber'].includes(agent)) {
-      if (key === 'E') {
-        // Tailwind Dash
-        soundManager.play('dash')
-        const dashDir = new THREE.Vector3(forward.x, 0, forward.z).normalize()
-        player.pos.x += dashDir.x * 12.0
-        player.pos.z += dashDir.z * 12.0
-        if (onAnnouncement) onAnnouncement('⚡ ¡DASH TÁCTICO!')
-      } else if (key === 'Q') {
-        // Updraft
-        soundManager.play('dash')
-        player.vel.y = 11.5
-        player.onGround = false
-        if (onAnnouncement) onAnnouncement('💨 ¡SUPER SALTO VERTICAL!')
-      } else if (key === 'C') {
-        // Cloudburst Smoke
-        this.spawnSmoke(pos.clone().addScaledVector(forward, 8), 4.2, 0x64748b, 5.0)
-        if (onAnnouncement) onAnnouncement('☁️ ¡GRANADA DE HUMO!')
-      } else if (key === 'X') {
-        // Blade Storm / Tactical Surge
-        soundManager.play('ult_activate')
-        if (onAnnouncement) onAnnouncement('🌪️ ¡SOBRETENSIÓN DEFINITIVA!')
+    let hitPoint = null
+    const validTargets = (this.meshColliders || []).filter(m => m && m.isMesh)
+    const hits = raycaster.intersectObjects(validTargets, false)
+
+    if (hits.length > 0) {
+      hitPoint = hits[0].point
+    }
+
+    if (hitPoint) {
+      // 1. Render 3D glowing energy tether cable
+      const dist = headPos.distanceTo(hitPoint)
+      const cableGeo = new THREE.CylinderGeometry(0.04, 0.04, dist, 8)
+      cableGeo.rotateX(Math.PI / 2)
+      const cableMat = new THREE.MeshBasicMaterial({ color: 0x00f3ff, transparent: true, opacity: 0.95 })
+      const cableMesh = new THREE.Mesh(cableGeo, cableMat)
+      const midPoint = new THREE.Vector3().addVectors(headPos, hitPoint).multiplyScalar(0.5)
+      cableMesh.position.copy(midPoint)
+      cableMesh.lookAt(hitPoint)
+      this.scene.add(cableMesh)
+
+      this.grappleCables.push({
+        mesh: cableMesh,
+        life: 0.35,
+        maxLife: 0.35
+      })
+
+      // 2. Apply fast momentum pull impulse toward target surface
+      const pullDir = new THREE.Vector3().subVectors(hitPoint, headPos).normalize()
+      const speed = 23.0
+      const impX = pullDir.x * speed
+      const impY = Math.max(7.5, pullDir.y * speed + 5.0)
+      const impZ = pullDir.z * speed
+
+      if (this.playerController) {
+        this.playerController.applyImpulse(impX, impY, impZ)
+      } else {
+        player.pos.x += pullDir.x * 12.0
+        player.pos.z += pullDir.z * 12.0
       }
-    } else if (player.agentId === 'phoenix') {
-      if (key === 'E') {
-        // Hot Hands Molotov
-        soundManager.play('flash')
-        const targetPos = pos.clone().addScaledVector(forward, 10)
-        targetPos.y = 0.2
-        this.spawnFire(targetPos, 4.0, 5.0)
-      } else if (key === 'Q') {
-        // Curveball Flash
-        soundManager.play('flash')
-        targets.forEach(t => {
-          if (t.id !== player.id && t.alive) t.blindAlpha = 1.0
+      soundManager.play('dash')
+    } else {
+      // Free Air Rocket Impulse Dash
+      const speed = 18.0
+      if (this.playerController) {
+        this.playerController.applyImpulse(forward.x * speed, 8.5, forward.z * speed)
+      }
+      soundManager.play('dash')
+    }
+
+    // Velocity trail streaks
+    this.spawnDashTrail(headPos, headPos.clone().addScaledVector(forward, 10), forward)
+  }
+
+  // ====================================================
+  // 4. [X] 1V1.LOL LAUNCH PAD & SHIELD (Plataforma + Escudo)
+  // ====================================================
+  spawnLaunchPad(player) {
+    const pos = new THREE.Vector3(player.pos.x, 0, player.pos.z)
+    const footY = Math.max(0, (player.pos.y || 1.7) - (this.playerController ? this.playerController.currentEyeHeight : 1.7))
+    pos.y = footY
+
+    const padGroup = new THREE.Group()
+
+    // Outer Octagonal Steel Rim
+    const rimGeo = new THREE.CylinderGeometry(1.5, 1.6, 0.12, 16)
+    const rimMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.3, metalness: 0.8 })
+    const rim = new THREE.Mesh(rimGeo, rimMat)
+    rim.position.y = 0.06
+    padGroup.add(rim)
+
+    // Inner Glowing Cyan/Gold Kinetic Trampoline Core
+    const coreGeo = new THREE.CylinderGeometry(1.25, 1.25, 0.14, 16)
+    const coreMat = new THREE.MeshBasicMaterial({ color: 0x00f3ff })
+    const core = new THREE.Mesh(coreGeo, coreMat)
+    core.position.y = 0.08
+    padGroup.add(core)
+
+    // Energy Arrow Glyph Ring
+    const ringGeo = new THREE.RingGeometry(0.4, 0.9, 24)
+    ringGeo.rotateX(-Math.PI / 2)
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide })
+    const ring = new THREE.Mesh(ringGeo, ringMat)
+    ring.position.y = 0.16
+    padGroup.add(ring)
+
+    padGroup.position.set(pos.x, pos.y, pos.z)
+    this.scene.add(padGroup)
+
+    this.launchPads.push({
+      group: padGroup,
+      pos: pos.clone(),
+      radius: 2.0,
+      life: 25.0,
+      maxLife: 25.0
+    })
+
+    // 1. Immediately launch casting player sky-high
+    if (this.playerController) {
+      this.playerController.applyImpulse(0, 18.0, 0)
+    }
+
+    // 2. Grant +50 Shield Overcharge
+    player.armor = Math.min(player.maxArmor || 50, (player.armor || 0) + 50)
+
+    // 3. Spawns visual vertical cyclone & shockwave ring
+    this.spawnUpdraftVortex(pos)
+    this.spawnHealingAura(player, 0x00f3ff)
+    soundManager.play('ult_activate')
+  }
+
+  // ====================================================
+  // VFX PARTICLES & SENSORY HELPERS
+  // ====================================================
+
+  spawnUpdraftVortex(pos) {
+    const vortexGroup = new THREE.Group()
+
+    const coneGeo = new THREE.ConeGeometry(2.4, 5.0, 16, 1, true)
+    const coneMat = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.65,
+      side: THREE.DoubleSide,
+      wireframe: true
+    })
+    const coneMesh = new THREE.Mesh(coneGeo, coneMat)
+    coneMesh.position.y = 2.5
+    vortexGroup.add(coneMesh)
+
+    const ringGeo = new THREE.RingGeometry(0.5, 3.2, 24)
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0x06b6d4,
+      transparent: true,
+      opacity: 0.9,
+      side: THREE.DoubleSide
+    })
+    const ringMesh = new THREE.Mesh(ringGeo, ringMat)
+    ringMesh.rotation.x = -Math.PI / 2
+    ringMesh.position.y = 0.1
+    vortexGroup.add(ringMesh)
+
+    vortexGroup.position.set(pos.x, 0, pos.z)
+    this.scene.add(vortexGroup)
+
+    this.updraftVortices.push({
+      group: vortexGroup,
+      coneMesh,
+      ringMesh,
+      life: 0.7,
+      maxLife: 0.7
+    })
+  }
+
+  spawnDashTrail(startPos, endPos, dir) {
+    const trailGroup = new THREE.Group()
+    const dist = startPos.distanceTo(endPos)
+    const ringCount = 6
+
+    for (let i = 0; i < ringCount; i++) {
+      const t = (i + 1) / ringCount
+      const ringPos = new THREE.Vector3().lerpVectors(startPos, endPos, t)
+      const ringGeo = new THREE.TorusGeometry(0.65 + (1 - t) * 0.4, 0.04, 8, 16)
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: 0x00f3ff,
+        transparent: true,
+        opacity: 0.85
+      })
+      const ring = new THREE.Mesh(ringGeo, ringMat)
+      ring.position.copy(ringPos)
+      ring.lookAt(ringPos.clone().add(dir))
+      trailGroup.add(ring)
+    }
+
+    this.scene.add(trailGroup)
+    this.dashTrails.push({
+      group: trailGroup,
+      life: 0.45,
+      maxLife: 0.45
+    })
+  }
+
+  spawnHealingAura(player, color = 0x10b981) {
+    const auraGroup = new THREE.Group()
+
+    const beamGeo = new THREE.CylinderGeometry(0.95, 0.95, 2.2, 16, 1, true)
+    const beamMat = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.55,
+      side: THREE.DoubleSide
+    })
+    const beam = new THREE.Mesh(beamGeo, beamMat)
+    beam.position.y = 1.1
+    auraGroup.add(beam)
+
+    this.scene.add(auraGroup)
+    this.healingAuras.push({
+      group: auraGroup,
+      player,
+      life: 0.8,
+      maxLife: 0.8
+    })
+  }
+
+  // --- FRAME UPDATE ---
+  update(dt, player, targets = []) {
+    // 1. Update Ramps (Auto-cleanup, fadeout & collider cleanup)
+    for (let i = this.ramps.length - 1; i >= 0; i--) {
+      const r = this.ramps[i]
+      r.life -= dt
+
+      // Visual warning fade / flash in the last 2 seconds
+      if (r.life < 2.0 && r.group) {
+        const fade = Math.max(0.1, r.life / 2.0)
+        r.group.traverse(child => {
+          if (child.isMesh && child.material) {
+            child.material.transparent = true
+            child.material.opacity = fade
+          }
         })
-        if (onAnnouncement) onAnnouncement('✨ PHOENIX: ¡CURVEBALL FLASH!')
-      } else if (key === 'C') {
-        // Blaze Wall
-        this.spawnWall(pos.clone().addScaledVector(forward, 4), forward, 0xf97316, 6.0)
-      } else if (key === 'X') {
-        soundManager.play('ult_activate')
-        if (onAnnouncement) onAnnouncement('🔥 PHOENIX: ¡CENIZAS (SEGUNDA VIDA)!')
       }
-    } else if (player.agentId === 'sova') {
-      if (key === 'E') {
-        // Recon Bolt
-        soundManager.play('recon')
-        const arrowLanding = pos.clone().addScaledVector(forward, 16)
-        this.spawnReconPulse(arrowLanding, targets, player.team)
-        if (onAnnouncement) onAnnouncement('🎯 SOVA: ¡SONAR DE RECONOCIMIENTO!')
-      } else if (key === 'X') {
-        // Hunter's Fury 3D Beam
-        soundManager.play('ult_activate')
-        this.spawnBeam(pos, forward, targets, player.id)
-        if (onAnnouncement) onAnnouncement('🏹 SOVA: ¡FURIA DEL CAZADOR!')
-      }
-    } else if (player.agentId === 'sage') {
-      if (key === 'C') {
-        // Barrier Wall (Jade crystal pillars)
-        soundManager.play('buy')
-        this.spawnWall(pos.clone().addScaledVector(forward, 4), forward, 0x10b981, 25.0)
-      } else if (key === 'E') {
-        // Heal
-        player.health = Math.min(player.maxHealth, player.health + 40)
-        soundManager.play('buy')
-      }
-    } else if (player.agentId === 'brimstone') {
-      if (key === 'E') {
-        // Sky Smoke
-        this.spawnSmoke(pos.clone().addScaledVector(forward, 12), 5.5, 0x334155, 18.0)
-      } else if (key === 'X') {
-        // Orbital Strike
-        soundManager.play('ult_activate')
-        this.spawnOrbitalLaser(pos.clone().addScaledVector(forward, 10), targets, player.id)
+
+      if (r.life <= 0) {
+        if (r.colliders) {
+          r.colliders.forEach(c => {
+            const idx = this.meshColliders.indexOf(c)
+            if (idx !== -1) this.meshColliders.splice(idx, 1)
+            if (this.playerController) this.playerController.removeMeshCollider(c)
+          })
+        }
+        this.scene.remove(r.group)
+        this.ramps.splice(i, 1)
       }
     }
-  }
 
-  spawnSmoke(pos, radius, color = 0x64748b, duration = 15.0) {
-    soundManager.play('flash')
-    const geo = new THREE.SphereGeometry(radius, 24, 24)
-    const mat = new THREE.MeshStandardMaterial({ color, transparent: true, opacity: 0.88, roughness: 0.9 })
-    const mesh = new THREE.Mesh(geo, mat)
-    mesh.position.set(pos.x, radius * 0.7, pos.z)
-    this.scene.add(mesh)
-    this.smokes.push({ mesh, life: duration })
-  }
-
-  spawnFire(pos, radius, duration = 5.0) {
-    const geo = new THREE.CylinderGeometry(radius, radius, 0.4, 24)
-    const mat = new THREE.MeshBasicMaterial({ color: 0xf97316, transparent: true, opacity: 0.6 })
-    const mesh = new THREE.Mesh(geo, mat)
-    mesh.position.set(pos.x, 0.2, pos.z)
-    this.scene.add(mesh)
-    this.fires.push({ mesh, pos, radius, life: duration })
-  }
-
-  spawnWall(pos, dir, color = 0x10b981, duration = 20.0) {
-    const wallGroup = new THREE.Group()
-    for (let i = -1.5; i <= 1.5; i++) {
-      const geo = new THREE.BoxGeometry(1.6, 3.5, 1.6)
-      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.3, metalness: 0.4 })
-      const mesh = new THREE.Mesh(geo, mat)
-      const right = new THREE.Vector3(dir.z, 0, -dir.x).normalize()
-      mesh.position.copy(pos).addScaledVector(right, i * 1.7)
-      mesh.position.y = 1.75
-      mesh.castShadow = true
-      mesh.receiveShadow = true
-      wallGroup.add(mesh)
+    // 2. Update Grapple Cables
+    for (let i = this.grappleCables.length - 1; i >= 0; i--) {
+      const g = this.grappleCables[i]
+      g.life -= dt
+      if (g.mesh && g.mesh.material) {
+        g.mesh.material.opacity = Math.max(0, g.life / g.maxLife)
+      }
+      if (g.life <= 0) {
+        this.scene.remove(g.mesh)
+        if (g.mesh.geometry) g.mesh.geometry.dispose()
+        if (g.mesh.material) g.mesh.material.dispose()
+        this.grappleCables.splice(i, 1)
+      }
     }
-    this.scene.add(wallGroup)
-    this.walls.push({ group: wallGroup, life: duration })
-  }
 
-  spawnReconPulse(pos, targets, team) {
-    const geo = new THREE.RingGeometry(0.5, 0.7, 32)
-    const mat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide, transparent: true, opacity: 1.0 })
-    const mesh = new THREE.Mesh(geo, mat)
-    mesh.rotation.x = -Math.PI / 2
-    mesh.position.set(pos.x, 0.3, pos.z)
-    this.scene.add(mesh)
-    this.sonarPulses.push({ mesh, radius: 0.5, maxRadius: 24.0, life: 3.0 })
+    // 3. Update Launch Pads & Trampoline Triggering
+    for (let i = this.launchPads.length - 1; i >= 0; i--) {
+      const pad = this.launchPads[i]
+      pad.life -= dt
 
-    targets.forEach(t => {
-      if (t.alive && t.team !== team) {
-        const d = Math.hypot(t.pos.x - pos.x, t.pos.z - pos.z)
-        if (d < 24.0) {
-          t.revealed = true
-          setTimeout(() => { t.revealed = false }, 3000)
+      if (pad.group) {
+        pad.group.rotation.y += dt * 1.5
+      }
+
+      // Check if local player steps on launch pad
+      if (player && this.playerController) {
+        const d = Math.hypot(player.pos.x - pad.pos.x, player.pos.z - pad.pos.z)
+        const curFeetY = Math.max(0, (player.pos.y || 1.7) - this.playerController.currentEyeHeight)
+        if (d <= pad.radius && Math.abs(curFeetY - pad.pos.y) < 0.6) {
+          if (this.playerController.velocity.y <= 0.1) {
+            this.playerController.applyImpulse(0, 18.0, 0)
+            soundManager.play('ult_activate')
+          }
         }
       }
-    })
-  }
 
-  spawnBeam(origin, dir, targets, ownerId) {
-    const geo = new THREE.CylinderGeometry(1.5, 1.5, 60, 24)
-    const mat = new THREE.MeshBasicMaterial({ color: 0x0284c7, transparent: true, opacity: 0.7 })
-    const mesh = new THREE.Mesh(geo, mat)
-    mesh.position.copy(origin).addScaledVector(dir, 30)
-    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir)
-    this.scene.add(mesh)
-    this.beams.push({ mesh, life: 0.5 })
-
-    // Damage all targets in beam line
-    targets.forEach(t => {
-      if (t.alive && t.id !== ownerId) {
-        DamageSystem.applyDamage(t, 80, false, false, 'beam')
+      if (pad.life <= 0) {
+        this.scene.remove(pad.group)
+        this.launchPads.splice(i, 1)
       }
-    })
-  }
+    }
 
-  spawnOrbitalLaser(pos, targets, ownerId) {
-    const geo = new THREE.CylinderGeometry(4.0, 4.0, 80, 24)
-    const mat = new THREE.MeshBasicMaterial({ color: 0xea580c, transparent: true, opacity: 0.75 })
-    const mesh = new THREE.Mesh(geo, mat)
-    mesh.position.set(pos.x, 40, pos.z)
-    this.scene.add(mesh)
-    this.beams.push({ mesh, life: 3.0 })
-
-    targets.forEach(t => {
-      if (t.alive && t.id !== ownerId) {
-        const d = Math.hypot(t.pos.x - pos.x, t.pos.z - pos.z)
-        if (d < 4.5) DamageSystem.applyDamage(t, 120, false, false, 'orbital')
-      }
-    })
-  }
-
-  update(dt, player) {
-    // Update Smokes
+    // 4. Update Smokes
     for (let i = this.smokes.length - 1; i >= 0; i--) {
       const s = this.smokes[i]
       s.life -= dt
+      if (s.currentScale < s.targetScale) {
+        s.currentScale = Math.min(s.targetScale, s.currentScale + dt * 4.5)
+        s.group.scale.set(s.currentScale, s.currentScale, s.currentScale)
+      }
+      if (s.ringMesh) s.ringMesh.rotation.z += dt * 0.4
+      if (s.life < 1.5) {
+        const fade = s.life / 1.5
+        s.group.scale.set(s.targetScale * fade, s.targetScale * fade, s.targetScale * fade)
+      }
       if (s.life <= 0) {
-        this.scene.remove(s.mesh)
-        s.mesh.geometry.dispose()
+        this.scene.remove(s.group)
         this.smokes.splice(i, 1)
       }
     }
 
-    // Update Fire Zones (Damage / Self-heal)
-    for (let i = this.fires.length - 1; i >= 0; i--) {
-      const f = this.fires[i]
-      f.life -= dt
-      const d = Math.hypot(player.pos.x - f.pos.x, player.pos.z - f.pos.z)
-      if (d < f.radius) {
-        if (player.agentId === 'phoenix') {
-          player.health = Math.min(player.maxHealth, player.health + 15 * dt)
-        } else {
-          DamageSystem.applyDamage(player, 40 * dt, false, false, 'fire')
-        }
+    // 5. Update Updrafts & Trails
+    for (let i = this.updraftVortices.length - 1; i >= 0; i--) {
+      const u = this.updraftVortices[i]
+      u.life -= dt
+      if (u.coneMesh) u.coneMesh.rotation.y += dt * 10.0
+      if (u.ringMesh) {
+        const s = (1.0 - u.life / u.maxLife) * 2.0
+        u.ringMesh.scale.set(1 + s, 1 + s, 1 + s)
+        u.ringMesh.material.opacity = (u.life / u.maxLife)
       }
-      if (f.life <= 0) {
-        this.scene.remove(f.mesh)
-        f.mesh.geometry.dispose()
-        this.fires.splice(i, 1)
+      if (u.life <= 0) {
+        this.scene.remove(u.group)
+        this.updraftVortices.splice(i, 1)
       }
     }
 
-    // Update Walls
-    for (let i = this.walls.length - 1; i >= 0; i--) {
-      const w = this.walls[i]
-      w.life -= dt
-      if (w.life <= 0) {
-        this.scene.remove(w.group)
-        this.walls.splice(i, 1)
+    for (let i = this.dashTrails.length - 1; i >= 0; i--) {
+      const d = this.dashTrails[i]
+      d.life -= dt
+      if (d.life <= 0) {
+        this.scene.remove(d.group)
+        this.dashTrails.splice(i, 1)
       }
     }
 
-    // Update Sonar Pulses
-    for (let i = this.sonarPulses.length - 1; i >= 0; i--) {
-      const p = this.sonarPulses[i]
-      p.life -= dt
-      p.radius += 10.0 * dt
-      p.mesh.scale.set(p.radius, p.radius, p.radius)
-      p.mesh.material.opacity = p.life / 3.0
-      if (p.life <= 0) {
-        this.scene.remove(p.mesh)
-        p.mesh.geometry.dispose()
-        this.sonarPulses.splice(i, 1)
+    for (let i = this.healingAuras.length - 1; i >= 0; i--) {
+      const a = this.healingAuras[i]
+      a.life -= dt
+      if (a.player) {
+        a.group.position.set(a.player.pos.x, a.player.pos.y, a.player.pos.z)
+        a.group.rotation.y += dt * 4.0
+      }
+      if (a.life <= 0) {
+        this.scene.remove(a.group)
+        this.healingAuras.splice(i, 1)
       }
     }
+  }
 
-    // Update Beams
-    for (let i = this.beams.length - 1; i >= 0; i--) {
-      const b = this.beams[i]
-      b.life -= dt
-      if (b.life <= 0) {
-        this.scene.remove(b.mesh)
-        b.mesh.geometry.dispose()
-        this.beams.splice(i, 1)
-      }
+  // --- MULTIPLAYER REMOTE ABILITY CAST ---
+  castRemote(caster, key, pos, dir, targets = []) {
+    const origin = new THREE.Vector3(pos.x, pos.y, pos.z)
+    const forward = new THREE.Vector3(dir.x, dir.y, dir.z).normalize()
+
+    if (key === 'C') {
+      this.spawnSmoke(origin.clone().addScaledVector(forward, 7), 4.5, 0x64748b, 7.5)
+      soundManager.play('flash')
+    } else if (key === 'Q') {
+      this.spawnRamp(caster)
+      soundManager.play('buy')
+    } else if (key === 'E') {
+      this.spawnDashTrail(origin, origin.clone().addScaledVector(forward, 10), forward)
+      soundManager.play('dash')
+    } else if (key === 'X') {
+      this.spawnLaunchPad(caster)
+      soundManager.play('ult_activate')
     }
+  }
+
+  // Clear all built structures (ramps, launch pads, smokes) between rounds
+  clearRoundStructures() {
+    // 1. Clear and unregister all ramps
+    for (let i = this.ramps.length - 1; i >= 0; i--) {
+      const r = this.ramps[i]
+      if (r.colliders) {
+        r.colliders.forEach(c => {
+          const idx = this.meshColliders.indexOf(c)
+          if (idx !== -1) this.meshColliders.splice(idx, 1)
+          if (this.playerController) this.playerController.removeMeshCollider(c)
+        })
+      }
+      this.scene.remove(r.group)
+    }
+    this.ramps = []
+
+    // 2. Clear all launch pads
+    for (let i = this.launchPads.length - 1; i >= 0; i--) {
+      this.scene.remove(this.launchPads[i].group)
+    }
+    this.launchPads = []
+
+    // 3. Clear all smoke clouds
+    for (let i = this.smokes.length - 1; i >= 0; i--) {
+      this.scene.remove(this.smokes[i].group)
+    }
+    this.smokes = []
+
+    // 4. Clear all temporary VFX
+    for (let i = this.grappleCables.length - 1; i >= 0; i--) {
+      this.scene.remove(this.grappleCables[i].mesh)
+    }
+    this.grappleCables = []
+
+    for (let i = this.updraftVortices.length - 1; i >= 0; i--) {
+      this.scene.remove(this.updraftVortices[i].group)
+    }
+    this.updraftVortices = []
+
+    for (let i = this.dashTrails.length - 1; i >= 0; i--) {
+      this.scene.remove(this.dashTrails[i].group)
+    }
+    this.dashTrails = []
+
+    for (let i = this.healingAuras.length - 1; i >= 0; i--) {
+      this.scene.remove(this.healingAuras[i].group)
+    }
+    this.healingAuras = []
   }
 }
