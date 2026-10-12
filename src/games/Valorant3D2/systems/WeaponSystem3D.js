@@ -127,17 +127,17 @@ const WEAPON_MODELS = {
   },
   knife: {
     path: '/models/armas/fps_butterfly_knife.glb',
-    scale: [1.0, 1.0, 1.0],
+    scale: [1.05, 1.05, 1.05],
     hideBodyMesh: true,
-    hipPos: [0.05, 0.08, -0.22],
-    adsPos: [0.05, 0.08, -0.22],
+    hipPos: [0.05, 0.06, -0.18],
+    adsPos: [0.05, 0.06, -0.18],
     muzzlePos: [0.0, 0.0, -0.5],
     isMelee: true,
     subclips: {
-      draw: [0, 1.4],
-      idle: [2.0, 7.0],
-      shoot: [8.0, 10.5],
-      inspect: [11.0, 21.0]
+      draw: [0.0, 1.4],
+      idle: [1.8, 7.0],
+      shoot: [8.3, 10.5],
+      inspect: [11.0, 22.8]
     },
     animMap: {
       draw: 'draw',
@@ -146,6 +146,51 @@ const WEAPON_MODELS = {
       inspect: 'inspect'
     }
   }
+}
+
+/**
+ * Safely slices an AnimationClip into a subclip, preserving ALL tracks from the source clip.
+ * THREE.AnimationUtils.subclip drops tracks that do not have keyframes in the specified range.
+ * For complex models (like rigs with multi-armature weapons or bones with static poses),
+ * dropping tracks causes bones to snap to default bind pose.
+ * safeSubclip retains any dropped track by sampling its value at startSec and writing a static hold.
+ */
+function safeSubclip(sourceClip, name, startSec, endSec, fps = 30) {
+  const startFrame = Math.round(startSec * fps)
+  const endFrame = Math.round(endSec * fps)
+  const sub = THREE.AnimationUtils.subclip(sourceClip, name, startFrame, endFrame, fps)
+  const duration = Math.max(0.01, endSec - startSec)
+
+  const subTrackNames = new Set(sub.tracks.map(t => t.name))
+  sourceClip.tracks.forEach(track => {
+    if (!subTrackNames.has(track.name)) {
+      const itemSize = track.getValueSize()
+      const times = track.times
+      const values = track.values
+
+      let valIndex = 0
+      for (let i = 0; i < times.length; i++) {
+        if (times[i] <= startSec) {
+          valIndex = i
+        } else {
+          break
+        }
+      }
+
+      const sampleVal = values.slice(valIndex * itemSize, (valIndex + 1) * itemSize)
+      if (sampleVal.length === itemSize) {
+        const TrackConstructor = track.constructor
+        const newTrack = new TrackConstructor(
+          track.name,
+          [0, duration],
+          [...sampleVal, ...sampleVal]
+        )
+        sub.tracks.push(newTrack)
+      }
+    }
+  })
+
+  return sub
 }
 
 export class WeaponSystem3D {
@@ -222,6 +267,10 @@ export class WeaponSystem3D {
                 meshName.includes('ak') ||
                 meshName.includes('saps') ||
                 meshName.includes('spas') ||
+                meshName.includes('balisong') ||
+                meshName.includes('knife') ||
+                child.name === 'Object_65' ||
+                child.name === 'Object_79' ||
                 child.name === 'Object_124' ||
                 child.name === 'Object_12' ||
                 child.name === 'Object_20' ||
@@ -292,7 +341,7 @@ export class WeaponSystem3D {
             mixer = new THREE.AnimationMixer(modelScene)
             const fullClip = gltf.animations[0]
 
-            // If subclips are configured, slice them
+            // If subclips are configured, slice them safely preserving all bone tracks
             if (config.subclips) {
               const fps = 30
               Object.entries(config.subclips).forEach(([clipName, def]) => {
@@ -308,7 +357,7 @@ export class WeaponSystem3D {
                   startSec = def.start !== undefined ? def.start : 0
                   endSec = def.end !== undefined ? def.end : sourceClip.duration
                 }
-                const sub = THREE.AnimationUtils.subclip(sourceClip, clipName, Math.round(startSec * fps), Math.round(endSec * fps), fps)
+                const sub = safeSubclip(sourceClip, clipName, startSec, endSec, fps)
                 actions[clipName] = mixer.clipAction(sub)
                 actions[clipName.toUpperCase()] = mixer.clipAction(sub)
               })
@@ -398,10 +447,10 @@ export class WeaponSystem3D {
     const activeData = this.weaponModels[this.activeModelKey]
     if (!activeData) return
     const cfg = activeData.config
-    this.inspectTimer = 2.4 // 2.4s smooth inspection flourish
+    this.inspectTimer = cfg.isMelee ? 11.8 : 2.4
     const inspectAnim = cfg.animMap.inspect || cfg.animMap.draw
     if (inspectAnim) {
-      this.playWeaponAnimation(this.activeModelKey, inspectAnim, false, 1.1, () => {
+      this.playWeaponAnimation(this.activeModelKey, inspectAnim, false, 1.0, () => {
         if (cfg.animMap.idle) {
           this.playWeaponAnimation(this.activeModelKey, cfg.animMap.idle, true, 1.0)
         }
@@ -433,7 +482,7 @@ export class WeaponSystem3D {
       data.currentOneShotAction = action
 
       action.reset().setLoop(THREE.LoopOnce, 1).setEffectiveTimeScale(timeScale)
-      action.clampWhenFinished = false
+      action.clampWhenFinished = true
       if (data.currentLoopAction) {
         action.crossFadeFrom(data.currentLoopAction, 0.08, true)
       }
@@ -445,8 +494,10 @@ export class WeaponSystem3D {
           completed = true
           data.mixer.removeEventListener('finished', onFinish)
           data.currentOneShotAction = null
-          if (onComplete) onComplete()
-          if (data.currentLoopAction) {
+          action.fadeOut(0.15)
+          if (onComplete) {
+            onComplete()
+          } else if (data.currentLoopAction) {
             data.currentLoopAction.reset().fadeIn(0.15).play()
           }
         }
@@ -460,8 +511,10 @@ export class WeaponSystem3D {
           completed = true
           data.mixer.removeEventListener('finished', onFinish)
           data.currentOneShotAction = null
-          if (onComplete) onComplete()
-          if (data.currentLoopAction) {
+          action.fadeOut(0.15)
+          if (onComplete) {
+            onComplete()
+          } else if (data.currentLoopAction) {
             data.currentLoopAction.reset().fadeIn(0.15).play()
           }
         }
@@ -539,23 +592,23 @@ export class WeaponSystem3D {
     const idleBobX = Math.sin(this.idleTimer * 1.5) * 0.002 * bobFactor
     const idleBobY = Math.cos(this.idleTimer * 3.0) * 0.002 * bobFactor
 
-    // Procedural weapon inspect 3D rotation curve (smooth bell curve)
+    // Coordinates calibrated per active weapon model:
+    const activeConfig = activeData?.config || WEAPON_MODELS.ak74u
+    const hipBase = activeConfig.hipPos
+    const adsBase = activeConfig.adsPos
+    const adsBaseRot = activeConfig.adsRot || [0, 0, 0]
+
+    // Procedural weapon inspect 3D rotation curve (smooth bell curve) - only for firearms without full inspect animations
     let inspectTiltX = 0
     let inspectTiltY = 0
     let inspectTiltZ = 0
-    if (this.inspectTimer > 0 && !isAiming && !isReloading) {
+    if (this.inspectTimer > 0 && !isAiming && !isReloading && !activeConfig?.isMelee) {
       const t = Math.max(0, this.inspectTimer / 2.4)
       const curve = Math.sin(t * Math.PI)
       inspectTiltX = -0.05 * curve
       inspectTiltY = 0.16 * curve
       inspectTiltZ = 0.12 * curve
     }
-
-    // Coordinates calibrated per active weapon model:
-    const activeConfig = activeData?.config || WEAPON_MODELS.ak74u
-    const hipBase = activeConfig.hipPos
-    const adsBase = activeConfig.adsPos
-    const adsBaseRot = activeConfig.adsRot || [0, 0, 0]
 
     const hipX = hipBase[0] + this.swayX * 0.4 + idleBobX
     const hipY = hipBase[1] + this.swayY * 0.4 + idleBobY + this.recoil * 0.02
