@@ -239,6 +239,42 @@ class SoundSystem {
           osc.start(now); osc.stop(now + 0.6)
           break
         }
+        case 'launchpad': {
+          const osc = this.ctx.createOscillator()
+          const gain = this.ctx.createGain()
+          osc.type = 'sine'
+          osc.frequency.setValueAtTime(140, now)
+          osc.frequency.exponentialRampToValueAtTime(650, now + 0.35)
+          gain.gain.setValueAtTime(0.45 * this.volume, now)
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4)
+          osc.connect(gain); gain.connect(this.ctx.destination)
+          osc.start(now); osc.stop(now + 0.4)
+          break
+        }
+        case 'teleport': {
+          const osc = this.ctx.createOscillator()
+          const gain = this.ctx.createGain()
+          osc.type = 'sawtooth'
+          osc.frequency.setValueAtTime(950, now)
+          osc.frequency.exponentialRampToValueAtTime(180, now + 0.35)
+          gain.gain.setValueAtTime(0.4 * this.volume, now)
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4)
+          osc.connect(gain); gain.connect(this.ctx.destination)
+          osc.start(now); osc.stop(now + 0.4)
+          break
+        }
+        case 'speedboost': {
+          const osc = this.ctx.createOscillator()
+          const gain = this.ctx.createGain()
+          osc.type = 'triangle'
+          osc.frequency.setValueAtTime(440, now)
+          osc.frequency.linearRampToValueAtTime(880, now + 0.15)
+          gain.gain.setValueAtTime(0.35 * this.volume, now)
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25)
+          osc.connect(gain); gain.connect(this.ctx.destination)
+          osc.start(now); osc.stop(now + 0.25)
+          break
+        }
         default:
           break
       }

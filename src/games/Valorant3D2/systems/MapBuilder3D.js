@@ -526,6 +526,204 @@ function createSkyscraperWindowTexture() {
   return texture
 }
 
+// 15. Quantum Void Obsidian & Hex Circuitry Texture (Vortex Quantum)
+function createQuantumHexFloorTexture() {
+  const canvas = document.createElement('canvas')
+  canvas.width = 512
+  canvas.height = 512
+  const ctx = canvas.getContext('2d')
+
+  // Deep obsidian carbon background
+  ctx.fillStyle = '#050714'
+  ctx.fillRect(0, 0, 512, 512)
+
+  // Hexagonal tactical grid lines
+  ctx.strokeStyle = '#0e172e'
+  ctx.lineWidth = 4
+  const size = 32
+  const h = size * Math.sqrt(3)
+  for (let y = 0; y < 512 + h; y += h) {
+    for (let x = 0; x < 512 + size * 3; x += size * 3) {
+      ctx.beginPath()
+      for (let i = 0; i < 6; i++) {
+        const angle = (i * Math.PI) / 3
+        const px = x + size * Math.cos(angle)
+        const py = y + size * Math.sin(angle)
+        if (i === 0) ctx.moveTo(px, py)
+        else ctx.lineTo(px, py)
+      }
+      ctx.closePath()
+      ctx.stroke()
+    }
+  }
+
+  // Glowing Electric Cyan & Magenta Quantum Circuit Inlays
+  ctx.lineWidth = 3
+  ctx.strokeStyle = '#00f3ff'
+  ctx.beginPath()
+  ctx.moveTo(64, 64); ctx.lineTo(192, 64); ctx.lineTo(256, 128); ctx.lineTo(384, 128)
+  ctx.moveTo(128, 448); ctx.lineTo(256, 448); ctx.lineTo(320, 384); ctx.lineTo(448, 384)
+  ctx.stroke()
+
+  ctx.strokeStyle = '#c084fc'
+  ctx.beginPath()
+  ctx.moveTo(64, 448); ctx.lineTo(128, 384); ctx.lineTo(128, 256); ctx.lineTo(192, 192)
+  ctx.moveTo(448, 64); ctx.lineTo(384, 128); ctx.lineTo(384, 256); ctx.lineTo(320, 320)
+  ctx.stroke()
+
+  // Central Radianite Quantum Nodes
+  ;[
+    { x: 128, y: 128 }, { x: 384, y: 128 },
+    { x: 128, y: 384 }, { x: 384, y: 384 },
+    { x: 256, y: 256 }
+  ].forEach(pt => {
+    ctx.fillStyle = '#00f3ff'
+    ctx.beginPath()
+    ctx.arc(pt.x, pt.y, 8, 0, Math.PI * 2)
+    ctx.fill()
+
+    ctx.strokeStyle = '#c084fc'
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.arc(pt.x, pt.y, 14, 0, Math.PI * 2)
+    ctx.stroke()
+  })
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.wrapS = THREE.RepeatWrapping
+  texture.wrapT = THREE.RepeatWrapping
+  return texture
+}
+
+// 16. Antimatter Alloy Wall Texture with Power Conduits
+function createAntimatterWallTexture() {
+  const canvas = document.createElement('canvas')
+  canvas.width = 512
+  canvas.height = 512
+  const ctx = canvas.getContext('2d')
+
+  // Titanium dark alloy base
+  ctx.fillStyle = '#080d1a'
+  ctx.fillRect(0, 0, 512, 512)
+
+  // Structural composite panels
+  ctx.fillStyle = '#0f172a'
+  ctx.fillRect(12, 12, 236, 236)
+  ctx.fillRect(264, 12, 236, 236)
+  ctx.fillRect(12, 264, 236, 236)
+  ctx.fillRect(264, 264, 236, 236)
+
+  // Beveled titanium seams
+  ctx.strokeStyle = '#1e293b'
+  ctx.lineWidth = 4
+  ctx.strokeRect(12, 12, 236, 236)
+  ctx.strokeRect(264, 12, 236, 236)
+  ctx.strokeRect(12, 264, 236, 236)
+  ctx.strokeRect(264, 264, 236, 236)
+
+  // Glowing Purple Plasma Conduits
+  ctx.strokeStyle = '#a855f7'
+  ctx.lineWidth = 5
+  ctx.beginPath()
+  ctx.moveTo(256, 0); ctx.lineTo(256, 512)
+  ctx.moveTo(0, 256); ctx.lineTo(512, 256)
+  ctx.stroke()
+
+  // Cyan quantum hazard marks
+  ctx.fillStyle = '#00f3ff'
+  ;[64, 192, 320, 448].forEach(x => {
+    ctx.fillRect(x - 6, 250, 12, 12)
+    ctx.fillRect(250, x - 6, 12, 12)
+  })
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.wrapS = THREE.RepeatWrapping
+  texture.wrapT = THREE.RepeatWrapping
+  return texture
+}
+
+// 17. Hyper-Speed Runway Conduit Texture
+function createSpeedConduitTexture() {
+  const canvas = document.createElement('canvas')
+  canvas.width = 512
+  canvas.height = 128
+  const ctx = canvas.getContext('2d')
+
+  ctx.fillStyle = '#050a18'
+  ctx.fillRect(0, 0, 512, 128)
+
+  // Glowing cyan neon edge guide rails
+  ctx.fillStyle = '#00f3ff'
+  ctx.fillRect(0, 0, 512, 8)
+  ctx.fillRect(0, 120, 512, 8)
+
+  // Electric cyan forward chevrons (>>>)
+  ctx.strokeStyle = '#00f3ff'
+  ctx.lineWidth = 8
+  ctx.lineCap = 'round'
+  for (let x = 32; x < 512; x += 64) {
+    ctx.beginPath()
+    ctx.moveTo(x, 24)
+    ctx.lineTo(x + 28, 64)
+    ctx.lineTo(x, 104)
+    ctx.stroke()
+  }
+
+  // Soft secondary purple glow chevrons
+  ctx.strokeStyle = '#c084fc'
+  ctx.lineWidth = 4
+  for (let x = 46; x < 512; x += 64) {
+    ctx.beginPath()
+    ctx.moveTo(x, 32)
+    ctx.lineTo(x + 22, 64)
+    ctx.lineTo(x, 96)
+    ctx.stroke()
+  }
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.wrapS = THREE.RepeatWrapping
+  texture.wrapT = THREE.RepeatWrapping
+  return texture
+}
+
+// 18. Quantum Portal Swirling Vortex Texture
+function createQuantumPortalTexture() {
+  const canvas = document.createElement('canvas')
+  canvas.width = 256
+  canvas.height = 256
+  const ctx = canvas.getContext('2d')
+
+  // Radial gradient
+  const grad = ctx.createRadialGradient(128, 128, 8, 128, 128, 126)
+  grad.addColorStop(0, '#ffffff')
+  grad.addColorStop(0.25, '#00f3ff')
+  grad.addColorStop(0.55, '#a855f7')
+  grad.addColorStop(0.85, '#3b0764')
+  grad.addColorStop(1, 'rgba(3, 0, 20, 0)')
+
+  ctx.fillStyle = grad
+  ctx.fillRect(0, 0, 256, 256)
+
+  // Swirling spiral arms
+  ctx.strokeStyle = '#ffffff'
+  ctx.lineWidth = 3
+  for (let arm = 0; arm < 4; arm++) {
+    const baseAngle = (arm * Math.PI) / 2
+    ctx.beginPath()
+    for (let r = 10; r < 120; r += 4) {
+      const a = baseAngle + (r / 20)
+      const x = 128 + r * Math.cos(a)
+      const y = 128 + r * Math.sin(a)
+      if (r === 10) ctx.moveTo(x, y)
+      else ctx.lineTo(x, y)
+    }
+    ctx.stroke()
+  }
+
+  const texture = new THREE.CanvasTexture(canvas)
+  return texture
+}
+
 // --- MAIN ARENA BUILDER ---
 
 let currentMapGroup = null
@@ -535,6 +733,7 @@ export function buildTacticalArena(scene, mapId = 'kasbah_temple') {
   const isKasbah = (mapId === 'kasbah_temple' || mapId === 'templo_kasbah')
   const isGlacier = (mapId === 'glacier_cryo' || mapId === 'estacion_glaciar')
   const isColossus = (mapId === 'colossus_megacity' || mapId === 'valle_coloso' || mapId === 'coloso')
+  const isQuantum = (mapId === 'vortex_quantum' || mapId === 'nucleo_cuantico' || mapId === 'vortex')
 
   if (currentMapGroup) {
     scene.remove(currentMapGroup)
@@ -548,6 +747,12 @@ export function buildTacticalArena(scene, mapId = 'kasbah_temple') {
   const mapObjectsGroup = new THREE.Group()
   currentMapGroup = mapObjectsGroup
   scene.add(mapObjectsGroup)
+
+  // Interactive Map Triggers & Animated Meshes
+  const jumpPads = []
+  const teleporters = []
+  const speedPads = []
+  const animatedMeshes = []
 
   // Textures
   let floorTex, wallTex
@@ -566,6 +771,11 @@ export function buildTacticalArena(scene, mapId = 'kasbah_temple') {
     floorTex.repeat.set(24, 24)
     wallTex = createColossusWallTexture()
     wallTex.repeat.set(12, 4)
+  } else if (isQuantum) {
+    floorTex = createQuantumHexFloorTexture()
+    floorTex.repeat.set(12, 12)
+    wallTex = createAntimatterWallTexture()
+    wallTex.repeat.set(6, 3)
   } else {
     floorTex = createConcreteTexture()
     floorTex.repeat.set(8, 8)
@@ -582,31 +792,31 @@ export function buildTacticalArena(scene, mapId = 'kasbah_temple') {
   // Materials
   const floorMat = new THREE.MeshStandardMaterial({
     map: floorTex,
-    roughness: isGlacier ? 0.25 : (isColossus ? 0.45 : 0.65),
-    metalness: isGlacier ? 0.45 : (isColossus ? 0.35 : 0.15)
+    roughness: isGlacier ? 0.25 : (isQuantum ? 0.3 : (isColossus ? 0.45 : 0.65)),
+    metalness: isGlacier ? 0.45 : (isQuantum ? 0.65 : (isColossus ? 0.35 : 0.15))
   })
   const wallMat = new THREE.MeshStandardMaterial({
     map: wallTex,
-    roughness: 0.5,
-    metalness: isGlacier ? 0.6 : (isColossus ? 0.5 : 0.25)
+    roughness: isQuantum ? 0.35 : 0.5,
+    metalness: isGlacier ? 0.6 : (isQuantum ? 0.75 : (isColossus ? 0.5 : 0.25))
   })
   const trimMat = new THREE.MeshStandardMaterial({
-    color: isKasbah ? 0x451a03 : (isGlacier ? 0x0f172a : (isColossus ? 0x111827 : 0x0f172a)),
-    roughness: 0.4,
-    metalness: 0.7
+    color: isKasbah ? 0x451a03 : (isGlacier ? 0x0f172a : (isQuantum ? 0x110c22 : (isColossus ? 0x111827 : 0x0f172a))),
+    roughness: 0.35,
+    metalness: 0.8
   })
   const goldAccentMat = new THREE.MeshStandardMaterial({
-    color: isGlacier ? 0x38bdf8 : (isColossus ? 0x06b6d4 : 0xf59e0b),
+    color: isGlacier ? 0x38bdf8 : (isQuantum ? 0x00f3ff : (isColossus ? 0x06b6d4 : 0xf59e0b)),
     roughness: 0.2,
     metalness: 0.9
   })
-  const cyanNeonMat = new THREE.MeshBasicMaterial({ color: isGlacier ? 0x7dd3fc : (isColossus ? 0x00f3ff : 0x00f3ff) })
-  const purpleNeonMat = new THREE.MeshBasicMaterial({ color: 0xa855f7 })
+  const cyanNeonMat = new THREE.MeshBasicMaterial({ color: isGlacier ? 0x7dd3fc : 0x00f3ff })
+  const purpleNeonMat = new THREE.MeshBasicMaterial({ color: isQuantum ? 0xc084fc : 0xa855f7 })
   const containerMat = new THREE.MeshStandardMaterial({ map: containerTex, roughness: 0.5, metalness: 0.4 })
   const skylineMat = isColossus ? new THREE.MeshStandardMaterial({ map: skylineTex, roughness: 0.35, metalness: 0.65 }) : null
   const canopyMat = new THREE.MeshStandardMaterial({ map: canopyTex, roughness: 0.7, side: THREE.DoubleSide })
   const glassRailingMat = new THREE.MeshPhysicalMaterial({
-    color: isGlacier ? 0xbae6fd : (isColossus ? 0x00e5ff : 0x38bdf8),
+    color: isGlacier ? 0xbae6fd : (isQuantum ? 0x00f3ff : (isColossus ? 0x00e5ff : 0x38bdf8)),
     transparent: true,
     opacity: 0.55,
     roughness: 0.1,
@@ -671,7 +881,7 @@ export function buildTacticalArena(scene, mapId = 'kasbah_temple') {
   }
 
   // --- 1. GROUND BASE & PERIMETER ---
-  const mapRadius = isColossus ? 88 : 32
+  const mapRadius = isColossus ? 88 : (isQuantum ? 48 : 32)
   const mapSize = mapRadius * 2
   const groundGeo = new THREE.PlaneGeometry(mapSize, mapSize)
   const groundMesh = new THREE.Mesh(groundGeo, floorMat)
@@ -681,8 +891,8 @@ export function buildTacticalArena(scene, mapId = 'kasbah_temple') {
   mapObjectsGroup.add(groundMesh)
   meshColliders.push(groundMesh)
 
-  const perimeterH = isColossus ? 16.0 : 8.5
-  const wallThick = isColossus ? 4.0 : 2.5
+  const perimeterH = isColossus ? 16.0 : (isQuantum ? 11.0 : 8.5)
+  const wallThick = isColossus ? 4.0 : (isQuantum ? 3.0 : 2.5)
   addWall(0, 0, -mapRadius, mapSize, perimeterH, wallThick) // North
   addWall(0, 0, mapRadius, mapSize, perimeterH, wallThick)  // South
   addWall(-mapRadius, 0, 0, wallThick, perimeterH, mapSize) // West (Attackers Back)
@@ -955,6 +1165,360 @@ export function buildTacticalArena(scene, mapId = 'kasbah_temple') {
       })
     }
 
+  } else if (isQuantum) {
+    // ==========================================
+    // MAP 5: "VORTEX CUÁNTICO: NÚCLEO OMEGA" (96m x 96m Orbital Arena)
+    // Multiple Interactive Mechanics: Gravitational Jump Pads, Quantum Portals, Speed Conduits, Vertical Catwalk Ring
+    // ==========================================
+
+    // Helper: Create Glowing Interactive Jump Pad
+    function addInteractiveJumpPad(x, z, targetY = 4.5, impulseY = 17.5) {
+      const padBase = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.8, 0.15, 24), trimMat)
+      padBase.position.set(x, 0.075, z)
+      padBase.castShadow = true
+      mapObjectsGroup.add(padBase)
+      meshColliders.push(padBase)
+
+      const innerNeon = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 0.18, 24), cyanNeonMat)
+      innerNeon.position.set(x, 0.09, z)
+      mapObjectsGroup.add(innerNeon)
+
+      // Holographic Upward Energy Beacon Cylinder
+      const beaconGeo = new THREE.CylinderGeometry(1.2, 1.4, 3.2, 16, 1, true)
+      const beaconMat = new THREE.MeshBasicMaterial({
+        color: 0x00f3ff,
+        transparent: true,
+        opacity: 0.35,
+        side: THREE.DoubleSide
+      })
+      const beacon = new THREE.Mesh(beaconGeo, beaconMat)
+      beacon.position.set(x, 1.6, z)
+      mapObjectsGroup.add(beacon)
+
+      jumpPads.push({
+        x,
+        y: 0,
+        z,
+        radius: 1.8,
+        impulseY,
+        cooldown: 1000,
+        lastUsed: 0
+      })
+    }
+
+    // Helper: Create Quantum Teleporter Portal Gate
+    const portalTex = createQuantumPortalTexture()
+    function addQuantumPortalGate(id, x, z, rotY, targetX, targetZ, targetYaw) {
+      const gateGroup = new THREE.Group()
+      gateGroup.position.set(x, 0, z)
+      gateGroup.rotation.y = rotY
+
+      // Outer Arch Pillars
+      const archMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.3, metalness: 0.85 })
+      const pillarGeo = new THREE.BoxGeometry(0.5, 4.8, 0.6)
+      const pLeft = new THREE.Mesh(pillarGeo, archMat)
+      pLeft.position.set(-1.6, 2.4, 0)
+      gateGroup.add(pLeft)
+      meshColliders.push(pLeft)
+
+      const pRight = new THREE.Mesh(pillarGeo, archMat)
+      pRight.position.set(1.6, 2.4, 0)
+      gateGroup.add(pRight)
+      meshColliders.push(pRight)
+
+      // Arch Top Header
+      const topGeo = new THREE.BoxGeometry(3.7, 0.6, 0.6)
+      const pTop = new THREE.Mesh(topGeo, archMat)
+      pTop.position.set(0, 4.8, 0)
+      gateGroup.add(pTop)
+      meshColliders.push(pTop)
+
+      // Neon Trim Borders
+      const trimGeoL = new THREE.BoxGeometry(0.08, 4.6, 0.62)
+      const tL = new THREE.Mesh(trimGeoL, cyanNeonMat)
+      tL.position.set(-1.3, 2.4, 0)
+      gateGroup.add(tL)
+
+      const tR = new THREE.Mesh(trimGeoL, cyanNeonMat)
+      tR.position.set(1.3, 2.4, 0)
+      gateGroup.add(tR)
+
+      // Swirling Vortex Core Disc
+      const discGeo = new THREE.CircleGeometry(1.4, 32)
+      const discMat = new THREE.MeshBasicMaterial({
+        map: portalTex,
+        transparent: true,
+        opacity: 0.92,
+        side: THREE.DoubleSide
+      })
+      const vortexMesh = new THREE.Mesh(discGeo, discMat)
+      vortexMesh.position.set(0, 2.4, 0)
+      gateGroup.add(vortexMesh)
+
+      // Soft Portal Glow Light
+      const pLight = new THREE.PointLight(0x00f3ff, 1.8, 8)
+      pLight.position.set(0, 2.4, 0.5)
+      gateGroup.add(pLight)
+
+      mapObjectsGroup.add(gateGroup)
+
+      animatedMeshes.push({ mesh: vortexMesh, rotZ: 2.2 })
+
+      teleporters.push({
+        id,
+        x,
+        y: 0,
+        z,
+        targetX,
+        targetY: 0,
+        targetZ,
+        targetYaw,
+        radius: 1.8,
+        cooldown: 3.0,
+        lastUsed: 0
+      })
+    }
+
+    // Helper: Create Hyper-Speed Runway
+    const speedTex = createSpeedConduitTexture()
+    speedTex.repeat.set(4, 1)
+    function addSpeedConduitRunway(startX, endX, z, width = 3.8) {
+      const len = Math.abs(endX - startX)
+      const midX = (startX + endX) / 2
+      const geo = new THREE.PlaneGeometry(len, width)
+      const mat = new THREE.MeshBasicMaterial({ map: speedTex, transparent: true, opacity: 0.95 })
+      const mesh = new THREE.Mesh(geo, mat)
+      mesh.rotation.x = -Math.PI / 2
+      mesh.position.set(midX, 0.03, z)
+      mapObjectsGroup.add(mesh)
+
+      // Neon Guide rails
+      const railGeo = new THREE.BoxGeometry(len, 0.1, 0.15)
+      const rail1 = new THREE.Mesh(railGeo, cyanNeonMat)
+      rail1.position.set(midX, 0.05, z - width / 2)
+      mapObjectsGroup.add(rail1)
+      const rail2 = new THREE.Mesh(railGeo, cyanNeonMat)
+      rail2.position.set(midX, 0.05, z + width / 2)
+      mapObjectsGroup.add(rail2)
+
+      speedPads.push({
+        minX: Math.min(startX, endX),
+        maxX: Math.max(startX, endX),
+        minZ: z - width / 2,
+        maxZ: z + width / 2,
+        boostDuration: 3.5
+      })
+    }
+
+    // --- A. CENTRAL MID: NÚCLEO CUÁNTICO LEVITANTE & MID CATWALK RING ---
+    // Ground Energy Pit / Reactor Basin
+    const basin = new THREE.Mesh(new THREE.CylinderGeometry(5.5, 6.2, 0.6, 24), trimMat)
+    basin.position.set(0, 0.3, 0)
+    basin.castShadow = true
+    mapObjectsGroup.add(basin)
+    meshColliders.push(basin)
+
+    const basinRing = new THREE.Mesh(new THREE.TorusGeometry(5.8, 0.16, 8, 32), cyanNeonMat)
+    basinRing.rotation.x = Math.PI / 2
+    basinRing.position.set(0, 0.6, 0)
+    mapObjectsGroup.add(basinRing)
+
+    // Levitating Quantum Antimatter Core at Y = 9.5m
+    const outerCoreGeo = new THREE.IcosahedronGeometry(3.0, 1)
+    const outerCoreMat = new THREE.MeshBasicMaterial({ color: 0xc084fc, wireframe: true, transparent: true, opacity: 0.85 })
+    const outerCoreMesh = new THREE.Mesh(outerCoreGeo, outerCoreMat)
+    outerCoreMesh.position.set(0, 9.5, 0)
+    mapObjectsGroup.add(outerCoreMesh)
+    animatedMeshes.push({ mesh: outerCoreMesh, rotY: 0.8, rotX: 0.5, baseY: 9.5, bobSpeed: 1.2, bobAmp: 0.4 })
+
+    const innerCoreGeo = new THREE.OctahedronGeometry(1.8, 0)
+    const innerCoreMat = new THREE.MeshBasicMaterial({ color: 0x00f3ff, transparent: true, opacity: 0.95 })
+    const innerCoreMesh = new THREE.Mesh(innerCoreGeo, innerCoreMat)
+    innerCoreMesh.position.set(0, 9.5, 0)
+    mapObjectsGroup.add(innerCoreMesh)
+    animatedMeshes.push({ mesh: innerCoreMesh, rotY: -1.4, rotZ: 0.8, baseY: 9.5, bobSpeed: 1.2, bobAmp: 0.4 })
+
+    // Orbiting Pulsar Rings
+    const ringT1 = new THREE.Mesh(new THREE.TorusGeometry(4.4, 0.14, 8, 32), cyanNeonMat)
+    ringT1.rotation.x = Math.PI / 3
+    ringT1.position.set(0, 9.5, 0)
+    mapObjectsGroup.add(ringT1)
+    animatedMeshes.push({ mesh: ringT1, rotY: 1.6, rotX: 0.8 })
+
+    const ringT2 = new THREE.Mesh(new THREE.TorusGeometry(5.2, 0.12, 8, 32), purpleNeonMat)
+    ringT2.rotation.z = Math.PI / 3
+    ringT2.position.set(0, 9.5, 0)
+    mapObjectsGroup.add(ringT2)
+    animatedMeshes.push({ mesh: ringT2, rotY: -1.2, rotZ: -0.9 })
+
+    // Elevated Mid Catwalk Ring (Y = 4.5m)
+    addPlatform(0, 4.5, -11, 16, 4.5, trimMat) // North ring segment
+    addPlatform(0, 4.5, 11, 16, 4.5, trimMat)  // South ring segment
+    addPlatform(-11, 4.5, 0, 4.5, 16, trimMat) // West ring segment
+    addPlatform(11, 4.5, 0, 4.5, 16, trimMat)  // East ring segment
+
+    // Corner links
+    addPlatform(-9, 4.5, -9, 4.5, 4.5, trimMat)
+    addPlatform(9, 4.5, -9, 4.5, 4.5, trimMat)
+    addPlatform(-9, 4.5, 9, 4.5, 4.5, trimMat)
+    addPlatform(9, 4.5, 9, 4.5, 4.5, trimMat)
+
+    // Glass Railings on Mid Catwalk
+    ;[
+      { x: 0, z: -8.8, w: 14, d: 0.18 },
+      { x: 0, z: 8.8, w: 14, d: 0.18 },
+      { x: -8.8, z: 0, w: 0.18, d: 14 },
+      { x: 8.8, z: 0, w: 0.18, d: 14 }
+    ].forEach(r => {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(r.w, 1.1, r.d), glassRailingMat)
+      rail.position.set(r.x, 5.05, r.z)
+      mapObjectsGroup.add(rail)
+      meshColliders.push(rail)
+    })
+
+    // 4 Skybridges connecting Mid Ring to Outer Zones
+    addPlatform(0, 4.5, -19, 4.5, 12, trimMat) // Skybridge North (Site A approach)
+    addPlatform(0, 4.5, 19, 4.5, 12, trimMat)  // Skybridge South (Site B approach)
+    addPlatform(-19, 4.5, 0, 12, 4.5, trimMat) // Skybridge West (Atk approach)
+    addPlatform(19, 4.5, 0, 12, 4.5, trimMat)  // Skybridge East (Def approach)
+
+    // 2 Grand Staircases climbing from Ground (Y=0) to West & East Skybridges (Y=4.5m)
+    addStaircase(-27, -5, -19, -5, 0, 4.5, 3.2, 12)
+    addStaircase(27, 5, 19, 5, 0, 4.5, 3.2, 12)
+
+    // Ground Mid Cover Blocks
+    addWall(-6, 0, -5, 2.6, 2.4, 2.6, goldAccentMat)
+    addWall(6, 0, 5, 2.6, 2.4, 2.6, goldAccentMat)
+    addWall(-5, 0, 6, 2.8, 2.4, 2.8, containerMat)
+    addWall(5, 0, -6, 2.8, 2.4, 2.8, containerMat)
+
+    // --- B. SITE A (NORTH: Z = -28): GENERADOR DE HIPER-ESPACIO ---
+    const siteABase = new THREE.Mesh(new THREE.CylinderGeometry(5.2, 5.6, 0.4, 16), trimMat)
+    siteABase.position.set(0, 0.2, -28)
+    mapObjectsGroup.add(siteABase)
+    meshColliders.push(siteABase)
+
+    // Floating Quantum Crystal Prism
+    const prismMesh = new THREE.Mesh(
+      new THREE.OctahedronGeometry(2.2, 0),
+      new THREE.MeshBasicMaterial({ color: 0x00f3ff, transparent: true, opacity: 0.9 })
+    )
+    prismMesh.position.set(0, 3.5, -28)
+    mapObjectsGroup.add(prismMesh)
+    animatedMeshes.push({ mesh: prismMesh, rotY: 1.0, rotX: 0.4, baseY: 3.5, bobSpeed: 1.5, bobAmp: 0.35 })
+
+    // 4 Hyper-Conduit Energy Pylons flanking Site A
+    ;[
+      { x: -9, z: -35 }, { x: 9, z: -35 },
+      { x: -9, z: -21 }, { x: 9, z: -21 }
+    ].forEach(p => {
+      const pylon = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.0, 8.5, 12), wallMat)
+      pylon.position.set(p.x, 4.25, p.z)
+      pylon.castShadow = true
+      mapObjectsGroup.add(pylon)
+      meshColliders.push(pylon)
+
+      const pRing = new THREE.Mesh(new THREE.TorusGeometry(1.1, 0.1, 8, 24), cyanNeonMat)
+      pRing.rotation.x = Math.PI / 2
+      pRing.position.set(p.x, 5.5, p.z)
+      mapObjectsGroup.add(pRing)
+    })
+
+    // High Ground Sniper Balcony (Site A: Y = 5.5m)
+    addPlatform(0, 5.5, -39, 14, 5.0, trimMat)
+    addWall(0, 5.5, -41.2, 14, 1.2, 0.4, trimMat) // Back guard wall
+    addStaircase(8, -32, 4, -39, 0, 5.5, 2.6, 12)  // Access stairs
+
+    // Site A Cover Blocks
+    addWall(-4.5, 0, -25, 2.5, 2.4, 2.5, containerMat)
+    addWall(4.5, 0, -31, 2.5, 2.4, 2.5, goldAccentMat)
+    addWall(0, 0, -35, 7.0, 4.0, 1.8)
+
+    // --- C. SITE B (SOUTH: Z = 28): CÁMARA DE SINGULARIDAD ---
+    const siteBBase = new THREE.Mesh(new THREE.CylinderGeometry(5.2, 5.6, 0.4, 16), trimMat)
+    siteBBase.position.set(0, 0.2, 28)
+    mapObjectsGroup.add(siteBBase)
+    meshColliders.push(siteBBase)
+
+    // Rotating Singular Pulsar Rings
+    const pRing1 = new THREE.Mesh(new THREE.TorusGeometry(2.6, 0.18, 8, 32), purpleNeonMat)
+    pRing1.position.set(0, 3.5, 28)
+    mapObjectsGroup.add(pRing1)
+    animatedMeshes.push({ mesh: pRing1, rotX: 1.4, rotY: 0.8 })
+
+    const pRing2 = new THREE.Mesh(new THREE.TorusGeometry(1.8, 0.14, 8, 32), cyanNeonMat)
+    pRing2.position.set(0, 3.5, 28)
+    mapObjectsGroup.add(pRing2)
+    animatedMeshes.push({ mesh: pRing2, rotZ: 1.4, rotY: -0.8 })
+
+    const singCore = new THREE.Mesh(
+      new THREE.SphereGeometry(1.0, 16, 16),
+      new THREE.MeshStandardMaterial({ color: 0x050714, roughness: 0.1, metalness: 0.9 })
+    )
+    singCore.position.set(0, 3.5, 28)
+    mapObjectsGroup.add(singCore)
+
+    // 4 Antimatter Power Capacitors
+    ;[
+      { x: -9, z: 35 }, { x: 9, z: 35 },
+      { x: -9, z: 21 }, { x: 9, z: 21 }
+    ].forEach(p => {
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.0, 8.5, 12), wallMat)
+      cap.position.set(p.x, 4.25, p.z)
+      cap.castShadow = true
+      mapObjectsGroup.add(cap)
+      meshColliders.push(cap)
+
+      const cRing = new THREE.Mesh(new THREE.TorusGeometry(1.1, 0.1, 8, 24), purpleNeonMat)
+      cRing.rotation.x = Math.PI / 2
+      cRing.position.set(p.x, 5.5, p.z)
+      mapObjectsGroup.add(cRing)
+    })
+
+    // High Ground Sniper Balcony (Site B: Y = 5.5m)
+    addPlatform(0, 5.5, 39, 14, 5.0, trimMat)
+    addWall(0, 5.5, 41.2, 14, 1.2, 0.4, trimMat)
+    addStaircase(-8, 32, -4, 39, 0, 5.5, 2.6, 12)
+
+    // Site B Cover Blocks
+    addWall(-4.5, 0, 25, 2.5, 2.4, 2.5, goldAccentMat)
+    addWall(4.5, 0, 31, 2.5, 2.4, 2.5, containerMat)
+    addWall(0, 0, 35, 7.0, 4.0, 1.8)
+
+    // --- D. SPAWN COURTYARDS & FLANK CORRIDORS ---
+    // Attacker Courtyard (West: X = -38)
+    addWall(-32, 0, -14, 2.5, 6.0, 10.0)
+    addWall(-32, 0, 14, 2.5, 6.0, 10.0)
+    addWall(-42, 0, -14, 2.0, 4.5, 6.0, containerMat)
+    addWall(-42, 0, 14, 2.0, 4.5, 6.0, containerMat)
+
+    // Defender Courtyard (East: X = +38)
+    addWall(32, 0, -14, 2.5, 6.0, 10.0)
+    addWall(32, 0, 14, 2.5, 6.0, 10.0)
+    addWall(42, 0, -14, 2.0, 4.5, 6.0, containerMat)
+    addWall(42, 0, 14, 2.0, 4.5, 6.0, containerMat)
+
+    // --- E. INTERACTIVE MECHANIC 1: GRAVITATIONAL JUMP PADS (4 Pads) ---
+    // Mid West approach -> Launches player directly onto Mid Catwalk!
+    addInteractiveJumpPad(-14.0, -8.0, 4.5, 17.5)
+    // Mid East approach -> Launches player directly onto Mid Catwalk!
+    addInteractiveJumpPad(14.0, 8.0, 4.5, 17.5)
+    // Site A Balcony launcher -> Boosts player up to Site A Sniper Perch!
+    addInteractiveJumpPad(-18.0, -26.0, 5.5, 18.0)
+    // Site B Balcony launcher -> Boosts player up to Site B Sniper Perch!
+    addInteractiveJumpPad(18.0, 26.0, 5.5, 18.0)
+
+    // --- F. INTERACTIVE MECHANIC 2: QUANTUM PORTALS / TELEPORTERS (2 Gates) ---
+    // Outer West Flank (Site A path) <--> Outer East Flank (Site B path)
+    addQuantumPortalGate('alpha', -26.0, -18.0, 0, 23.5, 18.0, -Math.PI / 2)
+    addQuantumPortalGate('beta', 26.0, 18.0, Math.PI, -23.5, -18.0, Math.PI / 2)
+
+    // --- G. INTERACTIVE MECHANIC 3: SPEED CONDUIT RUNWAYS (2 Hyper-Tracks) ---
+    // West Spurt towards Mid (Boosts player speed across main straight)
+    addSpeedConduitRunway(-28.0, -14.0, 0, 3.8)
+    // East Spurt towards Mid
+    addSpeedConduitRunway(14.0, 28.0, 0, 3.8)
+
   } else if (isKasbah) {
     // ==========================================
     // MAP 1: "TEMPLO CIBERNÉTICO KASBAH"
@@ -1197,10 +1761,10 @@ export function buildTacticalArena(scene, mapId = 'kasbah_temple') {
   const beaconMat = new THREE.MeshBasicMaterial({ color: 0x22c55e })
   const beaconGeo = new THREE.CylinderGeometry(0.14, 0.14, 1.4, 12)
 
-  const siteAZ = isColossus ? -52 : -16
-  const siteBZ = isColossus ? 52 : 16
-  const siteW = isColossus ? 24 : 14
-  const siteD = isColossus ? 18 : 10
+  const siteAZ = isColossus ? -52 : (isQuantum ? -28 : -16)
+  const siteBZ = isColossus ? 52 : (isQuantum ? 28 : 16)
+  const siteW = isColossus ? 24 : (isQuantum ? 16 : 14)
+  const siteD = isColossus ? 18 : (isQuantum ? 12 : 10)
 
   // Site A
   const siteAGeo = new THREE.PlaneGeometry(siteW, siteD)
@@ -1245,13 +1809,19 @@ export function buildTacticalArena(scene, mapId = 'kasbah_temple') {
     { x: -72.0, y: 1.7, z: 0 },
     { x: -72.0, y: 1.7, z: 9 },
     { x: -72.0, y: 1.7, z: 18 }
+  ] : (isQuantum ? [
+    { x: -38.0, y: 1.7, z: -10 },
+    { x: -38.0, y: 1.7, z: -5 },
+    { x: -38.0, y: 1.7, z: 0 },
+    { x: -38.0, y: 1.7, z: 5 },
+    { x: -38.0, y: 1.7, z: 10 }
   ] : [
     { x: -26.0, y: 1.7, z: -10 },
     { x: -26.0, y: 1.7, z: -5 },
     { x: -26.0, y: 1.7, z: 0 },
     { x: -26.0, y: 1.7, z: 5 },
     { x: -26.0, y: 1.7, z: 10 }
-  ]
+  ])
 
   const defSlots = isColossus ? [
     { x: 72.0, y: 1.7, z: -18 },
@@ -1259,13 +1829,19 @@ export function buildTacticalArena(scene, mapId = 'kasbah_temple') {
     { x: 72.0, y: 1.7, z: 0 },
     { x: 72.0, y: 1.7, z: 9 },
     { x: 72.0, y: 1.7, z: 18 }
+  ] : (isQuantum ? [
+    { x: 38.0, y: 1.7, z: -10 },
+    { x: 38.0, y: 1.7, z: -5 },
+    { x: 38.0, y: 1.7, z: 0 },
+    { x: 38.0, y: 1.7, z: 5 },
+    { x: 38.0, y: 1.7, z: 10 }
   ] : [
     { x: 26.0, y: 1.7, z: -10 },
     { x: 26.0, y: 1.7, z: -5 },
     { x: 26.0, y: 1.7, z: 0 },
     { x: 26.0, y: 1.7, z: 5 },
     { x: 26.0, y: 1.7, z: 10 }
-  ]
+  ])
 
   atkSlots.forEach(slot => {
     const pad = new THREE.Mesh(padGeo, redPadMat)
@@ -1304,10 +1880,10 @@ export function buildTacticalArena(scene, mapId = 'kasbah_temple') {
     side: THREE.DoubleSide
   })
 
-  const barrierWallH = isColossus ? 14.0 : 7.5
-  const barrierWallDepth = isColossus ? 172.0 : 48.0
-  const barrierAtkX = isColossus ? -48.0 : -17.5
-  const barrierDefX = isColossus ? 48.0 : 17.5
+  const barrierWallH = isColossus ? 14.0 : (isQuantum ? 10.0 : 7.5)
+  const barrierWallDepth = isColossus ? 172.0 : (isQuantum ? 92.0 : 48.0)
+  const barrierAtkX = isColossus ? -48.0 : (isQuantum ? -28.0 : -17.5)
+  const barrierDefX = isColossus ? 48.0 : (isQuantum ? 28.0 : 17.5)
 
   const barrierGeo = new THREE.BoxGeometry(1.5, barrierWallH, barrierWallDepth)
 
@@ -1343,6 +1919,7 @@ export function buildTacticalArena(scene, mapId = 'kasbah_temple') {
 
   let mapDisplayName = 'TEMPLO CIBERNÉTICO KASBAH'
   if (isColossus) mapDisplayName = 'VALLE COLOSO: MEGACIUDAD 3D'
+  else if (isQuantum) mapDisplayName = 'VORTEX CUÁNTICO: NÚCLEO OMEGA'
   else if (isGlacier) mapDisplayName = 'ESTACIÓN GLACIAR ÁRTICA: CRYODOCK-7'
   else if (!isKasbah) mapDisplayName = 'SECTOR RADIAN-9'
 
@@ -1351,16 +1928,24 @@ export function buildTacticalArena(scene, mapId = 'kasbah_temple') {
     name: mapDisplayName,
     meshColliders,
     wallsAABB,
-    bounds: isColossus ? { minX: -88, maxX: 88, minZ: -88, maxZ: 88 } : { minX: -32, maxX: 32, minZ: -32, maxZ: 32 },
-    spawnAtk: isColossus ? { x: -72.0, y: 1.7, z: 0 } : { x: -26.0, y: 1.7, z: 0 },
-    spawnDef: isColossus ? { x: 72.0, y: 1.7, z: 0 } : { x: 26.0, y: 1.7, z: 0 },
+    bounds: isColossus
+      ? { minX: -88, maxX: 88, minZ: -88, maxZ: 88 }
+      : (isQuantum
+        ? { minX: -48, maxX: 48, minZ: -48, maxZ: 48 }
+        : { minX: -32, maxX: 32, minZ: -32, maxZ: 32 }),
+    spawnAtk: isColossus ? { x: -72.0, y: 1.7, z: 0 } : (isQuantum ? { x: -38.0, y: 1.7, z: 0 } : { x: -26.0, y: 1.7, z: 0 }),
+    spawnDef: isColossus ? { x: 72.0, y: 1.7, z: 0 } : (isQuantum ? { x: 38.0, y: 1.7, z: 0 } : { x: 26.0, y: 1.7, z: 0 }),
     spawnAtkSlots: atkSlots,
     spawnDefSlots: defSlots,
-    siteA: { x: 0, y: 0, z: siteAZ, width: siteW, depth: siteD, radius: isColossus ? 14.0 : 8.0, name: 'SITE A' },
-    siteB: { x: 0, y: 0, z: siteBZ, width: siteW, depth: siteD, radius: isColossus ? 14.0 : 8.0, name: 'SITE B' },
-    skybridge: { x: 0, y: isColossus ? 4.8 : 3.8, z: 0, width: isColossus ? 8 : 6, depth: isColossus ? 52 : 18 },
+    siteA: { x: 0, y: 0, z: siteAZ, width: siteW, depth: siteD, radius: isColossus ? 14.0 : (isQuantum ? 10.0 : 8.0), name: isQuantum ? 'SITE A (HIPER-ESPACIO)' : 'SITE A' },
+    siteB: { x: 0, y: 0, z: siteBZ, width: siteW, depth: siteD, radius: isColossus ? 14.0 : (isQuantum ? 10.0 : 8.0), name: isQuantum ? 'SITE B (SINGULARIDAD)' : 'SITE B' },
+    skybridge: { x: 0, y: isColossus ? 4.8 : (isQuantum ? 4.5 : 3.8), z: 0, width: isColossus ? 8 : (isQuantum ? 5 : 6), depth: isColossus ? 52 : (isQuantum ? 26 : 18) },
     barrierGroup,
-    setBarriersActive
+    setBarriersActive,
+    jumpPads,
+    teleporters,
+    speedPads,
+    animatedMeshes
   }
 }
 

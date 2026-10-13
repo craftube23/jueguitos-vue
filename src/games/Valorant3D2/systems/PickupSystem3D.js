@@ -186,6 +186,30 @@ export class PickupSystem3D {
         const zoneFn = zones[i % zones.length]
         points.push(zoneFn())
       }
+    } else if (mapId === 'vortex_quantum' || mapId === 'nucleo_cuantico') {
+      // Vortex Cuántico: Generate 26 randomized orbs across multiple vertical levels
+      const total = 26
+      const zones = [
+        // Mid Levitating Core Ground & Pit
+        () => ({ x: randRange(-12, 12), y: 0.8, z: randRange(-12, 12), type: getRandomPickupType() }),
+        // Elevated Mid Catwalk Ring (Y = 4.5m)
+        () => ({ x: randRange(-10, 10), y: 5.2, z: randRange(-10, 10), type: getRandomPickupType() }),
+        // Site A Hiper-Espacio
+        () => ({ x: randRange(-20, 20), y: 0.8, z: randRange(-34, -20), type: getRandomPickupType() }),
+        // Site B Singularidad
+        () => ({ x: randRange(-20, 20), y: 0.8, z: randRange(20, 34), type: getRandomPickupType() }),
+        // Outer Teleporter Gates
+        () => ({ x: -26 + randRange(-3, 3), y: 0.8, z: -18 + randRange(-3, 3), type: getRandomPickupType() }),
+        () => ({ x: 26 + randRange(-3, 3), y: 0.8, z: 18 + randRange(-3, 3), type: getRandomPickupType() }),
+        // Speed Conduits & Flanks
+        () => ({ x: randRange(-30, -15), y: 0.8, z: randRange(-8, 8), type: getRandomPickupType() }),
+        () => ({ x: randRange(15, 30), y: 0.8, z: randRange(-8, 8), type: getRandomPickupType() })
+      ]
+
+      for (let i = 0; i < total; i++) {
+        const zoneFn = zones[i % zones.length]
+        points.push(zoneFn())
+      }
     } else {
       // Sector Radian-9: Generate 20-24 randomized orbs
       const total = 22

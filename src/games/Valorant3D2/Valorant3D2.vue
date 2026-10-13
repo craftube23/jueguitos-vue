@@ -44,9 +44,30 @@ const MAPS_3D = [
     theme: 'colossus_megacity',
     desc: 'Megamapa colosal de 180m x 180m con monolito central de 32m, reactores cuánticos en Sitio A, megadocks en Sitio B, autopistas aéreas y rascacielos.',
     icon: '🏙️'
+  },
+  {
+    id: 'vortex_quantum',
+    name: 'VORTEX CUÁNTICO: NÚCLEO OMEGA',
+    theme: 'vortex_quantum',
+    desc: 'Estación orbital de 96m x 96m con núcleo de antimateria levitante, anillos de salto gravitacional, portales cuánticos bidireccionales y pasarelas de hiper-velocidad.',
+    icon: '🌀'
+  },
+  {
+    id: 'random_rotation',
+    name: 'MAPAS ALEATORIOS (ROTACIÓN TRAS CADA RONDA)',
+    theme: 'random_rotation',
+    desc: '¡Modo competitivo dinámico! El mapa cambia aleatoriamente después de cada ronda para poner a prueba tu adaptabilidad táctica.',
+    icon: '🎲'
   }
 ]
 const selectedMapId = ref('kasbah_temple')
+const currentActiveMapId = ref('kasbah_temple')
+const PLAYABLE_MAP_IDS = ['kasbah_temple', 'sector_radian', 'glacier_cryo', 'colossus_megacity', 'vortex_quantum']
+
+function getRandomPlayableMap(excludeMapId = null) {
+  const pool = excludeMapId ? PLAYABLE_MAP_IDS.filter(id => id !== excludeMapId) : PLAYABLE_MAP_IDS
+  return pool[Math.floor(Math.random() * pool.length)]
+}
 
 // --- GAME STATE ---
 const gameMode = ref('MENU') // 'MENU', 'AGENT_SELECT', 'IN_GAME', 'MULTIPLAYER_LOBBY', 'PRACTICE'
@@ -514,19 +535,128 @@ function initThreeJS() {
   window.addEventListener('resize', onWindowResize)
 }
 
-function rebuildMap3D(mapId) {
+// Interactive Map Mechanics State
+let portalCooldownTimer = 0
+let speedBoostTimer = 0
+
+function updateInteractiveMapMechanics(dt) {
+  if (!player.alive || match.phase === 'BUY_PHASE') return
+  if (!MAP_3D) return
+
+  if (portalCooldownTimer > 0) {
+    portalCooldownTimer = Math.max(0, portalCooldownTimer - dt)
+  }
+
+  // 1. Speed Boost Conduits
+  if (speedBoostTimer > 0) {
+    speedBoostTimer -= dt
+    player.isStimmed = true
+    if (speedBoostTimer <= 0) {
+      player.isStimmed = false
+    }
+  }
+
+  if (MAP_3D.speedPads && MAP_3D.speedPads.length > 0) {
+    for (const pad of MAP_3D.speedPads) {
+      if (player.pos.x >= pad.minX && player.pos.x <= pad.maxX &&
+          player.pos.z >= pad.minZ && player.pos.z <= pad.maxZ &&
+          Math.abs(player.pos.y - 1.7) < 1.4) {
+        if (speedBoostTimer < 2.0) {
+          speedBoostTimer = pad.boostDuration || 3.5
+          player.isStimmed = true
+          soundManager.play('speedboost')
+          showEconomyNotification('⚡ ¡SOBRECARGA DE VELOCIDAD ACTIVADA! (+40% Velocidad)')
+        }
+        break
+      }
+    }
+  }
+
+  // 2. Gravitational Jump Pads
+  if (MAP_3D.jumpPads && MAP_3D.jumpPads.length > 0) {
+    for (const pad of MAP_3D.jumpPads) {
+      const dist = Math.hypot(player.pos.x - pad.x, player.pos.z - pad.z)
+      const dy = Math.abs(player.pos.y - (pad.y + 1.7))
+      if (dist < pad.radius && dy < 1.6) {
+        const now = performance.now()
+        if (!pad.lastUsed || now - pad.lastUsed > (pad.cooldown || 1000)) {
+          pad.lastUsed = now
+          if (playerController) {
+            playerController.applyImpulse(0, pad.impulseY || 17.5, 0)
+          }
+          soundManager.play('launchpad')
+          showEconomyNotification('🚀 ¡IMPULSO GRAVITACIONAL ACTIVADO!')
+        }
+      }
+    }
+  }
+
+  // 3. Quantum Portals / Teleporters
+  if (portalCooldownTimer <= 0 && MAP_3D.teleporters && MAP_3D.teleporters.length > 0) {
+    for (const portal of MAP_3D.teleporters) {
+      const dist = Math.hypot(player.pos.x - portal.x, player.pos.z - portal.z)
+      const dy = Math.abs(player.pos.y - (portal.y + 1.7))
+      if (dist < portal.radius && dy < 2.2) {
+        portalCooldownTimer = portal.cooldown || 3.0
+        if (playerController) {
+          playerController.position.set(portal.targetX, portal.targetY + 1.7, portal.targetZ)
+          if (portal.targetYaw !== undefined) playerController.yaw = portal.targetYaw
+          playerController.velocity.set(0, 0, 0)
+          playerController.impulseVelocity.set(0, 0, 0)
+        }
+        player.pos.x = portal.targetX
+        player.pos.y = portal.targetY + 1.7
+        player.pos.z = portal.targetZ
+        if (portal.targetYaw !== undefined) player.yaw = portal.targetYaw
+        soundManager.play('teleport')
+        showEconomyNotification('🌀 ¡TELETRANSPORTACIÓN CUÁNTICA EXITOSA!')
+        break
+      }
+    }
+  }
+
+  // 4. Rotate and Animate Map Meshes (Quantum core, pulsar rings, portals)
+  if (MAP_3D.animatedMeshes && MAP_3D.animatedMeshes.length > 0) {
+    const elapsed = performance.now()
+    for (const anim of MAP_3D.animatedMeshes) {
+      if (anim.mesh) {
+        if (anim.rotY) anim.mesh.rotation.y += anim.rotY * dt
+        if (anim.rotX) anim.mesh.rotation.x += anim.rotX * dt
+        if (anim.rotZ) anim.mesh.rotation.z += anim.rotZ * dt
+        if (anim.bobSpeed && anim.baseY !== undefined) {
+          anim.mesh.position.y = anim.baseY + Math.sin(elapsed * 0.002 * anim.bobSpeed) * (anim.bobAmp || 0.35)
+        }
+      }
+    }
+  }
+}
+
+function rebuildMap3D(mapId, isRotationStep = false) {
   if (!scene) return
-  selectedMapId.value = mapId
-  const arenaData = buildTacticalArena(scene, mapId)
+
+  let targetMapId = mapId
+  if (mapId === 'random_rotation') {
+    selectedMapId.value = 'random_rotation'
+    targetMapId = getRandomPlayableMap(currentActiveMapId.value)
+  } else if (!isRotationStep) {
+    selectedMapId.value = mapId
+  }
+  currentActiveMapId.value = targetMapId
+
+  const arenaData = buildTacticalArena(scene, targetMapId)
   Object.assign(MAP_3D, arenaData)
 
-  const isColossus = (mapId === 'colossus_megacity')
+  const isColossus = (targetMapId === 'colossus_megacity')
+  const isQuantum = (targetMapId === 'vortex_quantum')
   if (isColossus) {
     scene.fog = new THREE.Fog(0x020617, 80, 450)
     scene.background = new THREE.Color(0x020617)
-  } else if (mapId === 'glacier_cryo') {
+  } else if (targetMapId === 'glacier_cryo') {
     scene.fog = new THREE.Fog(0x082f49, 45, 180)
     scene.background = new THREE.Color(0x082f49)
+  } else if (isQuantum) {
+    scene.fog = new THREE.Fog(0x05041a, 40, 200)
+    scene.background = new THREE.Color(0x05041a)
   } else {
     scene.fog = new THREE.Fog(0x0b132b, 45, 160)
     scene.background = new THREE.Color(0x0b132b)
@@ -535,12 +665,12 @@ function rebuildMap3D(mapId) {
   buildAtmosphere()
 
   if (dirLight) {
-    const shadowSize = isColossus ? 100 : 38
+    const shadowSize = isColossus ? 100 : (isQuantum ? 55 : 38)
     dirLight.shadow.camera.left = -shadowSize
     dirLight.shadow.camera.right = shadowSize
     dirLight.shadow.camera.top = shadowSize
     dirLight.shadow.camera.bottom = -shadowSize
-    dirLight.shadow.camera.far = isColossus ? 300 : 150
+    dirLight.shadow.camera.far = isColossus ? 300 : (isQuantum ? 200 : 150)
     dirLight.shadow.camera.updateProjectionMatrix()
   }
 
@@ -556,7 +686,7 @@ function rebuildMap3D(mapId) {
     abilitySystem.setMeshColliders(arenaData.meshColliders)
   }
   if (pickupSystem) {
-    pickupSystem.loadMapPickups(mapId)
+    pickupSystem.loadMapPickups(targetMapId)
   }
   if (botAI) {
     botAI.setBounds(arenaData.bounds)
@@ -580,9 +710,11 @@ function buildAtmosphere() {
     scene.remove(ambientDust)
   }
 
-  const isKasbah = (selectedMapId.value === 'kasbah_temple')
-  const isGlacier = (selectedMapId.value === 'glacier_cryo')
-  const isColossus = (selectedMapId.value === 'colossus_megacity')
+  const activeId = currentActiveMapId.value || selectedMapId.value
+  const isKasbah = (activeId === 'kasbah_temple')
+  const isGlacier = (activeId === 'glacier_cryo')
+  const isColossus = (activeId === 'colossus_megacity')
+  const isQuantum = (activeId === 'vortex_quantum')
 
   // Atmospheric Sky Dome with Tactical Gradient
   const skyCanvas = document.createElement('canvas')
@@ -610,6 +742,13 @@ function buildAtmosphere() {
     grad.addColorStop(0.7, '#0f172a')  // Cyber slate horizon
     grad.addColorStop(0.92, '#06b6d4') // Cyan skyline backlight
     grad.addColorStop(1.0, '#ec4899')  // Neon magenta horizon rim
+  } else if (isQuantum) {
+    // Vortex Quantum Void & Cosmic Nebula Sky
+    grad.addColorStop(0, '#02000d')    // Deep cosmic abyss
+    grad.addColorStop(0.25, '#2e1065')  // Antimatter violet
+    grad.addColorStop(0.55, '#581c87') // Electric magenta nebula
+    grad.addColorStop(0.82, '#083344') // Deep cyan horizon rim
+    grad.addColorStop(1.0, '#00f3ff')  // Luminous turquoise quantum glow
   } else {
     // Cyber Twilight Sky
     grad.addColorStop(0, '#040814')    // Deep zenith
@@ -628,22 +767,22 @@ function buildAtmosphere() {
   currentSkyDome = new THREE.Mesh(skyGeo, skyMat)
   scene.add(currentSkyDome)
 
-  // Floating Radianite Dust / Arctic Snow Particles
-  const dustCount = isColossus ? 280 : (isGlacier ? 160 : 120)
-  const dustSpread = isColossus ? 160 : 60
+  // Floating Radianite Dust / Arctic Snow / Quantum Motes
+  const dustCount = isColossus ? 280 : (isQuantum ? 220 : (isGlacier ? 160 : 120))
+  const dustSpread = isColossus ? 160 : (isQuantum ? 90 : 60)
   const dustGeo = new THREE.BufferGeometry()
   const dustPositions = new Float32Array(dustCount * 3)
   for (let i = 0; i < dustCount; i++) {
     dustPositions[i * 3] = (Math.random() - 0.5) * dustSpread
-    dustPositions[i * 3 + 1] = Math.random() * (isColossus ? 14 : 8) + 0.5
+    dustPositions[i * 3 + 1] = Math.random() * (isColossus ? 14 : (isQuantum ? 11 : 8)) + 0.5
     dustPositions[i * 3 + 2] = (Math.random() - 0.5) * dustSpread
   }
   dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3))
   const dustMat = new THREE.PointsMaterial({
-    color: isKasbah ? 0xfbbf24 : (isGlacier ? 0xbae6fd : 0x38bdf8),
-    size: isGlacier ? 0.18 : (isColossus ? 0.22 : 0.14),
+    color: isKasbah ? 0xfbbf24 : (isGlacier ? 0xbae6fd : (isQuantum ? 0x00f3ff : 0x38bdf8)),
+    size: isGlacier ? 0.18 : (isColossus ? 0.22 : (isQuantum ? 0.18 : 0.14)),
     transparent: true,
-    opacity: isGlacier ? 0.85 : 0.65,
+    opacity: isGlacier ? 0.85 : (isQuantum ? 0.85 : 0.65),
     blending: THREE.AdditiveBlending
   })
   ambientDust = new THREE.Points(dustGeo, dustMat)
@@ -753,10 +892,11 @@ function updateGame3D(dt) {
             networkSystem.broadcastRoundSync(roomCode.value, {
               phase: 'BUY_PHASE',
               timer: 15,
-              announcement: 'FASE DE COMPRA - SELECCIONA TU ARSENAL [B]',
+              announcement: match.announcement || 'FASE DE COMPRA - SELECCIONA TU ARSENAL [B]',
               scoreAtk: match.scoreAtk,
               scoreDef: match.scoreDef,
-              round: match.round
+              round: match.round,
+              mapId: currentActiveMapId.value
             })
           }
         }
@@ -887,6 +1027,9 @@ function updateGame3D(dt) {
       showEconomyNotification(`✨ ¡Recogiste ${pickupType.icon} ${pickupType.name}! (${pickupType.desc})`)
     }, players.value)
   }
+
+  // Update Interactive Map Mechanics (Jump Pads, Portals, Speed Conduits, Moving Cores)
+  updateInteractiveMapMechanics(dt)
 
   // Update Bots AI (Hunter Team Deathmatch mode)
   if (!isOnline.value || isHost.value) {
@@ -1434,6 +1577,21 @@ function getPlayerSpawnSlot(targetPlayer) {
 }
 
 function resetRound(fullReset = false) {
+  // Random Map Rotation handling (Singleplayer, Practice, Custom, and Online Host)
+  if (selectedMapId.value === 'random_rotation') {
+    if (!isOnline.value || isHost.value) {
+      if (fullReset) {
+        const initialMap = getRandomPlayableMap()
+        rebuildMap3D(initialMap, true)
+      } else {
+        const nextMap = getRandomPlayableMap(currentActiveMapId.value)
+        rebuildMap3D(nextMap, true)
+        match.announcement = '🎲 ROTACIÓN DE MAPA: ' + (MAPS_3D.find(m => m.id === nextMap)?.name || nextMap)
+        showEconomyNotification('🔄 ¡NUEVO MAPA ESTA RONDA: ' + (MAPS_3D.find(m => m.id === nextMap)?.name || nextMap) + '!')
+      }
+    }
+  }
+
   if (fullReset || match.round === 1) {
     if (fullReset) {
       match.scoreAtk = 0
@@ -1460,7 +1618,9 @@ function resetRound(fullReset = false) {
   match.phase = 'BUY_PHASE'
   match.timer = 15
   match.winner = null
-  match.announcement = match.round === 1 ? 'RONDA 1: PISTOLAS // COMPRA TÁCTICA [B]' : 'FASE DE COMPRA - SELECCIONA TU ARSENAL [B]'
+  if (!match.announcement || !match.announcement.startsWith('🎲 ROTACIÓN')) {
+    match.announcement = match.round === 1 ? 'RONDA 1: PISTOLAS // COMPRA TÁCTICA [B]' : 'FASE DE COMPRA - SELECCIONA TU ARSENAL [B]'
+  }
 
   player.alive = true
   player.health = 150
@@ -1488,7 +1648,7 @@ function resetRound(fullReset = false) {
   player.abilityCharges.X = infiniteAbilities.value ? 99 : 0
 
   if (pickupSystem) {
-    pickupSystem.resetRoundPickups(selectedMapId.value)
+    pickupSystem.resetRoundPickups(currentActiveMapId.value || selectedMapId.value)
   }
 
   abilityCooldowns.C = 0
@@ -2145,9 +2305,16 @@ function setupNetworkListeners() {
       match.maxRounds = room.customConfig.maxRounds || 5
       infiniteAmmo.value = !!room.customConfig.infiniteAmmo
       infiniteAbilities.value = !!room.customConfig.infiniteAbilities
-      if (room.customConfig.mapId && room.customConfig.mapId !== selectedMapId.value) {
-        selectedMapId.value = room.customConfig.mapId
-        rebuildMap3D(room.customConfig.mapId)
+      if (room.customConfig.mapId) {
+        if (room.customConfig.mapId === 'random_rotation') {
+          selectedMapId.value = 'random_rotation'
+          if (room.customConfig.activeMapId) {
+            rebuildMap3D(room.customConfig.activeMapId, true)
+          }
+        } else if (room.customConfig.mapId !== selectedMapId.value) {
+          selectedMapId.value = room.customConfig.mapId
+          rebuildMap3D(room.customConfig.mapId)
+        }
       }
     }
     player.id = p.id
@@ -2163,9 +2330,16 @@ function setupNetworkListeners() {
       match.maxRounds = room.customConfig.maxRounds || 5
       infiniteAmmo.value = !!room.customConfig.infiniteAmmo
       infiniteAbilities.value = !!room.customConfig.infiniteAbilities
-      if (room.customConfig.mapId && room.customConfig.mapId !== selectedMapId.value) {
-        selectedMapId.value = room.customConfig.mapId
-        rebuildMap3D(room.customConfig.mapId)
+      if (room.customConfig.mapId) {
+        if (room.customConfig.mapId === 'random_rotation') {
+          selectedMapId.value = 'random_rotation'
+          if (room.customConfig.activeMapId && room.customConfig.activeMapId !== currentActiveMapId.value) {
+            rebuildMap3D(room.customConfig.activeMapId, true)
+          }
+        } else if (room.customConfig.mapId !== selectedMapId.value) {
+          selectedMapId.value = room.customConfig.mapId
+          rebuildMap3D(room.customConfig.mapId)
+        }
       }
     }
     const me = room.players?.find(p => p.id === player.id)
@@ -2184,8 +2358,15 @@ function setupNetworkListeners() {
       match.maxRounds = room.customConfig.maxRounds || 5
       infiniteAmmo.value = !!room.customConfig.infiniteAmmo
       infiniteAbilities.value = !!room.customConfig.infiniteAbilities
-      if (room.customConfig.mapId && room.customConfig.mapId !== selectedMapId.value) {
-        rebuildMap3D(room.customConfig.mapId)
+      if (room.customConfig.mapId) {
+        if (room.customConfig.mapId === 'random_rotation') {
+          selectedMapId.value = 'random_rotation'
+          const initMap = room.customConfig.activeMapId || getRandomPlayableMap()
+          rebuildMap3D(initMap, true)
+        } else if (room.customConfig.mapId !== selectedMapId.value) {
+          selectedMapId.value = room.customConfig.mapId
+          rebuildMap3D(room.customConfig.mapId)
+        }
       }
     }
     setupOnlinePlayers(room)
@@ -2295,6 +2476,11 @@ function setupNetworkListeners() {
     if (data.winner !== undefined) match.winner = data.winner
     if (data.announcement) match.announcement = data.announcement
     if (data.timer !== undefined) match.timer = data.timer
+
+    if (data.mapId && data.mapId !== currentActiveMapId.value) {
+      rebuildMap3D(data.mapId, true)
+      showEconomyNotification('🔄 ¡NUEVO MAPA ESTA RONDA: ' + (MAPS_3D.find(m => m.id === data.mapId)?.name || data.mapId) + '!')
+    }
 
     if (data.phase && data.phase !== match.phase) {
       match.phase = data.phase
@@ -2423,6 +2609,11 @@ function lockLobbyAgent() {
 }
 
 function startLobbyMatch() {
+  if (selectedMapId.value === 'random_rotation') {
+    const initMap = getRandomPlayableMap()
+    rebuildMap3D(initMap, true)
+    networkSystem.updateRoomConfig(roomCode.value, { mapId: 'random_rotation', activeMapId: initMap })
+  }
   networkSystem.startMatch(roomCode.value)
 }
 
