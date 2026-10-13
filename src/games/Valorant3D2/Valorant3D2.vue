@@ -97,6 +97,15 @@ watch(showBuyMenu, (isOpen) => {
   }
 })
 
+watch(gameMode, (newMode) => {
+  if (newMode !== 'MENU') {
+    document.body.style.overflow = 'hidden'
+    window.scrollTo({ top: 0, behavior: 'instant' })
+  } else {
+    document.body.style.overflow = ''
+  }
+})
+
 // Practice Range Cheats
 const infiniteAmmo = ref(false)
 const infiniteAbilities = ref(false)
@@ -261,12 +270,22 @@ function inspectCurrentWeapon() {
 }
 
 function onWheel(e) {
-  if (!isPointerLocked.value || !player.alive) return
+  if (gameMode.value !== 'MENU' || isPointerLocked.value) {
+    e.preventDefault()
+  }
+  if (!player.alive) return
   if (e.deltaY < 0) {
     equipPrimaryWeapon()
   } else if (e.deltaY > 0) {
     equipMeleeWeapon()
   }
+}
+
+function onContainerClick(e) {
+  if (gameMode.value === 'MENU') return
+  if (showBuyMenu.value || showSettingsModal.value) return
+  if (e.target && (e.target.closest('button') || e.target.closest('input') || e.target.closest('a') || e.target.closest('.buy-card'))) return
+  requestPointerLock()
 }
 
 // Hitmarker & Crosshair
@@ -384,6 +403,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  document.body.style.overflow = ''
   if (document.pointerLockElement) {
     document.exitPointerLock()
   }
@@ -1831,14 +1851,20 @@ function onBeforeUnload() {
 }
 
 function requestPointerLock() {
-  const container = threeCanvasRef.value
+  const container = (renderer && renderer.domElement) ? renderer.domElement : threeCanvasRef.value
   if (container && (gameMode.value === 'IN_GAME' || gameMode.value === 'PRACTICE')) {
-    container.requestPointerLock()
+    try {
+      const p = container.requestPointerLock()
+      if (p && typeof p.catch === 'function') {
+        p.catch(() => {})
+      }
+    } catch (e) {}
   }
 }
 
 function onPointerLockChange() {
-  const isLocked = document.pointerLockElement === threeCanvasRef.value
+  const elem = document.pointerLockElement
+  const isLocked = !!elem && (elem === threeCanvasRef.value || elem === renderer?.domElement || (threeCanvasRef.value && threeCanvasRef.value.contains(elem)))
   isPointerLocked.value = isLocked
   if (isLocked) {
     if (navigator.keyboard?.lock) {
@@ -2522,7 +2548,9 @@ function start1v1Duel() {
   player.credits = customSettings.startingCredits || 800
   gameMode.value = 'IN_GAME'
   resetRound(true)
-  setTimeout(requestPointerLock, 100)
+  requestPointerLock()
+  nextTick(() => requestPointerLock())
+  setTimeout(requestPointerLock, 80)
 }
 
 function startCustomMatch() {
@@ -2531,7 +2559,9 @@ function startCustomMatch() {
   player.credits = customSettings.startingCredits || 800
   gameMode.value = 'IN_GAME'
   resetRound(true)
-  setTimeout(requestPointerLock, 100)
+  requestPointerLock()
+  nextTick(() => requestPointerLock())
+  setTimeout(requestPointerLock, 80)
 }
 
 function startStandardGame() {
@@ -2543,20 +2573,26 @@ function startStandardGame() {
   player.credits = 800
   gameMode.value = 'IN_GAME'
   resetRound(true)
-  setTimeout(requestPointerLock, 100)
+  requestPointerLock()
+  nextTick(() => requestPointerLock())
+  setTimeout(requestPointerLock, 80)
 }
 
 function startPracticeMode() {
   gameMode.value = 'PRACTICE'
   resetRound(true)
-  setTimeout(requestPointerLock, 100)
+  requestPointerLock()
+  nextTick(() => requestPointerLock())
+  setTimeout(requestPointerLock, 80)
 }
 
 function lockAgent(agentId) {
   player.agentId = agentId
   gameMode.value = 'IN_GAME'
   resetRound(true)
-  setTimeout(requestPointerLock, 100)
+  requestPointerLock()
+  nextTick(() => requestPointerLock())
+  setTimeout(requestPointerLock, 80)
 }
 
 function buyItem(item) {
@@ -2580,7 +2616,7 @@ function buyItem(item) {
 </script>
 
 <template>
-  <div class="valorant-container">
+  <div class="valorant-container" @click="onContainerClick" @wheel.prevent="onWheel">
     <!-- 3D Three.js Layer (ALWAYS ACTIVE) -->
     <div ref="threeCanvasRef" class="three-canvas-wrap" @click="requestPointerLock"></div>
 
@@ -3254,61 +3290,8 @@ function buyItem(item) {
         <div v-if="hitmarkerActive" class="hitmarker scope-hit" :class="{ headshot: hitmarkerHeadshot }">✕</div>
       </div>
 
-      <!-- 2. M4A1 ACOG / REFLEX CHEVRON OPTIC -->
-      <div v-else-if="player.alive && isAiming && player.weapon === 'm4a1'" class="ads-view-container">
-        <div class="ads-focus-overlay"></div>
-        <div class="ads-optic-frame optic-m4a1">
-          <div class="m4-optic-glass">
-            <div class="m4-chevron-point" :style="{ borderBottomColor: settings.crosshairColor || '#00f3ff' }"></div>
-            <div class="m4-stadia-h" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
-            <div class="m4-stadia-v" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
-          </div>
-          <div v-if="hitmarkerActive" class="hitmarker" :class="{ headshot: hitmarkerHeadshot }">✕</div>
-        </div>
-      </div>
-
-      <!-- 3. KRISS VECTOR EOTECH HOLOGRAPHIC OPTIC -->
-      <div v-else-if="player.alive && isAiming && player.weapon === 'kriss_vector'" class="ads-view-container">
-        <div class="ads-focus-overlay"></div>
-        <div class="ads-optic-frame optic-vector">
-          <div class="vector-holo-ring" :style="{ borderColor: settings.crosshairColor || '#00f3ff' }"></div>
-          <div class="vector-holo-dot" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
-          <div class="vector-holo-post post-t" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
-          <div class="vector-holo-post post-b" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
-          <div class="vector-holo-post post-l" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
-          <div class="vector-holo-post post-r" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
-          <div v-if="hitmarkerActive" class="hitmarker" :class="{ headshot: hitmarkerHeadshot }">✕</div>
-        </div>
-      </div>
-
-      <!-- 4. AK-74U KOBRA T-POST PRISM OPTIC -->
-      <div v-else-if="player.alive && isAiming && player.weapon === 'ak74u'" class="ads-view-container">
-        <div class="ads-focus-overlay"></div>
-        <div class="ads-optic-frame optic-ak74u">
-          <div class="kobra-center-dot" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
-          <div class="kobra-arm arm-left" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
-          <div class="kobra-arm arm-right" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
-          <div class="kobra-post" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
-          <div v-if="hitmarkerActive" class="hitmarker" :class="{ headshot: hitmarkerHeadshot }">✕</div>
-        </div>
-      </div>
-
-      <!-- 5. BENELLI M4 TACTICAL COMBAT CHOKE OPTIC -->
-      <div v-else-if="player.alive && isAiming && player.weapon === 'benelli_m4'" class="ads-view-container">
-        <div class="ads-focus-overlay"></div>
-        <div class="ads-optic-frame optic-shotgun">
-          <div class="shotgun-tight-ring" :style="{ borderColor: settings.crosshairColor || '#00f3ff' }"></div>
-          <div class="shotgun-center-pellet" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>
-          <div class="shotgun-choke-angle a-tl" :style="{ borderColor: settings.crosshairColor || '#00f3ff' }"></div>
-          <div class="shotgun-choke-angle a-tr" :style="{ borderColor: settings.crosshairColor || '#00f3ff' }"></div>
-          <div class="shotgun-choke-angle a-bl" :style="{ borderColor: settings.crosshairColor || '#00f3ff' }"></div>
-          <div class="shotgun-choke-angle a-br" :style="{ borderColor: settings.crosshairColor || '#00f3ff' }"></div>
-          <div v-if="hitmarkerActive" class="hitmarker" :class="{ headshot: hitmarkerHeadshot }">✕</div>
-        </div>
-      </div>
-
-      <!-- 6. CLASSIC PISTOL CLEAN MICRO REFLEX -->
-      <div v-else-if="player.alive && isAiming && player.weapon === 'classic'" class="ads-view-container">
+      <!-- 2. ALL TACTICAL WEAPONS: CLEAN SHOULDER ADS MICRO REFLEX (LIKE THE PISTOL) -->
+      <div v-else-if="player.alive && isAiming" class="ads-view-container">
         <div class="ads-focus-overlay"></div>
         <div class="ads-optic-frame optic-classic">
           <div class="classic-ads-dot" :style="{ backgroundColor: settings.crosshairColor || '#00f3ff' }"></div>

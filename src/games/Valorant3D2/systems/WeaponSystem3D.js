@@ -27,9 +27,9 @@ const WEAPON_MODELS = {
     rotation: [0, Math.PI, 0],
     hideBodyMesh: false,
     hipPos: [0.04, -1.48, -0.16],
-    adsPos: [-0.05275, -1.50, -0.12],
-    adsRot: [-0.02191, -0.00387, 0.0],
-    muzzlePos: [0.0, 1.50, -0.80],
+    adsPos: [0.035, -1.45, -0.12],
+    adsRot: [0.0, 0.0, 0.0],
+    muzzlePos: [0.0, 1.45, -0.75],
     subclips: {
       draw: { fromClip: 'Draw', start: 0.0, end: 1.033 },
       idle: { fromClip: 'Draw', start: 0.95, end: 1.033 },
@@ -51,7 +51,7 @@ const WEAPON_MODELS = {
     rotation: [0, Math.PI, 0],
     hideBodyMesh: true,
     hipPos: [0.035, -1.68, -0.15],
-    adsPos: [0.0, -1.62, -0.09],
+    adsPos: [0.03, -1.65, -0.11],
     adsRot: [0.0, 0.0, 0.0],
     muzzlePos: [0.0, 1.62, -0.70],
     animMap: {
@@ -68,7 +68,7 @@ const WEAPON_MODELS = {
     rotation: [0, Math.PI, 0],
     hideBodyMesh: true,
     hipPos: [0.035, -1.68, -0.15],
-    adsPos: [0.0, -1.62, -0.09],
+    adsPos: [0.03, -1.65, -0.11],
     adsRot: [0.0, 0.0, 0.0],
     muzzlePos: [0.0, 1.62, -0.70],
     animMap: {
@@ -85,8 +85,9 @@ const WEAPON_MODELS = {
     rotation: [0, Math.PI, 0],
     hideBodyMesh: true,
     hipPos: [0.03, -1.42, -0.38],
-    adsPos: [-0.1102, -1.348, -0.28],
-    muzzlePos: [0.0, 1.348, -0.70],
+    adsPos: [0.025, -1.39, -0.34],
+    adsRot: [0.0, 0.0, 0.0],
+    muzzlePos: [0.0, 1.39, -0.65],
     subclips: {
       draw: { fromClip: 'Draw', start: 4.166, end: 4.666 },
       idle: { fromClip: 'Draw', start: 4.55, end: 4.666 },
