@@ -219,6 +219,7 @@ export class WeaponSystem3D {
     this.inspectTimer = 0
 
     this.initMuzzleEffects()
+    this.initProceduralWeaponRig()
     this.loadAllWeaponModels()
 
     this.camera.add(this.gunGroup)
@@ -241,6 +242,345 @@ export class WeaponSystem3D {
     this.muzzleLight = new THREE.PointLight(0xfde047, 0, 12)
     this.muzzleLight.position.set(0.067, 1.51, -0.7)
     this.gunGroup.add(this.muzzleLight)
+  }
+
+  initProceduralWeaponRig() {
+    this.procWeaponGroup = new THREE.Group()
+    this.gunGroup.add(this.procWeaponGroup)
+
+    const gloveMat = new THREE.MeshStandardMaterial({
+      color: 0x18181b,
+      roughness: 0.5,
+      metalness: 0.35
+    })
+    const sleeveMat = new THREE.MeshStandardMaterial({
+      color: 0x27272a,
+      roughness: 0.8,
+      metalness: 0.15
+    })
+    const gunMetalMat = new THREE.MeshStandardMaterial({
+      color: 0x1e293b,
+      roughness: 0.28,
+      metalness: 0.85
+    })
+    const gunTrimMat = new THREE.MeshStandardMaterial({
+      color: 0x334155,
+      roughness: 0.35,
+      metalness: 0.6
+    })
+    const gunSteelMat = new THREE.MeshStandardMaterial({
+      color: 0x64748b,
+      roughness: 0.2,
+      metalness: 0.95
+    })
+    const tritiumMat = new THREE.MeshBasicMaterial({
+      color: 0x22c55e
+    })
+    const reticleMat = new THREE.MeshBasicMaterial({
+      color: 0xef4444
+    })
+    const opticGlassMat = new THREE.MeshStandardMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.35,
+      roughness: 0.1,
+      metalness: 0.9
+    })
+    const bladeMat = new THREE.MeshStandardMaterial({
+      color: 0xe2e8f0,
+      roughness: 0.1,
+      metalness: 0.98
+    })
+
+    this.procVariants = {}
+
+    // 1. PROCEDURAL PISTOL (Classic / Sidearm)
+    const pistolGroup = new THREE.Group()
+    pistolGroup.position.set(0.04, 1.49, -0.45)
+
+    const pArmGeo = new THREE.CylinderGeometry(0.04, 0.05, 0.45, 8)
+    pArmGeo.rotateX(0.9)
+    pArmGeo.rotateY(-0.35)
+    const pArm = new THREE.Mesh(pArmGeo, sleeveMat)
+    pArm.position.set(0.12, -0.22, 0.15)
+    pistolGroup.add(pArm)
+
+    const pGloveGeo = new THREE.BoxGeometry(0.065, 0.08, 0.10)
+    pGloveGeo.rotateX(0.2)
+    const pGlove = new THREE.Mesh(pGloveGeo, gloveMat)
+    pGlove.position.set(0.02, -0.06, 0.02)
+    pistolGroup.add(pGlove)
+
+    const pFrameGeo = new THREE.BoxGeometry(0.034, 0.055, 0.20)
+    const pFrame = new THREE.Mesh(pFrameGeo, gunTrimMat)
+    pFrame.position.set(0, 0, -0.02)
+    pistolGroup.add(pFrame)
+
+    const pGripGeo = new THREE.BoxGeometry(0.032, 0.12, 0.06)
+    pGripGeo.rotateX(-0.35)
+    const pGrip = new THREE.Mesh(pGripGeo, gunTrimMat)
+    pGrip.position.set(0, -0.075, 0.04)
+    pistolGroup.add(pGrip)
+
+    const pSlideGroup = new THREE.Group()
+    const pSlideGeo = new THREE.BoxGeometry(0.034, 0.042, 0.22)
+    const pSlide = new THREE.Mesh(pSlideGeo, gunMetalMat)
+    pSlide.position.set(0, 0.038, -0.03)
+    pSlideGroup.add(pSlide)
+
+    const pBarrelGeo = new THREE.CylinderGeometry(0.012, 0.012, 0.12, 8)
+    pBarrelGeo.rotateX(Math.PI / 2)
+    const pBarrel = new THREE.Mesh(pBarrelGeo, gunSteelMat)
+    pBarrel.position.set(0, 0.038, -0.15)
+    pSlideGroup.add(pBarrel)
+
+    const rearDotL = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.006, 0.004), tritiumMat)
+    rearDotL.position.set(-0.01, 0.062, 0.075)
+    pSlideGroup.add(rearDotL)
+
+    const rearDotR = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.006, 0.004), tritiumMat)
+    rearDotR.position.set(0.01, 0.062, 0.075)
+    pSlideGroup.add(rearDotR)
+
+    const frontDot = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.007, 0.004), tritiumMat)
+    frontDot.position.set(0, 0.063, -0.13)
+    pSlideGroup.add(frontDot)
+
+    pistolGroup.add(pSlideGroup)
+    this.procVariants.classic = { group: pistolGroup, slide: pSlideGroup }
+    this.procWeaponGroup.add(pistolGroup)
+
+    // 2. PROCEDURAL ASSAULT RIFLE (AK74U / M4A1)
+    const rifleGroup = new THREE.Group()
+    rifleGroup.position.set(0.035, 1.62, -0.45)
+
+    const rArmRG = new THREE.CylinderGeometry(0.045, 0.055, 0.45, 8)
+    rArmRG.rotateX(0.85)
+    rArmRG.rotateY(-0.35)
+    const rArmR = new THREE.Mesh(rArmRG, sleeveMat)
+    rArmR.position.set(0.14, -0.22, 0.15)
+    rifleGroup.add(rArmR)
+
+    const rGloveR = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.08, 0.11), gloveMat)
+    rGloveR.position.set(0.03, -0.06, 0.04)
+    rifleGroup.add(rGloveR)
+
+    const rArmLG = new THREE.CylinderGeometry(0.045, 0.055, 0.48, 8)
+    rArmLG.rotateX(0.8)
+    rArmLG.rotateY(0.45)
+    const rArmL = new THREE.Mesh(rArmLG, sleeveMat)
+    rArmL.position.set(-0.16, -0.24, 0.02)
+    rifleGroup.add(rArmL)
+
+    const rGloveL = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.07, 0.10), gloveMat)
+    rGloveL.position.set(-0.02, -0.06, -0.18)
+    rifleGroup.add(rGloveL)
+
+    const rBodyGeo = new THREE.BoxGeometry(0.052, 0.09, 0.36)
+    const rBody = new THREE.Mesh(rBodyGeo, gunMetalMat)
+    rBody.position.set(0, 0, -0.04)
+    rifleGroup.add(rBody)
+
+    const rGuardGeo = new THREE.BoxGeometry(0.048, 0.075, 0.24)
+    const rGuard = new THREE.Mesh(rGuardGeo, gunTrimMat)
+    rGuard.position.set(0, 0, -0.30)
+    rifleGroup.add(rGuard)
+
+    const rBarrelGeo = new THREE.CylinderGeometry(0.015, 0.015, 0.22, 8)
+    rBarrelGeo.rotateX(Math.PI / 2)
+    const rBarrel = new THREE.Mesh(rBarrelGeo, gunSteelMat)
+    rBarrel.position.set(0, 0.015, -0.48)
+    rifleGroup.add(rBarrel)
+
+    const rMuzzleGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.07, 8)
+    rMuzzleGeo.rotateX(Math.PI / 2)
+    const rMuzzle = new THREE.Mesh(rMuzzleGeo, gunTrimMat)
+    rMuzzle.position.set(0, 0.015, -0.60)
+    rifleGroup.add(rMuzzle)
+
+    const rMagGeo = new THREE.BoxGeometry(0.038, 0.18, 0.08)
+    rMagGeo.rotateX(-0.25)
+    const rMag = new THREE.Mesh(rMagGeo, gunTrimMat)
+    rMag.position.set(0, -0.12, -0.10)
+    rifleGroup.add(rMag)
+
+    const rOpticGeo = new THREE.BoxGeometry(0.044, 0.055, 0.11)
+    const rOptic = new THREE.Mesh(rOpticGeo, gunTrimMat)
+    rOptic.position.set(0, 0.072, -0.06)
+    rifleGroup.add(rOptic)
+
+    const rLensGeo = new THREE.BoxGeometry(0.036, 0.038, 0.005)
+    const rLens = new THREE.Mesh(rLensGeo, opticGlassMat)
+    rLens.position.set(0, 0.076, -0.06)
+    rifleGroup.add(rLens)
+
+    const rDotGeo = new THREE.SphereGeometry(0.0035, 8, 8)
+    const rDot = new THREE.Mesh(rDotGeo, reticleMat)
+    rDot.position.set(0, 0.076, -0.06)
+    rifleGroup.add(rDot)
+
+    const rStockGeo = new THREE.BoxGeometry(0.045, 0.08, 0.20)
+    const rStock = new THREE.Mesh(rStockGeo, gunTrimMat)
+    rStock.position.set(0, -0.01, 0.22)
+    rifleGroup.add(rStock)
+
+    this.procVariants.ak74u = { group: rifleGroup }
+    this.procVariants.m4a1 = { group: rifleGroup }
+    this.procWeaponGroup.add(rifleGroup)
+
+    // 3. PROCEDURAL SMG (Kriss Vector)
+    const smgGroup = new THREE.Group()
+    smgGroup.position.set(0.03, 1.39, -0.42)
+
+    const smgArmR = new THREE.Mesh(pArmGeo, sleeveMat)
+    smgArmR.position.set(0.12, -0.22, 0.15)
+    smgGroup.add(smgArmR)
+
+    const smgGloveR = new THREE.Mesh(pGloveGeo, gloveMat)
+    smgGloveR.position.set(0.02, -0.06, 0.02)
+    smgGroup.add(smgGloveR)
+
+    const smgBody = new THREE.Mesh(new THREE.BoxGeometry(0.048, 0.14, 0.30), gunMetalMat)
+    smgBody.position.set(0, 0, -0.04)
+    smgGroup.add(smgBody)
+
+    const smgForegrip = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.10, 0.045), gunTrimMat)
+    smgForegrip.rotation.x = -0.3
+    smgForegrip.position.set(0, -0.08, -0.14)
+    smgGroup.add(smgForegrip)
+
+    const smgBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.16, 8), gunTrimMat)
+    smgBarrel.rotateX(Math.PI / 2)
+    smgBarrel.position.set(0, 0.03, -0.24)
+    smgGroup.add(smgBarrel)
+
+    const smgSight = new THREE.Mesh(new THREE.BoxGeometry(0.038, 0.045, 0.08), gunTrimMat)
+    smgSight.position.set(0, 0.088, -0.05)
+    smgGroup.add(smgSight)
+
+    const smgDot = new THREE.Mesh(new THREE.SphereGeometry(0.003, 8, 8), reticleMat)
+    smgDot.position.set(0, 0.088, -0.05)
+    smgGroup.add(smgDot)
+
+    this.procVariants.kriss_vector = { group: smgGroup }
+    this.procWeaponGroup.add(smgGroup)
+
+    // 4. PROCEDURAL SHOTGUN (Benelli M4)
+    const shotGroup = new THREE.Group()
+    shotGroup.position.set(0.035, 1.62, -0.45)
+
+    const shotArmR = new THREE.Mesh(rArmRG, sleeveMat)
+    shotArmR.position.set(0.14, -0.22, 0.15)
+    shotGroup.add(shotArmR)
+    shotGroup.add(rGloveR.clone())
+
+    const shotArmL = new THREE.Mesh(rArmLG, sleeveMat)
+    shotArmL.position.set(-0.16, -0.24, 0.02)
+    shotGroup.add(shotArmL)
+    shotGroup.add(rGloveL.clone())
+
+    const shotBody = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.09, 0.32), gunMetalMat)
+    shotBody.position.set(0, 0, -0.02)
+    shotGroup.add(shotBody)
+
+    const pumpGeo = new THREE.CylinderGeometry(0.032, 0.032, 0.22, 12)
+    pumpGeo.rotateX(Math.PI / 2)
+    const pump = new THREE.Mesh(pumpGeo, gunTrimMat)
+    pump.position.set(0, -0.03, -0.26)
+    shotGroup.add(pump)
+
+    const shotBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.36, 12), gunSteelMat)
+    shotBarrel.rotateX(Math.PI / 2)
+    shotBarrel.position.set(0, 0.025, -0.38)
+    shotGroup.add(shotBarrel)
+
+    const shotTube = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.30, 8), gunTrimMat)
+    shotTube.rotateX(Math.PI / 2)
+    shotTube.position.set(0, -0.025, -0.35)
+    shotGroup.add(shotTube)
+
+    const shotStock = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.09, 0.22), gunTrimMat)
+    shotStock.position.set(0, -0.02, 0.22)
+    shotGroup.add(shotStock)
+
+    this.procVariants.benelli_m4 = { group: shotGroup }
+    this.procWeaponGroup.add(shotGroup)
+
+    // 5. PROCEDURAL SNIPER RIFLE (Operator)
+    const sniperGroup = new THREE.Group()
+    sniperGroup.position.set(-0.065, 0.05, -0.55)
+
+    const snipBody = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.10, 0.42), gunMetalMat)
+    snipBody.position.set(0, 0, 0)
+    sniperGroup.add(snipBody)
+
+    const snipBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.65, 12), gunSteelMat)
+    snipBarrel.rotateX(Math.PI / 2)
+    snipBarrel.position.set(0, 0.025, -0.50)
+    sniperGroup.add(snipBarrel)
+
+    const snipBrake = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.04, 0.10), gunTrimMat)
+    snipBrake.position.set(0, 0.025, -0.84)
+    sniperGroup.add(snipBrake)
+
+    const scopeTube = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.028, 0.32, 16), gunTrimMat)
+    scopeTube.rotateX(Math.PI / 2)
+    scopeTube.position.set(0, 0.095, -0.04)
+    sniperGroup.add(scopeTube)
+
+    const scopeLensF = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.026, 0.005, 16), opticGlassMat)
+    scopeLensF.rotateX(Math.PI / 2)
+    scopeLensF.position.set(0, 0.095, -0.20)
+    sniperGroup.add(scopeLensF)
+
+    const snipStock = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.12, 0.28), gunTrimMat)
+    snipStock.position.set(0, -0.02, 0.32)
+    sniperGroup.add(snipStock)
+
+    this.procVariants.sniper = { group: sniperGroup }
+    this.procWeaponGroup.add(sniperGroup)
+
+    // 6. PROCEDURAL TACTICAL COMBAT KNIFE
+    const knifeGroup = new THREE.Group()
+    knifeGroup.position.set(0.05, 0.06, -0.25)
+
+    const kArm = new THREE.Mesh(pArmGeo, sleeveMat)
+    kArm.position.set(0.10, -0.18, 0.12)
+    knifeGroup.add(kArm)
+
+    const kGlove = new THREE.Mesh(pGloveGeo, gloveMat)
+    kGlove.position.set(0.02, -0.04, 0.02)
+    knifeGroup.add(kGlove)
+
+    const kHandle = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.04, 0.14), gunTrimMat)
+    kHandle.position.set(0, 0, 0)
+    knifeGroup.add(kHandle)
+
+    const kGuard = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.015, 12), gunSteelMat)
+    kGuard.position.set(0, 0, -0.08)
+    knifeGroup.add(kGuard)
+
+    const bladeGeo = new THREE.BoxGeometry(0.008, 0.042, 0.18)
+    const blade = new THREE.Mesh(bladeGeo, bladeMat)
+    blade.position.set(0, 0.01, -0.17)
+    blade.rotation.x = -0.15
+    knifeGroup.add(blade)
+
+    this.procVariants.knife = { group: knifeGroup }
+    this.procWeaponGroup.add(knifeGroup)
+
+    this.updateProceduralActiveVariant(this.activeModelKey)
+  }
+
+  updateProceduralActiveVariant(key) {
+    if (!this.procVariants) return
+    let matchedKey = key
+    if (key === 'm4a1' || key === 'ak74u') matchedKey = 'ak74u'
+    Object.entries(this.procVariants).forEach(([vKey, data]) => {
+      if (data && data.group) {
+        data.group.visible = (vKey === matchedKey || (matchedKey === 'ak74u' && (vKey === 'ak74u' || vKey === 'm4a1')))
+      }
+    })
   }
 
   loadAllWeaponModels() {
@@ -420,6 +760,7 @@ export class WeaponSystem3D {
     }
 
     this.activeModelKey = targetKey
+    this.updateProceduralActiveVariant(targetKey)
 
     // Switch visibility of loaded models
     Object.entries(this.weaponModels).forEach(([k, data]) => {
@@ -429,15 +770,15 @@ export class WeaponSystem3D {
     })
 
     const activeData = this.weaponModels[targetKey]
-    if (activeData) {
-      const cfg = activeData.config
-      if (this.muzzleFlashMesh && cfg.muzzlePos) {
-        this.muzzleFlashMesh.position.set(cfg.muzzlePos[0], cfg.muzzlePos[1], cfg.muzzlePos[2])
-      }
-      if (this.muzzleLight && cfg.muzzlePos) {
-        this.muzzleLight.position.set(cfg.muzzlePos[0], cfg.muzzlePos[1], cfg.muzzlePos[2] - 0.05)
-      }
+    const cfg = activeData?.config || WEAPON_MODELS[targetKey]
+    if (this.muzzleFlashMesh && cfg?.muzzlePos) {
+      this.muzzleFlashMesh.position.set(cfg.muzzlePos[0], cfg.muzzlePos[1], cfg.muzzlePos[2])
+    }
+    if (this.muzzleLight && cfg?.muzzlePos) {
+      this.muzzleLight.position.set(cfg.muzzlePos[0], cfg.muzzlePos[1], cfg.muzzlePos[2] - 0.05)
+    }
 
+    if (activeData && cfg?.animMap) {
       this.playWeaponAnimation(targetKey, cfg.animMap.draw || cfg.animMap.idle, false, 1.2, () => {
         if (cfg.animMap.idle) this.playWeaponAnimation(targetKey, cfg.animMap.idle, true, 1.0)
       })
@@ -641,6 +982,34 @@ export class WeaponSystem3D {
       this.gunGroup.visible = false
     } else {
       this.gunGroup.visible = true
+    }
+
+    // Seamless toggle between loaded GLTF model and Procedural First-Person Weapon
+    const gltfLoaded = !!(activeData && activeData.loaded && activeData.scene)
+    if (gltfLoaded) {
+      if (this.procWeaponGroup) this.procWeaponGroup.visible = false
+      activeData.scene.visible = true
+    } else {
+      if (this.procWeaponGroup) {
+        this.procWeaponGroup.visible = true
+        this.updateProceduralActiveVariant(this.activeModelKey)
+
+        // Procedural slide kickback from recoil
+        const activeVariant = this.procVariants?.[this.activeModelKey]
+        if (activeVariant?.slide) {
+          activeVariant.slide.position.z = -0.03 + this.recoil * 0.05
+        }
+
+        // Procedural reload movement
+        if (isReloading) {
+          const reloadCycle = Math.sin((reloadProgress || 0) * Math.PI)
+          this.procWeaponGroup.position.y = -0.08 * reloadCycle
+          this.procWeaponGroup.rotation.x = -0.25 * reloadCycle
+        } else {
+          this.procWeaponGroup.position.y = 0
+          this.procWeaponGroup.rotation.x = 0
+        }
+      }
     }
 
     // Muzzle flash visibility timer

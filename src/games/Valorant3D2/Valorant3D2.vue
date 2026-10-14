@@ -304,7 +304,7 @@ function onWheel(e) {
 
 function onContainerClick(e) {
   if (gameMode.value === 'MENU') return
-  if (showBuyMenu.value || showSettingsModal.value) return
+  if (showBuyMenu.value || showSettings.value) return
   if (e.target && (e.target.closest('button') || e.target.closest('input') || e.target.closest('a') || e.target.closest('.buy-card'))) return
   requestPointerLock()
 }
@@ -486,6 +486,7 @@ function initThreeJS() {
   playerController.setColliders(MAP_3D.wallsAABB)
   weaponSystem = new WeaponSystem3D(scene, camera)
   weaponSystem.setMeshColliders(MAP_3D.meshColliders)
+  weaponSystem.setWeapon(player.weapon || 'classic')
   abilitySystem = new AbilitySystem3D(scene, camera)
   abilitySystem.setPlayerController(playerController)
   abilitySystem.setMeshColliders(MAP_3D.meshColliders)
@@ -1219,36 +1220,246 @@ function updatePlayer3DMeshes(dt = 0.016) {
         core.position.set(0, 1.32, -0.14)
         mesh.add(core)
       } else {
-        // Fallback procedural tactical soldier
+        // High-Fidelity Procedural Cyber-Tactical Soldier Agent
+        const soldierGroup = new THREE.Group()
+
         const armorMat = new THREE.MeshStandardMaterial({
-          color: isAtk ? 0x18181b : 0x0f172a,
-          roughness: 0.45,
-          metalness: 0.4
+          color: 0x1e293b,
+          roughness: 0.4,
+          metalness: 0.35
+        })
+        const suitMat = new THREE.MeshStandardMaterial({
+          color: isAtk ? 0x27272a : 0x1e293b,
+          roughness: 0.7,
+          metalness: 0.15
+        })
+        const teamNeonMat = new THREE.MeshStandardMaterial({
+          color: baseTeamColor,
+          emissive: baseTeamColor,
+          emissiveIntensity: 1.8,
+          roughness: 0.2,
+          metalness: 0.8
+        })
+        const visorMat = new THREE.MeshBasicMaterial({
+          color: baseTeamColor
+        })
+        const agentCoreMat = new THREE.MeshBasicMaterial({
+          color: agentColor
+        })
+        const gunMat = new THREE.MeshStandardMaterial({
+          color: 0x0f172a,
+          roughness: 0.3,
+          metalness: 0.8
+        })
+        const gunTrimMat = new THREE.MeshStandardMaterial({
+          color: 0x475569,
+          roughness: 0.25,
+          metalness: 0.85
         })
 
-        const legGeo = new THREE.CylinderGeometry(0.085, 0.065, 0.75, 8)
-        const leftLeg = new THREE.Mesh(legGeo, armorMat)
-        leftLeg.position.set(-0.16, 0.38, 0)
-        leftLeg.castShadow = true
-        mesh.add(leftLeg)
+        // 1. Legs (Pivots at hip for realistic walking strides)
+        const leftLegPivot = new THREE.Group()
+        leftLegPivot.position.set(-0.16, 0.78, 0)
 
-        const rightLeg = new THREE.Mesh(legGeo, armorMat)
-        rightLeg.position.set(0.16, 0.38, 0)
-        rightLeg.castShadow = true
-        mesh.add(rightLeg)
+        const thighGeo = new THREE.CylinderGeometry(0.08, 0.065, 0.38, 8)
+        const leftThigh = new THREE.Mesh(thighGeo, suitMat)
+        leftThigh.position.set(0, -0.19, 0)
+        leftThigh.castShadow = true
+        leftLegPivot.add(leftThigh)
 
-        const torsoGeo = new THREE.CylinderGeometry(0.28, 0.22, 0.72, 8)
-        const torso = new THREE.Mesh(torsoGeo, armorMat)
-        torso.position.set(0, 1.1, 0)
-        torso.castShadow = true
-        mesh.add(torso)
+        const kneeGeo = new THREE.BoxGeometry(0.12, 0.10, 0.06)
+        const leftKnee = new THREE.Mesh(kneeGeo, teamNeonMat)
+        leftKnee.position.set(0, -0.37, 0.05)
+        leftLegPivot.add(leftKnee)
 
-        const helmetGeo = new THREE.SphereGeometry(0.18, 16, 16)
-        helmetGeo.scale(1, 1.12, 1.1)
+        const bootGeo = new THREE.BoxGeometry(0.12, 0.38, 0.20)
+        const leftBoot = new THREE.Mesh(bootGeo, armorMat)
+        leftBoot.position.set(0, -0.57, 0.03)
+        leftBoot.castShadow = true
+        leftLegPivot.add(leftBoot)
+
+        soldierGroup.add(leftLegPivot)
+
+        const rightLegPivot = new THREE.Group()
+        rightLegPivot.position.set(0.16, 0.78, 0)
+
+        const rightThigh = new THREE.Mesh(thighGeo, suitMat)
+        rightThigh.position.set(0, -0.19, 0)
+        rightThigh.castShadow = true
+        rightLegPivot.add(rightThigh)
+
+        const rightKnee = new THREE.Mesh(kneeGeo, teamNeonMat)
+        rightKnee.position.set(0, -0.37, 0.05)
+        rightLegPivot.add(rightKnee)
+
+        const rightBoot = new THREE.Mesh(bootGeo, armorMat)
+        rightBoot.position.set(0, -0.57, 0.03)
+        rightBoot.castShadow = true
+        rightLegPivot.add(rightBoot)
+
+        soldierGroup.add(rightLegPivot)
+
+        // 2. Torso, Tactical Vest, Chest Plates, and Core
+        const torsoGroup = new THREE.Group()
+        torsoGroup.position.set(0, 0.78, 0)
+
+        // Utility Belt
+        const beltGeo = new THREE.BoxGeometry(0.42, 0.10, 0.24)
+        const belt = new THREE.Mesh(beltGeo, armorMat)
+        belt.position.set(0, 0.05, 0)
+        torsoGroup.add(belt)
+
+        // Lower Abdomen
+        const abdomenGeo = new THREE.BoxGeometry(0.38, 0.20, 0.22)
+        const abdomen = new THREE.Mesh(abdomenGeo, suitMat)
+        abdomen.position.set(0, 0.18, 0)
+        abdomen.castShadow = true
+        torsoGroup.add(abdomen)
+
+        // Tactical Ballistic Vest
+        const chestVestGeo = new THREE.BoxGeometry(0.44, 0.36, 0.26)
+        const chestVest = new THREE.Mesh(chestVestGeo, armorMat)
+        chestVest.position.set(0, 0.42, 0)
+        chestVest.castShadow = true
+        torsoGroup.add(chestVest)
+
+        // Front Armored Plate with Team Neon Stripe
+        const armorPlateGeo = new THREE.BoxGeometry(0.32, 0.22, 0.04)
+        const armorPlate = new THREE.Mesh(armorPlateGeo, teamNeonMat)
+        armorPlate.position.set(0, 0.44, 0.14)
+        torsoGroup.add(armorPlate)
+
+        // Agent Core Reactor
+        const coreGeo = new THREE.CylinderGeometry(0.045, 0.045, 0.03, 16)
+        coreGeo.rotateX(Math.PI / 2)
+        const core = new THREE.Mesh(coreGeo, agentCoreMat)
+        core.position.set(0, 0.44, 0.17)
+        torsoGroup.add(core)
+
+        // 3. Head, Helmet & Glowing Cyber Visor
+        const neckGeo = new THREE.CylinderGeometry(0.07, 0.08, 0.10, 8)
+        const neck = new THREE.Mesh(neckGeo, suitMat)
+        neck.position.set(0, 0.64, 0)
+        torsoGroup.add(neck)
+
+        const headGeo = new THREE.BoxGeometry(0.20, 0.22, 0.20)
+        const head = new THREE.Mesh(headGeo, suitMat)
+        head.position.set(0, 0.78, 0)
+        head.castShadow = true
+        torsoGroup.add(head)
+
+        // Ballistic Combat Helmet
+        const helmetGeo = new THREE.BoxGeometry(0.25, 0.16, 0.25)
         const helmet = new THREE.Mesh(helmetGeo, armorMat)
-        helmet.position.set(0, 1.62, 0)
+        helmet.position.set(0, 0.85, 0.01)
         helmet.castShadow = true
-        mesh.add(helmet)
+        torsoGroup.add(helmet)
+
+        // Glowing Cyberpunk Visor (Face indicator with high-intensity glow)
+        const visorGeo = new THREE.BoxGeometry(0.21, 0.065, 0.06)
+        const visor = new THREE.Mesh(visorGeo, visorMat)
+        visor.position.set(0, 0.78, 0.11)
+        torsoGroup.add(visor)
+
+        // 4. Arms & Hands Holding Tactical Rifle
+        const leftArmPivot = new THREE.Group()
+        leftArmPivot.position.set(-0.25, 0.52, 0)
+
+        const shoulderPadGeo = new THREE.BoxGeometry(0.12, 0.12, 0.14)
+        const leftPad = new THREE.Mesh(shoulderPadGeo, teamNeonMat)
+        leftPad.position.set(0, 0, 0)
+        leftArmPivot.add(leftPad)
+
+        const armGeo = new THREE.CylinderGeometry(0.055, 0.048, 0.34, 8)
+        armGeo.rotateX(0.7)
+        armGeo.rotateY(-0.35)
+        const leftArm = new THREE.Mesh(armGeo, suitMat)
+        leftArm.position.set(0.08, -0.14, 0.14)
+        leftArm.castShadow = true
+        leftArmPivot.add(leftArm)
+
+        torsoGroup.add(leftArmPivot)
+
+        const rightArmPivot = new THREE.Group()
+        rightArmPivot.position.set(0.25, 0.52, 0)
+
+        const rightPad = new THREE.Mesh(shoulderPadGeo, teamNeonMat)
+        rightPad.position.set(0, 0, 0)
+        rightArmPivot.add(rightPad)
+
+        const rightArm = new THREE.Mesh(armGeo, suitMat)
+        rightArm.position.set(-0.06, -0.14, 0.14)
+        rightArm.castShadow = true
+        rightArmPivot.add(rightArm)
+
+        // 5. 3D Tactical Assault Rifle attached to right arm & hands
+        const rifleGroup = new THREE.Group()
+        rifleGroup.position.set(-0.12, -0.14, 0.28)
+
+        // Receiver
+        const rifleBodyGeo = new THREE.BoxGeometry(0.06, 0.10, 0.38)
+        const rifleBody = new THREE.Mesh(rifleBodyGeo, gunMat)
+        rifleBody.position.set(0, 0, 0)
+        rifleGroup.add(rifleBody)
+
+        // Long Barrel & Muzzle Brake
+        const barrelGeo = new THREE.CylinderGeometry(0.016, 0.016, 0.30, 8)
+        barrelGeo.rotateX(Math.PI / 2)
+        const barrel = new THREE.Mesh(barrelGeo, gunTrimMat)
+        barrel.position.set(0, 0.02, 0.32)
+        rifleGroup.add(barrel)
+
+        // Curved Magazine
+        const magGeo = new THREE.BoxGeometry(0.04, 0.16, 0.08)
+        magGeo.rotateX(-0.2)
+        const mag = new THREE.Mesh(magGeo, gunTrimMat)
+        mag.position.set(0, -0.10, 0.06)
+        rifleGroup.add(mag)
+
+        // Red Dot Sight Optic
+        const opticGeo = new THREE.BoxGeometry(0.04, 0.05, 0.09)
+        const optic = new THREE.Mesh(opticGeo, gunMat)
+        optic.position.set(0, 0.075, -0.02)
+        rifleGroup.add(optic)
+
+        // Stock
+        const stockGeo = new THREE.BoxGeometry(0.05, 0.08, 0.16)
+        const stock = new THREE.Mesh(stockGeo, gunMat)
+        stock.position.set(0, -0.01, -0.22)
+        rifleGroup.add(stock)
+
+        rightArmPivot.add(rifleGroup)
+        torsoGroup.add(rightArmPivot)
+
+        soldierGroup.add(torsoGroup)
+        mesh.add(soldierGroup)
+
+        // 6. Tactical Holographic Team Halo Ring at feet
+        const beaconGeo = new THREE.RingGeometry(0.28, 0.40, 24)
+        beaconGeo.rotateX(-Math.PI / 2)
+        const beaconMat = new THREE.MeshBasicMaterial({
+          color: baseTeamColor,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.85
+        })
+        const beacon = new THREE.Mesh(beaconGeo, beaconMat)
+        beacon.position.set(0, 0.04, 0)
+        mesh.add(beacon)
+
+        // Store references for procedural animation loop
+        mesh.userData.proceduralRig = {
+          leftLegPivot,
+          rightLegPivot,
+          torsoGroup,
+          leftArmPivot,
+          rightArmPivot,
+          beacon
+        }
+        mesh.userData.walkTimer = 0
+        mesh.userData.lastX = p.pos.x
+        mesh.userData.lastZ = p.pos.z
+        mesh.userData.moveSpeed = 0
       }
 
       // Floating Nameplate & Health HUD Sprite above Head
@@ -1413,6 +1624,58 @@ function updatePlayer3DMeshes(dt = 0.016) {
 
       // Floating Nameplate Position tracking crouch height
       const nameSprite = mesh.children.find(c => c.isSprite)
+      if (nameSprite) {
+        nameSprite.position.set(0, 2.22 - 0.55 * crouchW, 0)
+      }
+    }
+
+    // Procedural Articulation Animation for Tactical Soldier Agents (Fallback)
+    const procRig = mesh.userData.proceduralRig
+    if (procRig && p.alive) {
+      const isCrouching = isLocal ? (playerController?.isCrouching || false) : (!!p.crouching)
+      mesh.userData.crouchWeight = THREE.MathUtils.lerp(
+        mesh.userData.crouchWeight !== undefined ? mesh.userData.crouchWeight : 0,
+        isCrouching ? 1.0 : 0.0,
+        Math.min(1.0, 18 * dt)
+      )
+      const crouchW = mesh.userData.crouchWeight
+
+      const lastX = mesh.userData.lastX !== undefined ? mesh.userData.lastX : p.pos.x
+      const lastZ = mesh.userData.lastZ !== undefined ? mesh.userData.lastZ : p.pos.z
+      const moveDist = Math.hypot(p.pos.x - lastX, p.pos.z - lastZ)
+      const instantSpeed = Math.min(8.0, moveDist / Math.max(0.001, dt))
+      mesh.userData.lastX = p.pos.x
+      mesh.userData.lastZ = p.pos.z
+      mesh.userData.moveSpeed = THREE.MathUtils.lerp(mesh.userData.moveSpeed || 0, instantSpeed, 0.22)
+
+      const isMoving = mesh.userData.moveSpeed > 0.15
+      if (isMoving) {
+        mesh.userData.walkTimer = (mesh.userData.walkTimer || 0) + mesh.userData.moveSpeed * (isCrouching ? 0.12 : 0.16)
+      } else {
+        mesh.userData.walkTimer = (mesh.userData.walkTimer || 0) * 0.86
+      }
+
+      const walkTimer = mesh.userData.walkTimer || 0
+      const walkWeight = Math.min(1.0, mesh.userData.moveSpeed / 2.5) * (1.0 - 0.50 * crouchW)
+      const walkSwing = Math.sin(walkTimer) * 0.55 * walkWeight
+      const idleTime = performance.now() * 0.0022
+      const breath = Math.sin(idleTime) * 0.02
+      const aimPitch = p.pitch || 0
+
+      // Leg stride cycle
+      procRig.leftLegPivot.rotation.x = walkSwing + 0.35 * crouchW
+      procRig.rightLegPivot.rotation.x = -walkSwing + 0.35 * crouchW
+
+      // Torso height & pitch
+      procRig.torsoGroup.position.y = 0.78 - 0.28 * crouchW + breath * 0.015
+      procRig.torsoGroup.rotation.x = -aimPitch * 0.45 - 0.10 * crouchW
+
+      // Arms subtle swing & breathing
+      procRig.leftArmPivot.rotation.x = -walkSwing * 0.2 + breath
+      procRig.rightArmPivot.rotation.x = walkSwing * 0.2 + breath
+
+      // Nameplate positioning
+      const nameSprite = mesh.userData.nameSprite
       if (nameSprite) {
         nameSprite.position.set(0, 2.22 - 0.55 * crouchW, 0)
       }
