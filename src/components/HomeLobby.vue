@@ -24,12 +24,23 @@ const featuredGame = ref({
 
 const games = [
   {
+    id: 'neon_bastion',
+    title: 'Neon Bastion: Cyber Defense',
+    category: 'Tower Defense & Acción Orbital',
+    desc: 'Construye y mejora 6 tipos de torretas (Tesla, Mortero Hydra, Láser de Plasma, Criogénica), dispara tu Cañón Orbital con el clic y lanza ataques aéreos contra oleadas y Titanes Jefes.',
+    icon: '🏰',
+    badge: '¡NUEVO! · TD + Acción',
+    rating: '5.0 ⭐',
+    difficulty: 'Progresivo -> Infierno',
+    tags: ['Tower Defense', 'Torretas', 'Jefes', 'Estrategia']
+  },
+  {
     id: 'cyber_katana',
     title: 'Cyber Katana Zero',
     category: 'Acción Slasher / Tiempo Bala',
     desc: 'Combate ninja ultrarrápido estilo Katana ZERO. Cámara lenta en tiempo bala, desvío de proyectiles con espada, combos de dash & slash y mejoras de arsenal.',
     icon: '🗡️',
-    badge: '¡NUEVO! · Épico',
+    badge: 'Épico',
     rating: '5.0 ⭐',
     difficulty: 'Reflejos Extremos / Combo',
     tags: ['Katana Slasher', 'Tiempo Bala', 'Combos', 'Acción']

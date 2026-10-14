@@ -7,6 +7,7 @@ defineEmits(['changeGame'])
 
 const gamesList = [
   { id: 'home', title: 'Inicio', icon: '🏠' },
+  { id: 'neon_bastion', title: 'Neon Bastion TD', icon: '🏰' },
   { id: 'cyber_katana', title: 'Cyber Katana', icon: '🗡️' },
   { id: 'valoran3d2.0', title: '1v1.LOL 3D', icon: '⚔️' },
   { id: 'valorant', title: 'Valorant 2D', icon: '💣' },
@@ -25,7 +26,7 @@ const gamesList = [
       <div class="logo-icon-wrap">🎮</div>
       <div>
         <h1 class="nav-title">VUE ARCADE</h1>
-        <span class="nav-subtitle">Gaming Hub 6 en 1</span>
+        <span class="nav-subtitle">Gaming Hub 10 en 1</span>
       </div>
     </div>
 
